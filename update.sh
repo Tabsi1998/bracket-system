@@ -50,7 +50,7 @@ usage() {
 Usage: ./update.sh [options]
 
 Options:
-  --force           update auch bei lokalen Änderungen
+  --force           update auch bei lokalen Änderungen an getrackten Dateien
   --branch <name>   expliziter Git-Branch (Standard: aktueller Branch)
   -h, --help        Hilfe anzeigen
 EOF
@@ -99,8 +99,18 @@ if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "HEAD" ]; then
 fi
 log "Branch: $CURRENT_BRANCH"
 
-if [ "$FORCE" -ne 1 ] && [ -n "$(git status --porcelain)" ]; then
-  err "Lokale Änderungen vorhanden. Committe/stashe zuerst oder nutze --force."
+TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
+UNTRACKED_CHANGES="$(git ls-files --others --exclude-standard)"
+
+if [ "$FORCE" -ne 1 ] && [ -n "$TRACKED_CHANGES" ]; then
+  warn "Geänderte getrackte Dateien:"
+  printf '%s\n' "$TRACKED_CHANGES"
+  err "Lokale Änderungen vorhanden. Committe/stashe oder nutze --force."
+fi
+
+if [ -n "$UNTRACKED_CHANGES" ]; then
+  warn "Ungetrackte Dateien erkannt (werden nicht blockiert):"
+  printf '%s\n' "$UNTRACKED_CHANGES"
 fi
 
 step "Git aktualisieren"
