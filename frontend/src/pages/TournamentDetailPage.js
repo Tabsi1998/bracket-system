@@ -8,8 +8,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Users, Trophy, Zap, UserCheck, CreditCard, Play, Shield, Check, X as XIcon } from "lucide-react";
+import { Users, Trophy, Zap, UserCheck, CreditCard, Play, Shield, Check, X as XIcon, MessageSquare } from "lucide-react";
 import BracketView from "@/components/BracketView";
+import CommentSection from "@/components/CommentSection";
+import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
