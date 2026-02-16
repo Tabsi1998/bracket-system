@@ -13,12 +13,17 @@ export function AuthProvider({ children }) {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, [token]);
 
+  const refreshUser = useCallback(async () => {
+    if (!token) return null;
+    const r = await axios.get(`${API}/auth/me`);
+    setUser(r.data);
+    return r.data;
+  }, [token]);
+
   useEffect(() => {
     if (token) {
       axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-      axios
-        .get(`${API}/auth/me`)
-        .then((r) => setUser(r.data))
+      refreshUser()
         .catch(() => {
           localStorage.removeItem("arena_token");
           setToken(null);
@@ -28,7 +33,7 @@ export function AuthProvider({ children }) {
     } else {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, refreshUser]);
 
   const login = async (email, password) => {
     const res = await axios.post(`${API}/auth/login`, { email, password });
@@ -58,7 +63,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, authHeaders, isAdmin: user?.role === "admin" }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, refreshUser, authHeaders, isAdmin: user?.role === "admin" }}>
       {children}
     </AuthContext.Provider>
   );

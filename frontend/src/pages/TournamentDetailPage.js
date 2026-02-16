@@ -76,6 +76,8 @@ export default function TournamentDetailPage() {
 
   const [teamName, setTeamName] = useState("");
   const [players, setPlayers] = useState([{ name: "", email: "" }]);
+  const [userTeams, setUserTeams] = useState([]);
+  const [selectedTeamId, setSelectedTeamId] = useState("");
 
   const fetchData = useCallback(async () => {
     try {
@@ -93,6 +95,17 @@ export default function TournamentDetailPage() {
   }, [id]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    if (!user) {
+      setUserTeams([]);
+      setSelectedTeamId("");
+      return;
+    }
+    axios.get(`${API}/teams`)
+      .then((r) => setUserTeams(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setUserTeams([]));
+  }, [user]);
 
   useEffect(() => {
     const sessionId = searchParams.get("session_id");
@@ -122,14 +135,25 @@ export default function TournamentDetailPage() {
 
   const handleRegister = async () => {
     if (!user) { toast.error("Bitte zuerst einloggen"); return; }
-    if (!teamName.trim()) { toast.error("Team-Name ist erforderlich"); return; }
+    const alreadyRegisteredTeamIds = new Set(registrations.map((r) => r.team_id).filter(Boolean));
+    const selectableTeams = userTeams.filter((t) => !alreadyRegisteredTeamIds.has(t.id));
+    const selectedTeam = selectedTeamId ? selectableTeams.find((t) => t.id === selectedTeamId) : null;
+    const effectiveTeamName = selectedTeam ? selectedTeam.name : teamName.trim();
+
+    if (!effectiveTeamName) { toast.error("Team-Name ist erforderlich"); return; }
     if (players.length !== tournament.team_size) { toast.error(`Genau ${tournament.team_size} Spieler erforderlich`); return; }
     if (players.some(p => !p.name.trim() || !p.email.trim())) { toast.error("Alle Spieler-Daten ausfüllen"); return; }
     try {
-      const res = await axios.post(`${API}/tournaments/${id}/register`, { team_name: teamName, players });
+      const payload = {
+        team_name: effectiveTeamName,
+        players,
+        ...(selectedTeam ? { team_id: selectedTeam.id } : {}),
+      };
+      const res = await axios.post(`${API}/tournaments/${id}/register`, payload);
       toast.success("Registrierung erfolgreich!");
       setRegOpen(false);
       setTeamName("");
+      setSelectedTeamId("");
       setPlayers([{ name: "", email: "" }]);
       if (tournament.entry_fee > 0) {
         try {
@@ -218,6 +242,21 @@ export default function TournamentDetailPage() {
     updated[idx][field] = value;
     setPlayers(updated);
   };
+  const handleSelectTeam = (teamId) => {
+    setSelectedTeamId(teamId);
+    if (!teamId) return;
+    const team = userTeams.find((t) => t.id === teamId);
+    if (!team) return;
+    setTeamName(team.name || "");
+    const suggestedPlayers = (team.members || []).slice(0, tournament.team_size).map((m) => ({
+      name: m.username || "",
+      email: m.email || "",
+    }));
+    while (suggestedPlayers.length < tournament.team_size) {
+      suggestedPlayers.push({ name: "", email: "" });
+    }
+    setPlayers(suggestedPlayers);
+  };
 
   const copyToClipboard = (text) => { navigator.clipboard.writeText(text); toast.success("Kopiert!"); };
 
@@ -235,6 +274,8 @@ export default function TournamentDetailPage() {
 
   const canRegister = tournament.status === "registration" || tournament.status === "checkin";
   const isFull = (tournament.registered_count || 0) >= tournament.max_participants;
+  const alreadyRegisteredTeamIds = new Set(registrations.map((r) => r.team_id).filter(Boolean));
+  const selectableTeams = userTeams.filter((t) => !alreadyRegisteredTeamIds.has(t.id));
 
   const getAllMatches = () => {
     if (!tournament.bracket) return [];
@@ -304,9 +345,37 @@ export default function TournamentDetailPage() {
                   <DialogTitle className="font-['Barlow_Condensed'] text-xl text-white">Für Turnier registrieren</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 mt-4">
+                  {user && (
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Eigenes Team wählen (optional)</Label>
+                      <select
+                        data-testid="reg-team-select"
+                        value={selectedTeamId}
+                        onChange={(e) => handleSelectTeam(e.target.value)}
+                        className="mt-1 w-full h-10 rounded-md bg-zinc-900 border border-white/10 text-white px-3"
+                      >
+                        <option value="">Kein Team auswählen</option>
+                        {selectableTeams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}{t.tag ? ` [${t.tag}]` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {userTeams.length > 0 && selectableTeams.length === 0 && (
+                        <p className="text-xs text-zinc-600 mt-1">Alle deine Teams sind bereits registriert.</p>
+                      )}
+                    </div>
+                  )}
                   <div>
                     <Label className="text-zinc-400 text-sm">Team-Name</Label>
-                    <Input data-testid="reg-team-name" value={teamName} onChange={e => setTeamName(e.target.value)} placeholder="Team-Name eingeben" className="bg-zinc-900 border-white/10 text-white mt-1" />
+                    <Input
+                      data-testid="reg-team-name"
+                      value={teamName}
+                      onChange={e => setTeamName(e.target.value)}
+                      placeholder="Team-Name eingeben"
+                      disabled={Boolean(selectedTeamId)}
+                      className="bg-zinc-900 border-white/10 text-white mt-1"
+                    />
                   </div>
                   <div>
                     <Label className="text-zinc-400 text-sm">Spieler ({tournament.team_size} benötigt)</Label>

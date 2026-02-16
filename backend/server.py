@@ -130,6 +130,14 @@ class AdminSettingUpdate(BaseModel):
     key: str
     value: str
 
+class UserAccountUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+
+class UserPasswordUpdate(BaseModel):
+    current_password: str
+    new_password: str
+
 # ─── JWT Auth ───
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "arena-esports-secret-2026-xk9m2")
@@ -137,6 +145,9 @@ JWT_ALGORITHM = "HS256"
 
 def normalize_email(value: str) -> str:
     return str(value or "").strip().strip('"').strip("'").lower()
+
+def is_valid_email(value: str) -> bool:
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", str(value or "").strip()))
 
 def exact_ci_regex(value: str, allow_outer_whitespace: bool = False) -> Dict[str, str]:
     escaped = re.escape(str(value or "").strip())
@@ -166,7 +177,7 @@ async def get_current_user(request: Request):
         return None
     try:
         payload = jose_jwt.decode(auth_header[7:], JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0, "password_hash": 0})
+        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0, "password_hash": 0, "password": 0})
         return user
     except (JWTError, Exception):
         return None
@@ -436,6 +447,8 @@ async def register_user(body: UserRegister):
     email = normalize_email(body.email)
     if not email:
         raise HTTPException(400, "E-Mail erforderlich")
+    if not is_valid_email(email):
+        raise HTTPException(400, "Ungültige E-Mail")
     if await db.users.find_one({"email": exact_ci_regex(email, allow_outer_whitespace=True)}):
         raise HTTPException(400, "E-Mail bereits registriert")
 
@@ -658,7 +671,15 @@ async def add_team_member(request: Request, team_id: str, body: TeamAddMember):
         raise HTTPException(404, "Team nicht gefunden")
     if team.get("owner_id") != user["id"] and user["id"] not in team.get("leader_ids", []):
         raise HTTPException(403, "Nur Owner oder Leader können Mitglieder hinzufügen")
-    member = await db.users.find_one({"email": body.email}, {"_id": 0, "password_hash": 0})
+    member_email = normalize_email(body.email)
+    if not member_email:
+        raise HTTPException(400, "E-Mail erforderlich")
+    if not is_valid_email(member_email):
+        raise HTTPException(400, "Ungültige E-Mail")
+    member = await db.users.find_one(
+        {"email": exact_ci_regex(member_email, allow_outer_whitespace=True)},
+        {"_id": 0, "password_hash": 0, "password": 0},
+    )
     if not member:
         raise HTTPException(404, "Benutzer nicht gefunden")
     if member["id"] in team.get("member_ids", []):
@@ -845,9 +866,10 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
     reg_count = await db.registrations.count_documents({"tournament_id": tournament_id})
     if reg_count >= t["max_participants"]:
         raise HTTPException(400, "Tournament is full")
-    team_name = body.team_name.strip()
-    if not team_name:
+    requested_team_name = body.team_name.strip()
+    if not requested_team_name:
         raise HTTPException(400, "Team-Name ist erforderlich")
+    team_name = requested_team_name
 
     expected_team_size = max(1, int(t.get("team_size", 1)))
     if len(body.players) != expected_team_size:
@@ -875,8 +897,11 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
             raise HTTPException(403, "Du bist kein Mitglied dieses Teams")
         if await db.registrations.find_one({"tournament_id": tournament_id, "team_id": team_id}, {"_id": 0}):
             raise HTTPException(400, "Dieses Team ist bereits registriert")
+        canonical_team_name = str(team.get("name", "")).strip()
+        if canonical_team_name:
+            team_name = canonical_team_name
 
-    if not team_id and await db.registrations.find_one({"tournament_id": tournament_id, "user_id": user["id"]}, {"_id": 0}):
+    if await db.registrations.find_one({"tournament_id": tournament_id, "user_id": user["id"]}, {"_id": 0}):
         raise HTTPException(400, "Du bist bereits für dieses Turnier registriert")
 
     payment_status = "free" if t["entry_fee"] <= 0 else "pending"
@@ -1467,9 +1492,117 @@ async def stripe_webhook(request: Request):
 
 # ─── Profile Endpoint ───
 
+@api_router.put("/users/me/account")
+async def update_my_account(request: Request, body: UserAccountUpdate):
+    user = await require_auth(request)
+    existing_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    if not existing_user:
+        raise HTTPException(404, "Benutzer nicht gefunden")
+
+    updates = {}
+
+    if body.username is not None:
+        username = str(body.username).strip()
+        if not username:
+            raise HTTPException(400, "Benutzername darf nicht leer sein")
+        username_exists = await db.users.find_one(
+            {
+                "id": {"$ne": user["id"]},
+                "username": exact_ci_regex(username, allow_outer_whitespace=True),
+            },
+            {"_id": 0, "id": 1},
+        )
+        if username_exists:
+            raise HTTPException(400, "Benutzername bereits vergeben")
+        updates["username"] = username
+
+    if body.email is not None:
+        email = normalize_email(body.email)
+        if not email:
+            raise HTTPException(400, "E-Mail erforderlich")
+        if not is_valid_email(email):
+            raise HTTPException(400, "Ungültige E-Mail")
+        email_exists = await db.users.find_one(
+            {
+                "id": {"$ne": user["id"]},
+                "email": exact_ci_regex(email, allow_outer_whitespace=True),
+            },
+            {"_id": 0, "id": 1},
+        )
+        if email_exists:
+            raise HTTPException(400, "E-Mail bereits registriert")
+        updates["email"] = email
+
+    if not updates:
+        raise HTTPException(400, "Keine Änderungen übergeben")
+
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one({"id": user["id"]}, {"$set": updates})
+
+    # Keep team member snapshots in sync.
+    member_updates = {}
+    if "username" in updates:
+        member_updates["members.$[member].username"] = updates["username"]
+        await db.teams.update_many({"owner_id": user["id"]}, {"$set": {"owner_name": updates["username"]}})
+    if "email" in updates:
+        member_updates["members.$[member].email"] = updates["email"]
+    if member_updates:
+        await db.teams.update_many(
+            {"members.id": user["id"]},
+            {"$set": member_updates},
+            array_filters=[{"member.id": user["id"]}],
+        )
+
+    updated = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0, "password": 0})
+    if not updated:
+        raise HTTPException(404, "Benutzer nicht gefunden")
+    return updated
+
+@api_router.put("/users/me/password")
+async def update_my_password(request: Request, body: UserPasswordUpdate):
+    user = await require_auth(request)
+    current_password = str(body.current_password or "")
+    new_password = str(body.new_password or "")
+
+    if not current_password or not new_password:
+        raise HTTPException(400, "Aktuelles und neues Passwort sind erforderlich")
+    if len(new_password) < 6:
+        raise HTTPException(400, "Neues Passwort muss mindestens 6 Zeichen haben")
+
+    user_doc = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(404, "Benutzer nicht gefunden")
+
+    password_hash = str(user_doc.get("password_hash", "") or "")
+    legacy_password = str(user_doc.get("password", "") or "")
+
+    is_authenticated = verify_password(current_password, password_hash)
+    if not is_authenticated and password_hash and password_hash == current_password:
+        is_authenticated = True
+    if not is_authenticated and not password_hash and legacy_password:
+        is_authenticated = legacy_password == current_password
+    if not is_authenticated:
+        raise HTTPException(401, "Aktuelles Passwort ist falsch")
+
+    old_password_matches_new = verify_password(new_password, password_hash) if password_hash else False
+    if old_password_matches_new or (password_hash and password_hash == new_password) or (legacy_password and legacy_password == new_password):
+        raise HTTPException(400, "Neues Passwort muss sich vom aktuellen unterscheiden")
+
+    await db.users.update_one(
+        {"id": user["id"]},
+        {
+            "$set": {
+                "password_hash": hash_password(new_password),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            "$unset": {"password": ""},
+        },
+    )
+    return {"message": "Passwort geändert"}
+
 @api_router.get("/users/{user_id}/profile")
 async def get_user_profile(user_id: str):
-    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0, "password": 0})
     if not user:
         raise HTTPException(404, "Benutzer nicht gefunden")
     teams = await db.teams.find({"member_ids": user_id, "parent_team_id": {"$in": [None, ""]}}, {"_id": 0, "join_code": 0}).to_list(50)
@@ -1702,7 +1835,7 @@ async def update_admin_setting(request: Request, body: AdminSettingUpdate):
 @api_router.get("/admin/users")
 async def list_admin_users(request: Request):
     await require_admin(request)
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(200)
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0, "password": 0}).to_list(200)
     return users
 
 @api_router.get("/admin/dashboard")

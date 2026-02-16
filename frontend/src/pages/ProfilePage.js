@@ -1,16 +1,26 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
-import { User, Trophy, Users, Swords, TrendingUp, Calendar } from "lucide-react";
+import { Trophy, Users, Swords, TrendingUp } from "lucide-react";
 import axios from "axios";
+import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 
 const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 export default function ProfilePage() {
   const { userId } = useParams();
+  const { user, refreshUser } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [accountForm, setAccountForm] = useState({ username: "", email: "" });
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
+  const [savingAccount, setSavingAccount] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/users/${userId}/profile`)
@@ -18,6 +28,14 @@ export default function ProfilePage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [userId]);
+
+  useEffect(() => {
+    if (!profile) return;
+    setAccountForm({
+      username: profile.username || "",
+      email: profile.email || "",
+    });
+  }, [profile?.id]);
 
   if (loading) return (
     <div className="pt-20 min-h-screen flex items-center justify-center">
@@ -34,6 +52,45 @@ export default function ProfilePage() {
   const winRate = profile.stats.wins + profile.stats.losses > 0
     ? Math.round((profile.stats.wins / (profile.stats.wins + profile.stats.losses)) * 100)
     : 0;
+  const isOwnProfile = Boolean(user && user.id === profile.id);
+
+  const handleAccountSave = async () => {
+    if (!accountForm.username.trim()) { toast.error("Benutzername darf nicht leer sein"); return; }
+    if (!accountForm.email.trim()) { toast.error("E-Mail darf nicht leer sein"); return; }
+    setSavingAccount(true);
+    try {
+      const res = await axios.put(`${API}/users/me/account`, {
+        username: accountForm.username,
+        email: accountForm.email,
+      });
+      setProfile(prev => ({ ...(prev || {}), ...res.data }));
+      await refreshUser();
+      toast.success("Konto aktualisiert");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Konto konnte nicht gespeichert werden");
+    } finally {
+      setSavingAccount(false);
+    }
+  };
+
+  const handlePasswordSave = async () => {
+    if (!passwordForm.current_password || !passwordForm.new_password) { toast.error("Passwortfelder ausfüllen"); return; }
+    if (passwordForm.new_password.length < 6) { toast.error("Neues Passwort muss mindestens 6 Zeichen haben"); return; }
+    if (passwordForm.new_password !== passwordForm.confirm_password) { toast.error("Passwörter stimmen nicht überein"); return; }
+    setSavingPassword(true);
+    try {
+      await axios.put(`${API}/users/me/password`, {
+        current_password: passwordForm.current_password,
+        new_password: passwordForm.new_password,
+      });
+      setPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
+      toast.success("Passwort geändert");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Passwort konnte nicht geändert werden");
+    } finally {
+      setSavingPassword(false);
+    }
+  };
 
   return (
     <div data-testid="profile-page" className="pt-20 min-h-screen">
@@ -57,6 +114,63 @@ export default function ProfilePage() {
             </div>
           </div>
         </motion.div>
+
+        {isOwnProfile && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+            className="glass rounded-xl p-6 border border-white/5 mb-8"
+          >
+            <h2 className="font-['Barlow_Condensed'] text-xl font-bold text-white uppercase tracking-tight mb-4">
+              Kontoeinstellungen
+            </h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <Label className="text-zinc-400 text-sm">Benutzername</Label>
+                <Input
+                  value={accountForm.username}
+                  onChange={(e) => setAccountForm({ ...accountForm, username: e.target.value })}
+                  className="bg-zinc-900 border-white/10 text-white"
+                />
+                <Label className="text-zinc-400 text-sm">E-Mail</Label>
+                <Input
+                  type="email"
+                  value={accountForm.email}
+                  onChange={(e) => setAccountForm({ ...accountForm, email: e.target.value })}
+                  className="bg-zinc-900 border-white/10 text-white"
+                />
+                <Button onClick={handleAccountSave} disabled={savingAccount} className="bg-yellow-500 text-black hover:bg-yellow-400">
+                  {savingAccount ? "Speichert..." : "Profil speichern"}
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                <Label className="text-zinc-400 text-sm">Aktuelles Passwort</Label>
+                <Input
+                  type="password"
+                  value={passwordForm.current_password}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
+                  className="bg-zinc-900 border-white/10 text-white"
+                />
+                <Label className="text-zinc-400 text-sm">Neues Passwort</Label>
+                <Input
+                  type="password"
+                  value={passwordForm.new_password}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
+                  className="bg-zinc-900 border-white/10 text-white"
+                />
+                <Label className="text-zinc-400 text-sm">Neues Passwort wiederholen</Label>
+                <Input
+                  type="password"
+                  value={passwordForm.confirm_password}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
+                  className="bg-zinc-900 border-white/10 text-white"
+                />
+                <Button onClick={handlePasswordSave} disabled={savingPassword} variant="outline" className="border-yellow-500/30 text-yellow-500 hover:bg-yellow-500/10">
+                  {savingPassword ? "Ändert..." : "Passwort ändern"}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">

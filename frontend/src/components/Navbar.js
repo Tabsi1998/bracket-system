@@ -121,14 +121,22 @@ export default function Navbar() {
                 </Link>
               )}
               {user ? (
-                <div className="flex items-center justify-between pt-3 mt-3 border-t border-white/5">
-                  <div className="flex items-center gap-2">
-                    <img src={user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`} className="w-6 h-6 rounded-full" alt="" />
-                    <span className="text-sm text-white">{user.username}</span>
+                <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
+                  <Link to={`/profile/${user.id}`} onClick={() => setMobileOpen(false)}>
+                    <Button variant="ghost" className="w-full justify-start gap-2 text-zinc-300">
+                      <User className="w-4 h-4" />
+                      Konto
+                    </Button>
+                  </Link>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <img src={user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`} className="w-6 h-6 rounded-full" alt="" />
+                      <span className="text-sm text-white">{user.username}</span>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => { logout(); setMobileOpen(false); }} className="text-zinc-500 hover:text-red-400">
+                      <LogOut className="w-4 h-4" />
+                    </Button>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => { logout(); setMobileOpen(false); }} className="text-zinc-500 hover:text-red-400">
-                    <LogOut className="w-4 h-4" />
-                  </Button>
                 </div>
               ) : (
                 <Link to="/login" onClick={() => setMobileOpen(false)}>
