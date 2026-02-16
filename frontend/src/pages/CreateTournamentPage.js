@@ -74,6 +74,13 @@ export default function CreateTournamentPage() {
 
   return (
     <div data-testid="create-tournament-page" className="pt-20 min-h-screen">
+      {!isAdmin ? (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+          <Shield className="w-16 h-16 text-red-500/30" />
+          <p className="text-zinc-500 text-lg">Nur Admins können Turniere erstellen</p>
+          <Button variant="outline" onClick={() => navigate("/")} className="border-white/10 text-white">Zurück</Button>
+        </div>
+      ) : (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Button variant="ghost" onClick={() => navigate(-1)} className="text-zinc-400 hover:text-white mb-6 gap-2">
           <ArrowLeft className="w-4 h-4" />Zurück
