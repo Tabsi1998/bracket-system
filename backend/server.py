@@ -720,7 +720,11 @@ async def check_payment_status(request: Request, session_id: str):
         raise HTTPException(500, "Payment system not configured")
     webhook_url = f"{str(request.base_url).rstrip('/')}api/webhook/stripe"
     stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
-    checkout_status = await stripe_checkout.get_checkout_status(session_id)
+    try:
+        checkout_status = await stripe_checkout.get_checkout_status(session_id)
+    except Exception as e:
+        logger.error(f"Stripe checkout status error: {e}")
+        raise HTTPException(404, "Payment session not found")
     # Update payment transaction
     existing = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if existing and existing.get("payment_status") != "paid":
