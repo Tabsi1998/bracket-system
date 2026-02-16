@@ -64,7 +64,7 @@ export default function Navbar() {
             )}
             {user ? (
               <div className="flex items-center gap-2 ml-1">
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/50 border border-white/5">
+                <Link to={`/profile/${user.id}`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/50 border border-white/5 hover:border-yellow-500/20 transition-all">
                   <img
                     src={user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`}
                     className="w-6 h-6 rounded-full"
@@ -72,7 +72,7 @@ export default function Navbar() {
                   />
                   <span data-testid="user-display-name" className="text-sm text-white font-medium">{user.username}</span>
                   {isAdmin && <Shield className="w-3 h-3 text-yellow-500" />}
-                </div>
+                </Link>
                 <Button data-testid="logout-btn" variant="ghost" size="sm" onClick={logout} className="text-zinc-500 hover:text-red-400">
                   <LogOut className="w-4 h-4" />
                 </Button>
