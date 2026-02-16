@@ -619,7 +619,8 @@ async def list_tournaments(status: Optional[str] = None, game_id: Optional[str] 
     return tournaments
 
 @api_router.post("/tournaments")
-async def create_tournament(body: TournamentCreate):
+async def create_tournament(request: Request, body: TournamentCreate):
+    await require_admin(request)
     game = await db.games.find_one({"id": body.game_id}, {"_id": 0})
     if not game:
         raise HTTPException(404, "Game not found")
