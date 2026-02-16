@@ -647,7 +647,8 @@ async def get_tournament(tournament_id: str):
     return t
 
 @api_router.put("/tournaments/{tournament_id}")
-async def update_tournament(tournament_id: str, body: TournamentUpdate):
+async def update_tournament(request: Request, tournament_id: str, body: TournamentUpdate):
+    await require_admin(request)
     update_data = {k: v for k, v in body.model_dump().items() if v is not None}
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = await db.tournaments.update_one({"id": tournament_id}, {"$set": update_data})
