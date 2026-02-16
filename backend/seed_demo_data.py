@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -15,8 +15,12 @@ from dotenv import load_dotenv
 from pymongo import MongoClient
 
 
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_utc().isoformat()
 
 
 def demo_id(name: str) -> str:
@@ -42,22 +46,7 @@ def load_db() -> Tuple[MongoClient, str]:
     return client, db_name
 
 
-def choose_game(db) -> Dict:
-    games = list(db.games.find({}, {"_id": 0, "id": 1, "name": 1, "modes": 1}))
-    preferred = [
-        "Rocket League",
-        "Counter-Strike 2",
-        "Valorant",
-        "Call of Duty",
-        "EA FC (FIFA)",
-    ]
-    for wanted in preferred:
-        for game in games:
-            if game.get("name") == wanted:
-                return game
-    if games:
-        return games[0]
-
+def ensure_fallback_game(db) -> Dict:
     fallback = {
         "id": demo_id("game:demo"),
         "name": "Demo Arena",
@@ -72,6 +61,21 @@ def choose_game(db) -> Dict:
     }
     db.games.update_one({"id": fallback["id"]}, {"$set": fallback}, upsert=True)
     return fallback
+
+
+def choose_game(games: List[Dict], preferred_names: List[str]) -> Dict:
+    for wanted in preferred_names:
+        for game in games:
+            if game.get("name") == wanted:
+                return game
+    return games[0] if games else {}
+
+
+def pick_mode_name(game: Dict, team_size: int) -> str:
+    for mode in game.get("modes", []):
+        if int(mode.get("team_size", 0) or 0) == team_size:
+            return str(mode.get("name", "") or "")
+    return f"{team_size}v{team_size}"
 
 
 def build_members(user_map: Dict[str, Dict], owner_key: str, leaders: List[str], members: List[str]) -> List[Dict]:
@@ -104,6 +108,10 @@ def players_for(team_members: List[Dict], team_size: int = 2) -> List[Dict]:
     return picked
 
 
+def iso_from_now(days: int = 0) -> str:
+    return (now_utc() + timedelta(days=days)).isoformat()
+
+
 def seed_demo_data(reset: bool = False) -> None:
     client, db_name = load_db()
     db = client[db_name]
@@ -127,6 +135,8 @@ def seed_demo_data(reset: bool = False) -> None:
         {"key": "bravo2", "username": "BravoTwo", "email": "demo.bravo2@arena.gg", "role": "user"},
         {"key": "nova1", "username": "NovaOne", "email": "demo.nova1@arena.gg", "role": "user"},
         {"key": "nova2", "username": "NovaTwo", "email": "demo.nova2@arena.gg", "role": "user"},
+        {"key": "charlie1", "username": "CharlieOne", "email": "demo.charlie1@arena.gg", "role": "user"},
+        {"key": "charlie2", "username": "CharlieTwo", "email": "demo.charlie2@arena.gg", "role": "user"},
     ]
 
     users: Dict[str, Dict] = {}
@@ -140,6 +150,14 @@ def seed_demo_data(reset: bool = False) -> None:
             "role": spec["role"],
             "password_hash": common_hash,
             "avatar_url": f"https://api.dicebear.com/7.x/avataaars/svg?seed={spec['username']}",
+            "banner_url": f"https://images.unsplash.com/photo-1542751110-97427bbecf20?w=1400&seed={spec['key']}",
+            "bio": "Demo-Benutzer für Showcase und Tests.",
+            "discord_url": "https://discord.gg/demo",
+            "website_url": "https://arena.gg",
+            "twitter_url": "https://x.com/arena",
+            "instagram_url": "https://instagram.com/arena",
+            "twitch_url": "https://twitch.tv/arena",
+            "youtube_url": "https://youtube.com/@arena",
             "is_demo": True,
             "updated_at": ts,
             "last_login_at": None,
@@ -163,9 +181,11 @@ def seed_demo_data(reset: bool = False) -> None:
             "tag": "ARES",
             "owner_key": "manager",
             "leaders": ["manager"],
-            "members": ["manager", "alpha1", "alpha2", "bravo1", "bravo2"],
+            "members": ["manager", "alpha1", "alpha2", "bravo1", "bravo2", "charlie1", "charlie2"],
             "parent_key": None,
             "join_code": "ARES01",
+            "logo_url": "https://images.unsplash.com/photo-1511884642898-4c92249e20b6?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1400",
         },
         {
             "key": "nova_main",
@@ -176,6 +196,8 @@ def seed_demo_data(reset: bool = False) -> None:
             "members": ["nova1", "nova2"],
             "parent_key": None,
             "join_code": "NOVA01",
+            "logo_url": "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1542751110-97427bbecf20?w=1400",
         },
         {
             "key": "ares_alpha",
@@ -186,6 +208,8 @@ def seed_demo_data(reset: bool = False) -> None:
             "members": ["alpha1", "alpha2"],
             "parent_key": "ares_main",
             "join_code": "ARSA11",
+            "logo_url": "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1486572788966-cfd3df1f5b42?w=1400",
         },
         {
             "key": "ares_bravo",
@@ -196,6 +220,20 @@ def seed_demo_data(reset: bool = False) -> None:
             "members": ["bravo1", "bravo2"],
             "parent_key": "ares_main",
             "join_code": "ARSB11",
+            "logo_url": "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=1400",
+        },
+        {
+            "key": "ares_charlie",
+            "name": "ARES Charlie",
+            "tag": "A-C",
+            "owner_key": "charlie1",
+            "leaders": ["charlie1"],
+            "members": ["charlie1", "charlie2"],
+            "parent_key": "ares_main",
+            "join_code": "ARSC11",
+            "logo_url": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1400",
         },
         {
             "key": "nova_prime",
@@ -206,6 +244,8 @@ def seed_demo_data(reset: bool = False) -> None:
             "members": ["nova1", "nova2"],
             "parent_key": "nova_main",
             "join_code": "NOVA11",
+            "logo_url": "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=1400",
         },
     ]
 
@@ -228,6 +268,15 @@ def seed_demo_data(reset: bool = False) -> None:
             "leader_ids": leader_ids,
             "members": build_members(users, spec["owner_key"], spec["leaders"], spec["members"]),
             "parent_team_id": parent_id,
+            "bio": f"{spec['name']} ist ein Demo-Team für die Vorschau.",
+            "logo_url": spec["logo_url"],
+            "banner_url": spec["banner_url"],
+            "discord_url": "https://discord.gg/demo",
+            "website_url": "https://arena.gg",
+            "twitter_url": "https://x.com/arena",
+            "instagram_url": "https://instagram.com/arena",
+            "twitch_url": "https://twitch.tv/arena",
+            "youtube_url": "https://youtube.com/@arena",
             "is_demo": True,
             "updated_at": ts,
         }
@@ -238,134 +287,130 @@ def seed_demo_data(reset: bool = False) -> None:
         )
         teams[spec["key"]] = team_doc
 
-    game = choose_game(db)
-    team_size = 2
-    mode_name = ""
-    for mode in game.get("modes", []):
-        if int(mode.get("team_size", 0) or 0) == team_size:
-            mode_name = mode.get("name", "")
-            break
-    if not mode_name:
-        mode_name = "2v2"
+    games = list(db.games.find({}, {"_id": 0, "id": 1, "name": 1, "modes": 1}))
+    if not games:
+        games = [ensure_fallback_game(db)]
+
+    game_single = choose_game(games, ["Counter-Strike 2", "Valorant", "Call of Duty"])
+    game_league = choose_game(games, ["Call of Duty", "Rocket League", "EA FC (FIFA)"])
+    game_groups = choose_game(games, ["Rocket League", "EA FC (FIFA)", "Counter-Strike 2"])
 
     tournament_specs = [
         {
-            "key": "registration",
-            "name": "Demo Open Cup",
+            "key": "open_single",
+            "name": "Demo Open Cup (Single)",
             "status": "registration",
-            "start_offset_days": 7,
-            "checkin_offset_days": 6,
-            "bracket": None,
+            "bracket_type": "single_elimination",
+            "game": game_single,
+            "team_size": 2,
+            "start_days": 7,
+            "checkin_days": 6,
         },
         {
-            "key": "checkin",
-            "name": "Demo Check-in Clash",
+            "key": "checkin_double",
+            "name": "Demo Challenger (Double)",
             "status": "checkin",
-            "start_offset_days": 2,
-            "checkin_offset_days": 1,
-            "bracket": None,
+            "bracket_type": "double_elimination",
+            "game": game_single,
+            "team_size": 2,
+            "start_days": 3,
+            "checkin_days": 1,
         },
         {
-            "key": "live",
-            "name": "Demo Live Showdown",
+            "key": "live_single",
+            "name": "Demo Live Knockout",
             "status": "live",
-            "start_offset_days": 0,
-            "checkin_offset_days": 0,
-            "bracket": "live",
+            "bracket_type": "single_elimination",
+            "game": game_single,
+            "team_size": 2,
+            "start_days": 0,
+            "checkin_days": -1,
         },
         {
-            "key": "completed",
+            "key": "completed_single",
             "name": "Demo Season Final",
             "status": "completed",
-            "start_offset_days": -3,
-            "checkin_offset_days": -4,
-            "bracket": "completed",
+            "bracket_type": "single_elimination",
+            "game": game_single,
+            "team_size": 2,
+            "start_days": -3,
+            "checkin_days": -4,
+        },
+        {
+            "key": "live_league",
+            "name": "Demo Pro League",
+            "status": "live",
+            "bracket_type": "league",
+            "game": game_league,
+            "team_size": 2,
+            "start_days": -7,
+            "checkin_days": -8,
+        },
+        {
+            "key": "live_groups",
+            "name": "Demo Groups Stage",
+            "status": "live",
+            "bracket_type": "group_stage",
+            "group_size": 2,
+            "game": game_groups,
+            "team_size": 2,
+            "start_days": -1,
+            "checkin_days": -2,
         },
     ]
 
     tournaments: Dict[str, Dict] = {}
     for spec in tournament_specs:
-        tournament_id = demo_id(f"tournament:{spec['key']}")
-        tournament_doc = {
-            "id": tournament_id,
+        game = spec["game"]
+        team_size = int(spec["team_size"])
+        mode_name = pick_mode_name(game, team_size)
+        tid = demo_id(f"tournament:{spec['key']}")
+        doc = {
+            "id": tid,
             "name": spec["name"],
-            "game_id": game["id"],
+            "game_id": game.get("id"),
             "game_name": game.get("name", "Demo Game"),
             "game_mode": mode_name,
             "team_size": team_size,
             "max_participants": 8,
-            "bracket_type": "single_elimination",
+            "bracket_type": spec["bracket_type"],
+            "group_size": int(spec.get("group_size", 4)),
             "best_of": 1,
             "entry_fee": 0.0,
             "currency": "usd",
             "prize_pool": "$250",
             "description": "Automatisch erzeugte Demo-Daten",
             "rules": "Demo-Regeln",
-            "start_date": ts,
-            "checkin_start": ts,
+            "start_date": iso_from_now(spec["start_days"]),
+            "checkin_start": iso_from_now(spec["checkin_days"]),
             "default_match_time": "20:00",
             "status": spec["status"],
             "bracket": None,
             "is_demo": True,
             "updated_at": ts,
         }
-        db.tournaments.update_one(
-            {"id": tournament_id},
-            {"$set": tournament_doc, "$setOnInsert": {"created_at": ts}},
-            upsert=True,
-        )
-        tournaments[spec["key"]] = tournament_doc
+        db.tournaments.update_one({"id": tid}, {"$set": doc, "$setOnInsert": {"created_at": ts}}, upsert=True)
+        tournaments[spec["key"]] = doc
 
     registration_specs = [
-        {
-            "key": "reg_open_alpha",
-            "tournament_key": "registration",
-            "team_key": "ares_alpha",
-            "user_key": "alpha1",
-            "checked_in": False,
-        },
-        {
-            "key": "checkin_bravo",
-            "tournament_key": "checkin",
-            "team_key": "ares_bravo",
-            "user_key": "bravo1",
-            "checked_in": False,
-        },
-        {
-            "key": "checkin_nova",
-            "tournament_key": "checkin",
-            "team_key": "nova_prime",
-            "user_key": "nova1",
-            "checked_in": True,
-        },
-        {
-            "key": "live_alpha",
-            "tournament_key": "live",
-            "team_key": "ares_alpha",
-            "user_key": "alpha1",
-            "checked_in": True,
-        },
-        {
-            "key": "live_nova",
-            "tournament_key": "live",
-            "team_key": "nova_prime",
-            "user_key": "nova1",
-            "checked_in": True,
-        },
-        {
-            "key": "completed_bravo",
-            "tournament_key": "completed",
-            "team_key": "ares_bravo",
-            "user_key": "bravo1",
-            "checked_in": True,
-        },
-        {
-            "key": "completed_nova",
-            "tournament_key": "completed",
-            "team_key": "nova_prime",
-            "user_key": "nova1",
-            "checked_in": True,
-        },
+        {"key": "open_single_alpha", "tournament_key": "open_single", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": False, "seed": 1},
+        {"key": "open_single_bravo", "tournament_key": "open_single", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": False, "seed": 2},
+        {"key": "checkin_double_alpha", "tournament_key": "checkin_double", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "checkin_double_bravo", "tournament_key": "checkin_double", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 2},
+        {"key": "checkin_double_nova", "tournament_key": "checkin_double", "team_key": "nova_prime", "user_key": "nova1", "checked_in": False, "seed": 3},
+        {"key": "checkin_double_charlie", "tournament_key": "checkin_double", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": False, "seed": 4},
+        {"key": "live_single_alpha", "tournament_key": "live_single", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "live_single_nova", "tournament_key": "live_single", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 2},
+        {"key": "completed_single_bravo", "tournament_key": "completed_single", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 1},
+        {"key": "completed_single_charlie", "tournament_key": "completed_single", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": True, "seed": 2},
+        {"key": "live_league_alpha", "tournament_key": "live_league", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "live_league_bravo", "tournament_key": "live_league", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 2},
+        {"key": "live_league_nova", "tournament_key": "live_league", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 3},
+        {"key": "live_league_charlie", "tournament_key": "live_league", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": True, "seed": 4},
+        {"key": "live_groups_alpha", "tournament_key": "live_groups", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "live_groups_nova", "tournament_key": "live_groups", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 2},
+        {"key": "live_groups_bravo", "tournament_key": "live_groups", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 3},
+        {"key": "live_groups_charlie", "tournament_key": "live_groups", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": True, "seed": 4},
     ]
 
     registrations: Dict[str, Dict] = {}
@@ -374,78 +419,190 @@ def seed_demo_data(reset: bool = False) -> None:
         team = teams[spec["team_key"]]
         tournament = tournaments[spec["tournament_key"]]
         captain = users[spec["user_key"]]
+        parent_name = ""
+        parent_id = str(team.get("parent_team_id", "") or "").strip()
+        if parent_id:
+            parent = next((t for t in teams.values() if t["id"] == parent_id), None)
+            parent_name = (parent or {}).get("name", "")
         reg_doc = {
             "id": reg_id,
             "tournament_id": tournament["id"],
             "team_id": team["id"],
             "team_name": team["name"],
-            "players": players_for(team["members"], team_size=team_size),
+            "team_logo_url": team.get("logo_url", ""),
+            "team_banner_url": team.get("banner_url", ""),
+            "team_tag": team.get("tag", ""),
+            "main_team_name": parent_name,
+            "players": players_for(team["members"], team_size=int(tournament["team_size"])),
             "user_id": captain["id"],
             "checked_in": bool(spec["checked_in"]),
             "payment_status": "free",
             "payment_session_id": None,
-            "seed": 1,
+            "seed": int(spec["seed"]),
             "is_demo": True,
             "updated_at": ts,
         }
-        db.registrations.update_one(
-            {"id": reg_id},
-            {"$set": reg_doc, "$setOnInsert": {"created_at": ts}},
-            upsert=True,
-        )
+        db.registrations.update_one({"id": reg_id}, {"$set": reg_doc, "$setOnInsert": {"created_at": ts}}, upsert=True)
         registrations[spec["key"]] = reg_doc
 
-    live_match = {
-        "id": demo_id("match:live-final"),
-        "round": 1,
-        "position": 0,
-        "team1_id": registrations["live_alpha"]["id"],
-        "team1_name": registrations["live_alpha"]["team_name"],
-        "team2_id": registrations["live_nova"]["id"],
-        "team2_name": registrations["live_nova"]["team_name"],
-        "score1": 0,
-        "score2": 0,
-        "winner_id": None,
-        "status": "pending",
-        "best_of": 1,
-        "disqualified": None,
-    }
-    completed_match = {
-        "id": demo_id("match:completed-final"),
-        "round": 1,
-        "position": 0,
-        "team1_id": registrations["completed_bravo"]["id"],
-        "team1_name": registrations["completed_bravo"]["team_name"],
-        "team2_id": registrations["completed_nova"]["id"],
-        "team2_name": registrations["completed_nova"]["team_name"],
-        "score1": 2,
-        "score2": 1,
-        "winner_id": registrations["completed_bravo"]["id"],
-        "status": "completed",
-        "best_of": 1,
-        "disqualified": None,
-        "completed_at": ts,
-    }
+    def match_from_regs(key: str, reg1: str, reg2: str, status: str = "pending", score1: int = 0, score2: int = 0, winner: str = "") -> Dict:
+        r1 = registrations[reg1]
+        r2 = registrations[reg2]
+        return {
+            "id": demo_id(f"match:{key}"),
+            "round": 1,
+            "position": 0,
+            "team1_id": r1["id"],
+            "team1_name": r1["team_name"],
+            "team1_logo_url": r1.get("team_logo_url", ""),
+            "team1_tag": r1.get("team_tag", ""),
+            "team2_id": r2["id"],
+            "team2_name": r2["team_name"],
+            "team2_logo_url": r2.get("team_logo_url", ""),
+            "team2_tag": r2.get("team_tag", ""),
+            "score1": score1,
+            "score2": score2,
+            "winner_id": winner or None,
+            "status": status,
+            "best_of": 1,
+            "disqualified": None,
+        }
 
-    live_bracket = {
+    live_single_bracket = {
         "type": "single_elimination",
-        "rounds": [{"round": 1, "name": "Final", "matches": [live_match]}],
+        "rounds": [{"round": 1, "name": "Final", "matches": [match_from_regs("live-single-final", "live_single_alpha", "live_single_nova")]}],
         "total_rounds": 1,
     }
-    completed_bracket = {
+    completed_single_bracket = {
         "type": "single_elimination",
-        "rounds": [{"round": 1, "name": "Final", "matches": [completed_match]}],
+        "rounds": [
+            {
+                "round": 1,
+                "name": "Final",
+                "matches": [
+                    match_from_regs(
+                        "completed-single-final",
+                        "completed_single_bravo",
+                        "completed_single_charlie",
+                        status="completed",
+                        score1=2,
+                        score2=1,
+                        winner=registrations["completed_single_bravo"]["id"],
+                    )
+                ],
+            }
+        ],
         "total_rounds": 1,
     }
 
-    db.tournaments.update_one(
-        {"id": tournaments["live"]["id"]},
-        {"$set": {"bracket": live_bracket, "status": "live", "updated_at": ts}},
-    )
-    db.tournaments.update_one(
-        {"id": tournaments["completed"]["id"]},
-        {"$set": {"bracket": completed_bracket, "status": "completed", "updated_at": ts}},
-    )
+    league_rounds = [
+        {
+            "round": 1,
+            "name": "Spieltag 1",
+            "matches": [
+                match_from_regs(
+                    "league-r1-m1",
+                    "live_league_alpha",
+                    "live_league_bravo",
+                    status="completed",
+                    score1=2,
+                    score2=1,
+                    winner=registrations["live_league_alpha"]["id"],
+                ),
+                match_from_regs(
+                    "league-r1-m2",
+                    "live_league_nova",
+                    "live_league_charlie",
+                    status="completed",
+                    score1=1,
+                    score2=1,
+                    winner="",
+                ),
+            ],
+        },
+        {
+            "round": 2,
+            "name": "Spieltag 2",
+            "matches": [
+                match_from_regs("league-r2-m1", "live_league_alpha", "live_league_nova"),
+                match_from_regs(
+                    "league-r2-m2",
+                    "live_league_bravo",
+                    "live_league_charlie",
+                    status="completed",
+                    score1=0,
+                    score2=2,
+                    winner=registrations["live_league_charlie"]["id"],
+                ),
+            ],
+        },
+        {
+            "round": 3,
+            "name": "Spieltag 3",
+            "matches": [
+                match_from_regs("league-r3-m1", "live_league_alpha", "live_league_charlie"),
+                match_from_regs("league-r3-m2", "live_league_bravo", "live_league_nova"),
+            ],
+        },
+    ]
+    live_league_bracket = {"type": "league", "rounds": league_rounds, "total_rounds": 3}
+
+    groups_bracket = {
+        "type": "group_stage",
+        "group_size": 2,
+        "groups": [
+            {
+                "id": 1,
+                "name": "Gruppe A",
+                "rounds": [
+                    {
+                        "round": 1,
+                        "name": "Spieltag 1",
+                        "matches": [
+                            {
+                                **match_from_regs(
+                                    "groups-a-r1-m1",
+                                    "live_groups_alpha",
+                                    "live_groups_nova",
+                                    status="completed",
+                                    score1=1,
+                                    score2=0,
+                                    winner=registrations["live_groups_alpha"]["id"],
+                                ),
+                                "group_id": 1,
+                                "group_name": "Gruppe A",
+                            }
+                        ],
+                    }
+                ],
+                "total_rounds": 1,
+            },
+            {
+                "id": 2,
+                "name": "Gruppe B",
+                "rounds": [
+                    {
+                        "round": 1,
+                        "name": "Spieltag 1",
+                        "matches": [
+                            {
+                                **match_from_regs("groups-b-r1-m1", "live_groups_bravo", "live_groups_charlie"),
+                                "group_id": 2,
+                                "group_name": "Gruppe B",
+                            }
+                        ],
+                    }
+                ],
+                "total_rounds": 1,
+            },
+        ],
+        "total_groups": 2,
+    }
+
+    db.tournaments.update_one({"id": tournaments["live_single"]["id"]}, {"$set": {"bracket": live_single_bracket, "status": "live", "updated_at": ts}})
+    db.tournaments.update_one({"id": tournaments["completed_single"]["id"]}, {"$set": {"bracket": completed_single_bracket, "status": "completed", "updated_at": ts}})
+    db.tournaments.update_one({"id": tournaments["live_league"]["id"]}, {"$set": {"bracket": live_league_bracket, "status": "live", "updated_at": ts}})
+    db.tournaments.update_one({"id": tournaments["live_groups"]["id"]}, {"$set": {"bracket": groups_bracket, "status": "live", "updated_at": ts}})
 
     keep_user_ids = [demo_id(f"user:{u['key']}") for u in user_specs]
     keep_team_ids = [demo_id(f"team:{t['key']}") for t in team_specs]

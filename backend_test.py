@@ -17,6 +17,7 @@ class eSportsTournamentAPITester:
         self.admin_email = os.environ.get("ADMIN_EMAIL", "admin@arena.gg").strip().lower()
         self.admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
         self._admin_headers = None
+        self._test_main_team_id = None
 
     def get_admin_headers(self):
         if self._admin_headers:
@@ -38,7 +39,7 @@ class eSportsTournamentAPITester:
             headers = {'Content-Type': 'application/json'}
 
         self.tests_run += 1
-        print(f"\n🔍 Testing {name}...")
+        print(f"\n-> Testing {name}...")
         print(f"   URL: {url}")
         
         try:
@@ -56,7 +57,7 @@ class eSportsTournamentAPITester:
             
             if success:
                 self.tests_passed += 1
-                print(f"✅ PASSED - {name}")
+                print(f"[PASS] {name}")
                 try:
                     response_data = response.json() if response.content else {}
                     if response_data and isinstance(response_data, (list, dict)):
@@ -75,7 +76,7 @@ class eSportsTournamentAPITester:
                     'actual_status': response.status_code,
                     'response': response.text[:200] if response.text else ''
                 })
-                print(f"❌ FAILED - {name} - Expected {expected_status}, got {response.status_code}")
+                print(f"[FAIL] {name} - Expected {expected_status}, got {response.status_code}")
                 try:
                     error_data = response.json()
                     print(f"   Error: {error_data}")
@@ -88,8 +89,39 @@ class eSportsTournamentAPITester:
                 'test': name,
                 'error': str(e)
             })
-            print(f"❌ FAILED - {name} - Error: {str(e)}")
+            print(f"[FAIL] {name} - Error: {str(e)}")
             return False, {}
+
+    def ensure_registration_subteams(self, team_count):
+        """Create one main test team and several sub-teams for registration tests."""
+        headers = self.get_admin_headers()
+        suffix = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+
+        success, main_team = self.run_test(
+            "POST /api/teams (main test team)",
+            "POST",
+            "teams",
+            200,
+            {"name": f"Test Main {suffix}", "tag": "MAIN"},
+            headers=headers,
+        )
+        if not success or not main_team:
+            return []
+
+        self._test_main_team_id = main_team.get("id")
+        sub_teams = []
+        for i in range(team_count):
+            sub_success, sub_team = self.run_test(
+                f"POST /api/teams (sub-team {i+1})",
+                "POST",
+                "teams",
+                200,
+                {"name": f"Test Sub {suffix}-{i+1}", "tag": f"S{i+1}", "parent_team_id": self._test_main_team_id},
+                headers=headers,
+            )
+            if sub_success and sub_team:
+                sub_teams.append(sub_team)
+        return sub_teams
 
     def test_games_api(self):
         """Test games API endpoints"""
@@ -102,9 +134,9 @@ class eSportsTournamentAPITester:
         if success:
             print(f"   Found {len(games)} games")
             if len(games) >= 14:
-                print("✅ At least 14 seeded games found")
+                print("[PASS] At least 14 seeded games found")
             else:
-                print(f"⚠️  Expected at least 14 games, found {len(games)}")
+                print(f"[WARN] Expected at least 14 games, found {len(games)}")
         
         # Test games by category
         self.run_test("GET /api/games?category=fps", "GET", "games?category=fps", 200)
@@ -148,9 +180,9 @@ class eSportsTournamentAPITester:
             expected_keys = ['total_tournaments', 'live_tournaments', 'total_registrations', 'total_games']
             for key in expected_keys:
                 if key in stats:
-                    print(f"✅ {key}: {stats[key]}")
+                    print(f"[PASS] {key}: {stats[key]}")
                 else:
-                    print(f"❌ Missing stat key: {key}")
+                    print(f"[FAIL] Missing stat key: {key}")
         return stats if success else {}
 
     def test_tournaments_api(self, games):
@@ -160,7 +192,7 @@ class eSportsTournamentAPITester:
         print("="*50)
         
         if not games:
-            print("⚠️  No games available for tournament testing")
+            print("[WARN] No games available for tournament testing")
             return None
             
         # Test get all tournaments
@@ -169,7 +201,7 @@ class eSportsTournamentAPITester:
         # Create a test tournament
         test_game = games[0] if games else None
         if not test_game:
-            print("❌ No games available for tournament creation")
+            print("[FAIL] No games available for tournament creation")
             return None
             
         tournament_data = {
@@ -193,7 +225,7 @@ class eSportsTournamentAPITester:
         
         if success and tournament:
             tournament_id = tournament['id']
-            print(f"✅ Created tournament with ID: {tournament_id}")
+            print(f"[PASS] Created tournament with ID: {tournament_id}")
             
             # Test get specific tournament
             self.run_test(f"GET /api/tournaments/{tournament_id}", "GET", f"tournaments/{tournament_id}", 200)
@@ -213,19 +245,25 @@ class eSportsTournamentAPITester:
         print("="*50)
         
         if not tournament:
-            print("⚠️  No tournament available for registration testing")
+            print("[WARN] No tournament available for registration testing")
             return []
             
         tournament_id = tournament['id']
+        sub_teams = self.ensure_registration_subteams(4)
+        if len(sub_teams) < 2:
+            print("[WARN] Could not create enough sub-teams for registration tests")
+            return []
         
         # Test get registrations (should be empty)
         self.run_test(f"GET /api/tournaments/{tournament_id}/registrations", "GET", f"tournaments/{tournament_id}/registrations", 200)
         
         # Test register for tournament
         registrations = []
-        for i in range(4):  # Register 4 teams
+        for i in range(min(4, len(sub_teams))):  # Register up to 4 teams
+            sub_team = sub_teams[i]
             reg_data = {
-                "team_name": f"Test Team {i+1}",
+                "team_name": sub_team["name"],
+                "team_id": sub_team["id"],
                 "players": [
                     {"name": f"Player {i+1}-1", "email": f"player{i+1}-1@test.com"}
                 ]
@@ -241,10 +279,26 @@ class eSportsTournamentAPITester:
             
             if success and registration:
                 registrations.append(registration)
+
+        # Enable check-in and test check-in flow
+        if registrations:
+            self.run_test(
+                f"PUT /api/tournaments/{tournament_id} (status=checkin)",
+                "PUT",
+                f"tournaments/{tournament_id}",
+                200,
+                {"status": "checkin"},
+                headers=self.get_admin_headers(),
+            )
+            for registration in registrations:
                 reg_id = registration['id']
-                
-                # Test check-in
-                self.run_test(f"POST /api/tournaments/{tournament_id}/checkin/{reg_id}", "POST", f"tournaments/{tournament_id}/checkin/{reg_id}", 200, headers=self.get_admin_headers())
+                self.run_test(
+                    f"POST /api/tournaments/{tournament_id}/checkin/{reg_id}",
+                    "POST",
+                    f"tournaments/{tournament_id}/checkin/{reg_id}",
+                    200,
+                    headers=self.get_admin_headers(),
+                )
         
         return registrations
 
@@ -255,7 +309,7 @@ class eSportsTournamentAPITester:
         print("="*50)
         
         if not tournament or len(registrations) < 2:
-            print("⚠️  Need at least 2 registrations for bracket testing")
+            print("[WARN] Need at least 2 registrations for bracket testing")
             return False
             
         tournament_id = tournament['id']
@@ -266,7 +320,7 @@ class eSportsTournamentAPITester:
         if success and updated_tournament:
             bracket = updated_tournament.get('bracket')
             if bracket and bracket.get('rounds'):
-                print("✅ Bracket generated successfully")
+                print("[PASS] Bracket generated successfully")
                 
                 # Test score update
                 first_round = bracket['rounds'][0]
@@ -280,7 +334,7 @@ class eSportsTournamentAPITester:
                     
                 return True
             else:
-                print("❌ Bracket generation failed - no bracket structure found")
+                print("[FAIL] Bracket generation failed - no bracket structure found")
         
         return False
 
@@ -291,7 +345,7 @@ class eSportsTournamentAPITester:
         print("="*50)
         
         if not tournament:
-            print("⚠️  No tournament available for payment testing")
+            print("[WARN] No tournament available for payment testing")
             return
             
         # Note: We're testing with test data only, not real payments
@@ -317,11 +371,20 @@ class eSportsTournamentAPITester:
         if tournament:
             tournament_id = tournament['id']
             self.run_test(f"DELETE /api/tournaments/{tournament_id}", "DELETE", f"tournaments/{tournament_id}", 200, headers=self.get_admin_headers())
-            print(f"✅ Cleaned up tournament: {tournament_id}")
+            print(f"[PASS] Cleaned up tournament: {tournament_id}")
+        if self._test_main_team_id:
+            self.run_test(
+                f"DELETE /api/teams/{self._test_main_team_id}",
+                "DELETE",
+                f"teams/{self._test_main_team_id}",
+                200,
+                headers=self.get_admin_headers(),
+            )
+            self._test_main_team_id = None
 
     def run_all_tests(self):
         """Run all API tests"""
-        print("🚀 Starting eSports Tournament API Tests")
+        print("Starting eSports Tournament API Tests")
         print(f"Testing against: {self.base_url}")
         
         # Test games API
@@ -349,11 +412,11 @@ class eSportsTournamentAPITester:
         print("\n" + "="*60)
         print("TEST SUMMARY")
         print("="*60)
-        print(f"📊 Tests passed: {self.tests_passed}/{self.tests_run}")
-        print(f"📊 Success rate: {(self.tests_passed/self.tests_run*100):.1f}%")
+        print(f"Tests passed: {self.tests_passed}/{self.tests_run}")
+        print(f"Success rate: {(self.tests_passed/self.tests_run*100):.1f}%")
         
         if self.failed_tests:
-            print("\n❌ FAILED TESTS:")
+            print("\nFAILED TESTS:")
             for failed in self.failed_tests:
                 print(f"   - {failed.get('test', 'Unknown')}: {failed.get('error', failed.get('actual_status', 'Unknown error'))}")
         

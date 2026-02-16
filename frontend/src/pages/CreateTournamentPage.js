@@ -17,6 +17,8 @@ const bracketTypes = [
   { value: "single_elimination", label: "Single Elimination" },
   { value: "double_elimination", label: "Double Elimination" },
   { value: "round_robin", label: "Round Robin" },
+  { value: "league", label: "Liga (Spieltage + Tabelle)" },
+  { value: "group_stage", label: "Gruppenphase" },
 ];
 
 export default function CreateTournamentPage() {
@@ -38,6 +40,7 @@ export default function CreateTournamentPage() {
     description: "",
     rules: "",
     start_date: "",
+    group_size: 4,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -190,6 +193,21 @@ export default function CreateTournamentPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                {form.bracket_type === "group_stage" && (
+                  <div>
+                    <Label className="text-zinc-400 text-sm">Gruppengröße</Label>
+                    <Select value={String(form.group_size)} onValueChange={v => setForm({ ...form, group_size: parseInt(v, 10) || 4 })}>
+                      <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-zinc-950 border-white/10">
+                        {[2, 3, 4, 5, 6, 8].map(n => (
+                          <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div>
                   <Label className="text-zinc-400 text-sm">Best of</Label>
                   <Select value={String(form.best_of)} onValueChange={v => setForm({ ...form, best_of: parseInt(v) })}>

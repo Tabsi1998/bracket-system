@@ -22,12 +22,17 @@ const MatchNode = ({ match }) => {
         isDisqualified === match.team1_id ? "bg-red-500/5 border-l-2 border-l-red-500" :
         "bg-zinc-900 border-l-2 border-l-transparent"
       }`}>
-        <span className={`truncate flex-1 ${
-          isTeam1Winner ? "text-yellow-500 font-bold" :
-          isDisqualified === match.team1_id ? "text-red-500 line-through" :
-          match.team1_name === "TBD" || match.team1_name === "BYE" ? "text-zinc-600 italic" : "text-white"
-        }`}>
-          {match.team1_name}
+        <span className="truncate flex-1 flex items-center gap-2">
+          {match.team1_logo_url ? (
+            <img src={match.team1_logo_url} alt="" className="w-4 h-4 rounded object-cover border border-white/10" />
+          ) : null}
+          <span className={`truncate ${
+            isTeam1Winner ? "text-yellow-500 font-bold" :
+            isDisqualified === match.team1_id ? "text-red-500 line-through" :
+            match.team1_name === "TBD" || match.team1_name === "BYE" ? "text-zinc-600 italic" : "text-white"
+          }`}>
+            {match.team1_name}{match.team1_tag ? ` [${match.team1_tag}]` : ""}
+          </span>
         </span>
         <span className={`font-mono text-xs w-6 text-center ${isTeam1Winner ? "text-yellow-500 font-bold" : "text-zinc-500"}`}>
           {match.team1_name !== "BYE" && match.team1_name !== "TBD" ? match.score1 : "-"}
@@ -39,12 +44,17 @@ const MatchNode = ({ match }) => {
         isDisqualified === match.team2_id ? "bg-red-500/5 border-l-2 border-l-red-500" :
         "bg-zinc-900 border-l-2 border-l-transparent"
       }`}>
-        <span className={`truncate flex-1 ${
-          isTeam2Winner ? "text-yellow-500 font-bold" :
-          isDisqualified === match.team2_id ? "text-red-500 line-through" :
-          match.team2_name === "TBD" || match.team2_name === "BYE" ? "text-zinc-600 italic" : "text-white"
-        }`}>
-          {match.team2_name}
+        <span className="truncate flex-1 flex items-center gap-2">
+          {match.team2_logo_url ? (
+            <img src={match.team2_logo_url} alt="" className="w-4 h-4 rounded object-cover border border-white/10" />
+          ) : null}
+          <span className={`truncate ${
+            isTeam2Winner ? "text-yellow-500 font-bold" :
+            isDisqualified === match.team2_id ? "text-red-500 line-through" :
+            match.team2_name === "TBD" || match.team2_name === "BYE" ? "text-zinc-600 italic" : "text-white"
+          }`}>
+            {match.team2_name}{match.team2_tag ? ` [${match.team2_tag}]` : ""}
+          </span>
         </span>
         <span className={`font-mono text-xs w-6 text-center ${isTeam2Winner ? "text-yellow-500 font-bold" : "text-zinc-500"}`}>
           {match.team2_name !== "BYE" && match.team2_name !== "TBD" ? match.score2 : "-"}
@@ -106,7 +116,9 @@ export default function BracketView({ bracket }) {
   const bracketType = bracket.type || "single_elimination";
 
   if (bracketType === "round_robin") return <RoundRobinView bracket={bracket} />;
+  if (bracketType === "league") return <RoundRobinView bracket={bracket} />;
   if (bracketType === "double_elimination") return <DoubleEliminationView bracket={bracket} />;
+  if (bracketType === "group_stage") return <GroupStageView bracket={bracket} />;
 
   const rounds = bracket.rounds;
   const matchHeight = 56;
@@ -197,6 +209,29 @@ function RoundRobinView({ bracket }) {
           <MatchNode key={match.id} match={match} />
         ))}
       </div>
+    </div>
+  );
+}
+
+function GroupStageView({ bracket }) {
+  const groups = bracket.groups || [];
+  if (groups.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12 text-zinc-600">
+        <p>Keine Gruppen vorhanden</p>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="bracket-view-groups" className="space-y-6">
+      {groups.map((group) => (
+        <div key={group.id} className="rounded-xl border border-white/5 p-4">
+          <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-cyan-400 uppercase tracking-wider mb-3">
+            {group.name}
+          </h3>
+          <RoundRobinView bracket={{ type: "round_robin", rounds: group.rounds || [] }} />
+        </div>
+      ))}
     </div>
   );
 }

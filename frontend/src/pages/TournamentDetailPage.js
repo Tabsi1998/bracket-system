@@ -73,11 +73,30 @@ export default function TournamentDetailPage() {
   const [scoreForm, setScoreForm] = useState({ score1: 0, score2: 0 });
   const [resolveForm, setResolveForm] = useState({ score1: 0, score2: 0, disqualify_team_id: null });
   const [submissions, setSubmissions] = useState({});
+  const [standings, setStandings] = useState(null);
+  const [standingsLoading, setStandingsLoading] = useState(false);
 
   const [teamName, setTeamName] = useState("");
   const [players, setPlayers] = useState([{ name: "", email: "" }]);
   const [userTeams, setUserTeams] = useState([]);
   const [selectedTeamId, setSelectedTeamId] = useState("");
+
+  const fetchStandings = useCallback(async (tournamentData) => {
+    const bracketType = tournamentData?.bracket?.type || tournamentData?.bracket_type;
+    if (!tournamentData?.bracket || !["round_robin", "league", "group_stage"].includes(bracketType)) {
+      setStandings(null);
+      return;
+    }
+    setStandingsLoading(true);
+    try {
+      const res = await axios.get(`${API}/tournaments/${id}/standings`);
+      setStandings(res.data);
+    } catch {
+      setStandings(null);
+    } finally {
+      setStandingsLoading(false);
+    }
+  }, [id]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -87,12 +106,13 @@ export default function TournamentDetailPage() {
       ]);
       setTournament(tRes.data);
       setRegistrations(rRes.data);
+      fetchStandings(tRes.data);
     } catch {
       toast.error("Turnier nicht gefunden");
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, fetchStandings]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -294,10 +314,63 @@ export default function TournamentDetailPage() {
       const gf = tournament.bracket.grand_final ? [tournament.bracket.grand_final] : [];
       return [...wb, ...lb, ...gf];
     }
+    if (bt === "league") {
+      return tournament.bracket.rounds?.flatMap(r => r.matches) || [];
+    }
+    if (bt === "group_stage") {
+      const groups = tournament.bracket.groups || [];
+      return groups.flatMap(g => (g.rounds || []).flatMap(r => (r.matches || [])));
+    }
     return [];
   };
 
   const embedCode = `<iframe src="${window.location.origin}/widget/${id}" width="100%" height="400" frameborder="0" style="border-radius:12px;overflow:hidden;"></iframe>`;
+
+  const hasStandings = ["round_robin", "league", "group_stage"].includes(tournament?.bracket?.type || tournament?.bracket_type);
+  const renderStandingsTable = (rows) => (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-white/5 text-zinc-500 text-left">
+            <th className="px-3 py-2">#</th>
+            <th className="px-3 py-2">Team</th>
+            <th className="px-3 py-2">Sp</th>
+            <th className="px-3 py-2">S</th>
+            <th className="px-3 py-2">U</th>
+            <th className="px-3 py-2">N</th>
+            <th className="px-3 py-2">GF</th>
+            <th className="px-3 py-2">GA</th>
+            <th className="px-3 py-2">Diff</th>
+            <th className="px-3 py-2">Pkt</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(rows || []).map((row) => (
+            <tr key={`${row.registration_id}-${row.rank}`} className="border-b border-white/5">
+              <td className="px-3 py-2 font-mono text-zinc-400">{row.rank}</td>
+              <td className="px-3 py-2">
+                <div className="flex items-center gap-2">
+                  {row.team_logo_url ? <img src={row.team_logo_url} alt="" className="w-6 h-6 rounded object-cover border border-white/10" /> : null}
+                  <div>
+                    <div className="text-white font-semibold">{row.team_name}{row.team_tag ? ` [${row.team_tag}]` : ""}</div>
+                    {row.main_team_name ? <div className="text-xs text-zinc-600">{row.main_team_name}</div> : null}
+                  </div>
+                </div>
+              </td>
+              <td className="px-3 py-2 text-zinc-400">{row.played}</td>
+              <td className="px-3 py-2 text-green-400">{row.wins}</td>
+              <td className="px-3 py-2 text-zinc-400">{row.draws}</td>
+              <td className="px-3 py-2 text-red-400">{row.losses}</td>
+              <td className="px-3 py-2 text-zinc-400">{row.score_for}</td>
+              <td className="px-3 py-2 text-zinc-400">{row.score_against}</td>
+              <td className="px-3 py-2 text-zinc-400">{row.score_diff}</td>
+              <td className="px-3 py-2 font-bold text-yellow-500">{row.points}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div data-testid="tournament-detail-page" className="pt-20 min-h-screen">
@@ -422,6 +495,11 @@ export default function TournamentDetailPage() {
             <TabsTrigger data-testid="tab-participants" value="participants" className="data-[state=active]:bg-yellow-500/10 data-[state=active]:text-yellow-500">
               <Users className="w-4 h-4 mr-2" />Teilnehmer
             </TabsTrigger>
+            {hasStandings && (
+              <TabsTrigger data-testid="tab-standings" value="standings" className="data-[state=active]:bg-yellow-500/10 data-[state=active]:text-yellow-500">
+                <Trophy className="w-4 h-4 mr-2" />Tabelle
+              </TabsTrigger>
+            )}
             <TabsTrigger data-testid="tab-info" value="info" className="data-[state=active]:bg-yellow-500/10 data-[state=active]:text-yellow-500">
               <Shield className="w-4 h-4 mr-2" />Info & Regeln
             </TabsTrigger>
@@ -452,9 +530,15 @@ export default function TournamentDetailPage() {
                           >
                             <div className="flex items-center justify-between mb-2">
                               <div className="text-sm text-white flex-1">
-                                <div className={match.winner_id === match.team1_id ? "text-yellow-500 font-bold" : ""}>{match.team1_name}</div>
+                                <div className={`flex items-center gap-2 ${match.winner_id === match.team1_id ? "text-yellow-500 font-bold" : ""}`}>
+                                  {match.team1_logo_url ? <img src={match.team1_logo_url} alt="" className="w-4 h-4 rounded object-cover border border-white/10" /> : null}
+                                  <span>{match.team1_name}</span>
+                                </div>
                                 <div className="text-zinc-600 text-xs">vs</div>
-                                <div className={match.winner_id === match.team2_id ? "text-yellow-500 font-bold" : ""}>{match.team2_name}</div>
+                                <div className={`flex items-center gap-2 ${match.winner_id === match.team2_id ? "text-yellow-500 font-bold" : ""}`}>
+                                  {match.team2_logo_url ? <img src={match.team2_logo_url} alt="" className="w-4 h-4 rounded object-cover border border-white/10" /> : null}
+                                  <span>{match.team2_name}</span>
+                                </div>
                               </div>
                               {isCompleted && (
                                 <div className="text-right font-mono text-sm">
@@ -519,7 +603,11 @@ export default function TournamentDetailPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded bg-yellow-500/10 flex items-center justify-center text-yellow-500 font-mono text-sm font-bold">{reg.seed || i + 1}</div>
                         <div>
-                          <div className="text-sm font-semibold text-white">{reg.team_name}</div>
+                          <div className="text-sm font-semibold text-white flex items-center gap-2">
+                            {reg.team_logo_url ? <img src={reg.team_logo_url} alt="" className="w-5 h-5 rounded object-cover border border-white/10" /> : null}
+                            <span>{reg.team_name}{reg.team_tag ? ` [${reg.team_tag}]` : ""}</span>
+                          </div>
+                          {reg.main_team_name ? <div className="text-[11px] text-zinc-600">{reg.main_team_name}</div> : null}
                           <div className="text-xs text-zinc-500">{reg.players?.map(p => p.name).join(", ")}</div>
                         </div>
                       </div>
@@ -538,6 +626,33 @@ export default function TournamentDetailPage() {
               )}
             </div>
           </TabsContent>
+
+          {hasStandings && (
+            <TabsContent value="standings" className="mt-6">
+              <div className="glass rounded-xl p-6 border border-white/5">
+                {standingsLoading ? (
+                  <div className="flex justify-center py-8">
+                    <div className="w-7 h-7 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : standings?.type === "group_stage" ? (
+                  <div className="space-y-6">
+                    {(standings.groups || []).map((group) => (
+                      <div key={`standings-group-${group.id}`} className="rounded-lg border border-white/5 p-4">
+                        <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-cyan-400 uppercase tracking-wider mb-3">
+                          {group.name}
+                        </h3>
+                        {renderStandingsTable(group.standings || [])}
+                      </div>
+                    ))}
+                  </div>
+                ) : standings?.standings?.length ? (
+                  renderStandingsTable(standings.standings)
+                ) : (
+                  <p className="text-zinc-500 text-center py-6">Noch keine Tabellen-Daten vorhanden</p>
+                )}
+              </div>
+            </TabsContent>
+          )}
 
           <TabsContent value="info" className="mt-6">
             <div className="glass rounded-xl p-6 border border-white/5 space-y-6">

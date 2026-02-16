@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Plus, Gamepad2, Trash2, Monitor, X as XIcon } from "lucide-react";
+import { Plus, Gamepad2, Trash2, Monitor, X as XIcon, Pencil } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
@@ -39,6 +39,7 @@ export default function GamesPage() {
   const { isAdmin } = useAuth();
   const [games, setGames] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [filterCat, setFilterCat] = useState("all");
   const [newGame, setNewGame] = useState({
     name: "",
@@ -48,6 +49,7 @@ export default function GamesPage() {
     modes: [{ name: "", team_size: 1, description: "" }],
     platforms: [],
   });
+  const [editGame, setEditGame] = useState(null);
 
   useEffect(() => {
     fetchGames();
@@ -88,6 +90,55 @@ export default function GamesPage() {
     const modes = [...newGame.modes];
     modes[idx][field] = field === "team_size" ? parseInt(value) || 1 : value;
     setNewGame({ ...newGame, modes });
+  };
+
+  const openEditGame = (game) => {
+    setEditGame({
+      id: game.id,
+      name: game.name || "",
+      short_name: game.short_name || "",
+      category: game.category || "other",
+      image_url: game.image_url || "",
+      modes: Array.isArray(game.modes) && game.modes.length > 0
+        ? game.modes.map((m) => ({ name: m.name || "", team_size: m.team_size || 1, description: m.description || "" }))
+        : [{ name: "", team_size: 1, description: "" }],
+      platforms: Array.isArray(game.platforms) ? game.platforms : [],
+    });
+    setEditOpen(true);
+  };
+
+  const addEditMode = () => setEditGame((prev) => ({ ...prev, modes: [...(prev?.modes || []), { name: "", team_size: 1, description: "" }] }));
+  const removeEditMode = (idx) => setEditGame((prev) => ({ ...prev, modes: (prev?.modes || []).filter((_, i) => i !== idx) }));
+  const updateEditMode = (idx, field, value) => {
+    setEditGame((prev) => {
+      const modes = [...(prev?.modes || [])];
+      modes[idx][field] = field === "team_size" ? parseInt(value, 10) || 1 : value;
+      return { ...prev, modes };
+    });
+  };
+
+  const toggleEditPlatform = (p) => {
+    setEditGame((prev) => {
+      const exists = (prev?.platforms || []).includes(p);
+      const platforms = exists ? prev.platforms.filter((x) => x !== p) : [...(prev?.platforms || []), p];
+      return { ...prev, platforms };
+    });
+  };
+
+  const handleUpdateGame = async () => {
+    if (!editGame?.id) return;
+    if (!editGame.name.trim()) { toast.error("Spielname erforderlich"); return; }
+    const validModes = (editGame.modes || []).filter((m) => m.name.trim());
+    if (validModes.length === 0) { toast.error("Mindestens ein Modus erforderlich"); return; }
+    try {
+      await axios.put(`${API}/games/${editGame.id}`, { ...editGame, modes: validModes });
+      toast.success("Spiel aktualisiert");
+      setEditOpen(false);
+      setEditGame(null);
+      fetchGames();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Fehler beim Aktualisieren");
+    }
   };
 
   const togglePlatform = (p) => {
@@ -200,6 +251,93 @@ export default function GamesPage() {
             </DialogContent>
           </Dialog>
           )}
+          {isAdmin && (
+            <Dialog open={editOpen} onOpenChange={setEditOpen}>
+              <DialogContent className="bg-zinc-950 border-white/10 text-white max-w-lg max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="font-['Barlow_Condensed'] text-xl text-white">Spiel bearbeiten</DialogTitle>
+                </DialogHeader>
+                {editGame && (
+                  <div className="space-y-4 mt-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-zinc-400 text-sm">Spielname *</Label>
+                        <Input value={editGame.name} onChange={e => setEditGame({ ...editGame, name: e.target.value })} className="bg-zinc-900 border-white/10 text-white mt-1" />
+                      </div>
+                      <div>
+                        <Label className="text-zinc-400 text-sm">Kurzname</Label>
+                        <Input value={editGame.short_name} onChange={e => setEditGame({ ...editGame, short_name: e.target.value })} className="bg-zinc-900 border-white/10 text-white mt-1" />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Kategorie</Label>
+                      <Select value={editGame.category} onValueChange={v => setEditGame({ ...editGame, category: v })}>
+                        <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-950 border-white/10">
+                          {categories.map(c => (
+                            <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Bild-URL</Label>
+                      <Input value={editGame.image_url} onChange={e => setEditGame({ ...editGame, image_url: e.target.value })} className="bg-zinc-900 border-white/10 text-white mt-1" />
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Plattformen</Label>
+                      <div className="flex gap-2 mt-2 flex-wrap">
+                        {["PC", "PS5", "Xbox", "Switch", "Mobile"].map(p => (
+                          <button
+                            key={`edit-${p}`}
+                            onClick={() => toggleEditPlatform(p)}
+                            className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-all ${
+                              (editGame.platforms || []).includes(p)
+                                ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
+                                : "border-white/10 text-zinc-500 hover:border-white/20"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Spielmodi *</Label>
+                      {(editGame.modes || []).map((mode, idx) => (
+                        <div key={`edit-mode-${idx}`} className="flex gap-2 mt-2">
+                          <Input
+                            value={mode.name}
+                            onChange={e => updateEditMode(idx, "name", e.target.value)}
+                            placeholder="z.B. 5v5"
+                            className="bg-zinc-900 border-white/10 text-white flex-1"
+                          />
+                          <Input
+                            type="number"
+                            min="1"
+                            value={mode.team_size}
+                            onChange={e => updateEditMode(idx, "team_size", e.target.value)}
+                            className="bg-zinc-900 border-white/10 text-white w-20"
+                          />
+                          {(editGame.modes || []).length > 1 && (
+                            <Button variant="ghost" size="sm" onClick={() => removeEditMode(idx)} className="text-red-500 hover:text-red-400 px-2">
+                              <XIcon className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                      <Button variant="ghost" size="sm" onClick={addEditMode} className="mt-2 text-yellow-500">+ Modus hinzufügen</Button>
+                    </div>
+                    <Button onClick={handleUpdateGame} className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-semibold">
+                      Änderungen speichern
+                    </Button>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
 
         {/* Category filter */}
@@ -277,14 +415,24 @@ export default function GamesPage() {
                 </div>
 
                 {/* Delete button for custom games (admin only) */}
-                {isAdmin && game.is_custom && (
-                  <button
-                    data-testid={`delete-game-${game.id}`}
-                    onClick={() => handleDeleteGame(game.id)}
-                    className="absolute top-3 right-3 p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                {isAdmin && (
+                  <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => openEditGame(game)}
+                      className="p-2 rounded-lg bg-black/50 text-zinc-200 hover:bg-black/70"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    {game.is_custom && (
+                      <button
+                        data-testid={`delete-game-${game.id}`}
+                        onClick={() => handleDeleteGame(game.id)}
+                        className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </motion.div>
