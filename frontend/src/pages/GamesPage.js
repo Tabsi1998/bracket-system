@@ -276,8 +276,8 @@ export default function GamesPage() {
                   )}
                 </div>
 
-                {/* Delete button for custom games */}
-                {game.is_custom && (
+                {/* Delete button for custom games (admin only) */}
+                {isAdmin && game.is_custom && (
                   <button
                     data-testid={`delete-game-${game.id}`}
                     onClick={() => handleDeleteGame(game.id)}
