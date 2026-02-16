@@ -97,13 +97,13 @@ fi
 
 # ── MongoDB 7.0 ──
 if ! command -v mongod &>/dev/null; then
-  curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg 2>/dev/null
+  curl -fsSL https://pgp.mongodb.com/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg 2>/dev/null
   UBUNTU_CODENAME=$(lsb_release -cs)
-  echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${UBUNTU_CODENAME}/mongodb-org/7.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-7.0.list
+  echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${UBUNTU_CODENAME}/mongodb-org/8.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-8.0.list
   apt-get update -qq
   apt-get install -y -qq mongodb-org > /dev/null 2>&1
   systemctl enable mongod --now > /dev/null 2>&1
-  log "MongoDB 7.0 installiert und gestartet"
+  log "MongoDB 8.0 installiert und gestartet"
 else
   systemctl is-active mongod > /dev/null 2>&1 || systemctl start mongod
   log "MongoDB bereits installiert"
