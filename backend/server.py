@@ -9,6 +9,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict
 import uuid
+import secrets
+import string
 from datetime import datetime, timezone
 import bcrypt
 from jose import jwt as jose_jwt, JWTError
