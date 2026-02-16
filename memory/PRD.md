@@ -1,82 +1,76 @@
 # eSports Tournament Bracket System - PRD
 
 ## Problem Statement
-Complete eSports Tournament Bracket System with tournament creation, dynamic animated brackets, payment integration, pre-built game database, registration/check-in, user accounts, team management, comments, notifications, admin panel, and live bracket display.
+Complete eSports Tournament Bracket System with full access control (admin/player roles), dynamic animated brackets with Bezier curve connectors, payment integration (Stripe + PayPal prepared), pre-built game database, user accounts, team management with join codes/leaders/sub-teams, score submission by teams with auto-confirm/dispute resolution, comments, notifications, admin panel, profile pages, embeddable widget, and markdown-rendered rules.
 
 ## Architecture
 - **Backend**: FastAPI + MongoDB (server.py)
 - **Frontend**: React + Tailwind CSS + Shadcn UI + Framer Motion
-- **Database**: MongoDB (collections: games, tournaments, registrations, payment_transactions, users, teams, comments, notifications, schedule_proposals, admin_settings)
-- **Payment**: Stripe (test key integrated)
+- **Database**: MongoDB (collections: games, tournaments, registrations, payment_transactions, users, teams, comments, notifications, schedule_proposals, admin_settings, score_submissions)
+- **Payment**: Stripe (integrated), PayPal (prepared in admin settings)
 - **Auth**: JWT (python-jose + bcrypt)
+- **Email**: SMTP (prepared in admin settings)
 
-## User Personas
-- **Admin**: Manages tournaments, games, users, payment settings (admin@arena.gg / admin123)
-- **Tournament Organizers**: Create & manage tournaments, set parameters, enter scores
-- **Players/Teams**: Register with accounts, create teams, join tournaments, comment
-- **Spectators**: View live bracket updates
+## User Roles
+- **Admin** (role: "admin"): Full access — create/edit/delete tournaments & games, generate brackets, resolve score disputes, manage users/settings
+- **Spieler** (role: "user"): Register for tournaments, create/manage teams, submit scores, comment, receive notifications
 
-## Core Requirements
-- Tournament CRUD with full parametrization
-- 14 pre-built games (CoD, FIFA, RL, CS2, Valorant, LoL, Dota 2, Mario Kart, SSB, Fortnite, Apex, OW2, SF6, Tekken 8)
-- Game management (add/edit/delete custom games)
-- Single Elimination, Double Elimination, Round Robin bracket types
-- Player/Team registration with user accounts
+## Core Requirements (All Implemented)
+- Tournament CRUD (admin-only)
+- 14+ pre-built games with modes and platforms
+- Single/Double Elimination, Round Robin bracket types with Bezier curve SVG connectors
+- Player/Team registration
 - Check-in system
-- Score entry with winner propagation
-- Stripe payment for paid tournaments
-- User authentication (JWT)
-- Team management (create/delete teams, invite/remove members)
+- Score submission system (both teams submit, auto-confirm if matching, admin resolves disputes)
+- Disqualification support
+- Stripe payment integration
+- JWT authentication with admin seed
+- Team management (join codes, leaders, sub-teams)
 - Comments on tournaments and matches
 - In-app notifications (bell icon with unread count)
 - Match scheduling (time proposals)
-- Admin panel with dashboard, user management, payment/SMTP settings
-- German UI language
+- Admin panel with dashboard, user/tournament/game management, payment & SMTP settings
+- Profile pages with stats, teams, tournament history
+- Embeddable widget (iframe) for external sites
+- Markdown-rendered tournament rules
+- German UI
 
-## What's Implemented (2026-02-17)
+## What's Implemented
 
 ### Phase 0 - MVP (Completed 2026-02-16)
-- Full backend API with 15+ endpoints
-- 14 pre-seeded games with modes and platforms
-- Tournament creation with all parameters
-- Anonymous registration system
-- Check-in system
-- Single/Double Elimination & Round Robin brackets
-- Score updates with winner propagation
-- Stripe payment integration
-- Full German UI with dark gaming theme
+- Full backend API, 14 pre-seeded games, tournament CRUD, anonymous registration
+- Bracket visualization, Stripe payment, dark gaming UI
 
 ### Phase 1 - User System & Community (Completed 2026-02-17)
-- **Auth System**: JWT-based login/register with bcrypt password hashing
-- **Admin Seed**: Admin user auto-created on startup (admin@arena.gg / admin123)
-- **Team Management**: Create/delete teams, invite/remove members by email
-- **Comment System**: Comments on tournaments with author info & timestamps
-- **Notification System**: In-app bell with unread count, auto-notifications on comments/scheduling
-- **Match Scheduling**: Time proposals with accept/reject workflow
-- **Admin Panel**: Dashboard stats, tournament/game/user management, payment & SMTP settings
-- **Auth-aware UI**: Navbar shows login state, Teams/Admin links, notification bell
-- **Protected Routes**: Teams & Admin pages require authentication
+- JWT Auth, Admin seed, Team management, Comments, Notifications, Match scheduling
+- Admin Panel, Auth-aware UI, Protected routes
+
+### Phase 1.5 - Access Control & Advanced Features (Completed 2026-02-17)
+- **Admin-only access control**: Tournaments, games, brackets, status changes → admin only
+- **Score submission system**: Both teams submit scores, auto-confirm if matching, admin resolves disputes with disqualification option
+- **Team enhancements**: Join codes (6-char), leaders, sub-teams, owner-only code visibility
+- **Profile page**: User stats (wins/losses/winrate), teams, tournament history
+- **Widget**: Standalone iframe-embeddable tournament view
+- **Bracket improvements**: Bezier curve SVG connecting lines between rounds
+- **Markdown rules**: Rich text rendering for tournament rules
+- **PayPal prepared**: Admin settings fields for PayPal Client ID & Secret
+- **SMTP prepared**: Admin settings fields for SMTP host/port/user/password
+- **Email sending**: Backend function sends email when SMTP configured
 
 ## Prioritized Backlog
 
 ### P1 (High)
-- PayPal integration (prepared in Admin Panel settings)
-- E-Mail notifications via SMTP (prepared in Admin Panel settings)
-- Regelwerk-Einbettung verbessern
+- PayPal actual checkout flow (needs user to provide PayPal sandbox keys)
+- E-Mail notifications triggering (needs SMTP credentials configured)
 
 ### P2 (Medium)
-- Bracket SVG connecting lines improvement
 - Real-time updates (WebSocket for live bracket changes)
-- Embeddable widget/iframe support
-- Profile page for users
-
-### P3 (Low)
 - Swiss bracket type
 - Tournament seeding control
 - Participant management (kick, reorder seeds)
+
+### P3 (Low)
 - Export bracket as image/PDF
-- Tournament templates
-- Recurring tournaments
-- Player statistics & history
-- Leaderboards
+- Tournament templates & recurring tournaments
+- Player statistics history & leaderboards
 - Multiple languages
