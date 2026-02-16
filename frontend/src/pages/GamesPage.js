@@ -36,6 +36,7 @@ const categoryColors = {
 };
 
 export default function GamesPage() {
+  const { isAdmin } = useAuth();
   const [games, setGames] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [filterCat, setFilterCat] = useState("all");
