@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict
 import uuid
 from datetime import datetime, timezone
+import bcrypt
+from jose import jwt as jose_jwt, JWTError
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -55,6 +57,8 @@ class TournamentCreate(BaseModel):
     rules: str = ""
     start_date: str = ""
     checkin_start: str = ""
+    group_size: int = 4
+    default_match_time: str = ""
 
 class TournamentUpdate(BaseModel):
     name: Optional[str] = None
@@ -67,6 +71,7 @@ class TournamentUpdate(BaseModel):
 class RegistrationCreate(BaseModel):
     team_name: str
     players: List[Dict[str, str]]
+    team_id: Optional[str] = None
 
 class ScoreUpdate(BaseModel):
     score1: int
@@ -77,6 +82,70 @@ class PaymentRequest(BaseModel):
     tournament_id: str
     registration_id: str
     origin_url: str
+
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class TeamCreate(BaseModel):
+    name: str
+    tag: str = ""
+
+class TeamAddMember(BaseModel):
+    email: str
+
+class CommentCreate(BaseModel):
+    message: str
+
+class TimeProposal(BaseModel):
+    proposed_time: str
+
+class AdminSettingUpdate(BaseModel):
+    key: str
+    value: str
+
+# ─── JWT Auth ───
+
+JWT_SECRET = os.environ.get("JWT_SECRET", "arena-esports-secret-2026-xk9m2")
+JWT_ALGORITHM = "HS256"
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+def create_token(user_id: str, email: str, role: str = "user") -> str:
+    payload = {"user_id": user_id, "email": email, "role": role, "exp": datetime.now(timezone.utc).timestamp() + 86400 * 7}
+    return jose_jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+async def get_current_user(request: Request):
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+    try:
+        payload = jose_jwt.decode(auth_header[7:], JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0, "password_hash": 0})
+        return user
+    except (JWTError, Exception):
+        return None
+
+async def require_auth(request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Nicht eingeloggt")
+    return user
+
+async def require_admin(request: Request):
+    user = await require_auth(request)
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin-Rechte erforderlich")
+    return user
 
 # ─── Seed Data ───
 
@@ -247,6 +316,108 @@ async def seed_games():
             await db.games.insert_one(doc)
         logger.info(f"Seeded {len(SEED_GAMES)} games")
 
+# ─── Auth Endpoints ───
+
+@api_router.post("/auth/register")
+async def register_user(body: UserRegister):
+    if await db.users.find_one({"email": body.email}):
+        raise HTTPException(400, "E-Mail bereits registriert")
+    if await db.users.find_one({"username": body.username}):
+        raise HTTPException(400, "Benutzername bereits vergeben")
+    user_doc = {
+        "id": str(uuid.uuid4()), "username": body.username, "email": body.email,
+        "password_hash": hash_password(body.password), "role": "user",
+        "avatar_url": f"https://api.dicebear.com/7.x/avataaars/svg?seed={body.username}",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(user_doc)
+    token = create_token(user_doc["id"], user_doc["email"], user_doc["role"])
+    return {"token": token, "user": {"id": user_doc["id"], "username": user_doc["username"], "email": user_doc["email"], "role": user_doc["role"], "avatar_url": user_doc["avatar_url"]}}
+
+@api_router.post("/auth/login")
+async def login_user(body: UserLogin):
+    user = await db.users.find_one({"email": body.email}, {"_id": 0})
+    if not user or not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(401, "Ungültige Anmeldedaten")
+    token = create_token(user["id"], user["email"], user.get("role", "user"))
+    return {"token": token, "user": {"id": user["id"], "username": user["username"], "email": user["email"], "role": user.get("role", "user"), "avatar_url": user.get("avatar_url", "")}}
+
+@api_router.get("/auth/me")
+async def get_me(request: Request):
+    user = await require_auth(request)
+    return user
+
+async def seed_admin():
+    if not await db.users.find_one({"role": "admin"}):
+        admin_doc = {
+            "id": str(uuid.uuid4()), "username": "admin", "email": "admin@arena.gg",
+            "password_hash": hash_password("admin123"), "role": "admin",
+            "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=admin",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.users.insert_one(admin_doc)
+        logger.info("Admin user seeded: admin@arena.gg / admin123")
+
+# ─── Team Endpoints ───
+
+@api_router.get("/teams")
+async def list_teams(request: Request):
+    user = await require_auth(request)
+    teams = await db.teams.find({"$or": [{"owner_id": user["id"]}, {"member_ids": user["id"]}]}, {"_id": 0}).to_list(100)
+    return teams
+
+@api_router.post("/teams")
+async def create_team(request: Request, body: TeamCreate):
+    user = await require_auth(request)
+    doc = {
+        "id": str(uuid.uuid4()), "name": body.name, "tag": body.tag,
+        "owner_id": user["id"], "owner_name": user["username"],
+        "member_ids": [user["id"]],
+        "members": [{"id": user["id"], "username": user["username"], "email": user["email"]}],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.teams.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/teams/{team_id}")
+async def get_team(team_id: str):
+    team = await db.teams.find_one({"id": team_id}, {"_id": 0})
+    if not team:
+        raise HTTPException(404, "Team nicht gefunden")
+    return team
+
+@api_router.delete("/teams/{team_id}")
+async def delete_team(request: Request, team_id: str):
+    user = await require_auth(request)
+    result = await db.teams.delete_one({"id": team_id, "owner_id": user["id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(404, "Team nicht gefunden")
+    return {"status": "deleted"}
+
+@api_router.post("/teams/{team_id}/members")
+async def add_team_member(request: Request, team_id: str, body: TeamAddMember):
+    user = await require_auth(request)
+    team = await db.teams.find_one({"id": team_id, "owner_id": user["id"]}, {"_id": 0})
+    if not team:
+        raise HTTPException(404, "Team nicht gefunden")
+    member = await db.users.find_one({"email": body.email}, {"_id": 0, "password_hash": 0})
+    if not member:
+        raise HTTPException(404, "Benutzer nicht gefunden")
+    if member["id"] in team.get("member_ids", []):
+        raise HTTPException(400, "Bereits Teammitglied")
+    await db.teams.update_one({"id": team_id}, {"$push": {"member_ids": member["id"], "members": {"id": member["id"], "username": member["username"], "email": member["email"]}}})
+    return await db.teams.find_one({"id": team_id}, {"_id": 0})
+
+@api_router.delete("/teams/{team_id}/members/{member_id}")
+async def remove_team_member(request: Request, team_id: str, member_id: str):
+    user = await require_auth(request)
+    team = await db.teams.find_one({"id": team_id, "owner_id": user["id"]}, {"_id": 0})
+    if not team:
+        raise HTTPException(404, "Team nicht gefunden")
+    await db.teams.update_one({"id": team_id}, {"$pull": {"member_ids": member_id, "members": {"id": member_id}}})
+    return await db.teams.find_one({"id": team_id}, {"_id": 0})
+
 # ─── Game Endpoints ───
 
 @api_router.get("/games")
@@ -357,7 +528,7 @@ async def list_registrations(tournament_id: str):
     return regs
 
 @api_router.post("/tournaments/{tournament_id}/register")
-async def register_for_tournament(tournament_id: str, body: RegistrationCreate):
+async def register_for_tournament(request: Request, tournament_id: str, body: RegistrationCreate):
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Tournament not found")
@@ -366,12 +537,15 @@ async def register_for_tournament(tournament_id: str, body: RegistrationCreate):
     reg_count = await db.registrations.count_documents({"tournament_id": tournament_id})
     if reg_count >= t["max_participants"]:
         raise HTTPException(400, "Tournament is full")
+    user = await get_current_user(request)
     payment_status = "free" if t["entry_fee"] <= 0 else "pending"
     doc = {
         "id": str(uuid.uuid4()),
         "tournament_id": tournament_id,
         "team_name": body.team_name,
         "players": body.players,
+        "team_id": body.team_id,
+        "user_id": user["id"] if user else None,
         "checked_in": False,
         "payment_status": payment_status,
         "payment_session_id": None,
