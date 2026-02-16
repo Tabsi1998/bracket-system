@@ -976,6 +976,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await seed_games()
+    await seed_admin()
     logger.info("eSports Tournament System started")
 
 @app.on_event("shutdown")
