@@ -7,7 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { ArrowLeft, Trophy, Gamepad2 } from "lucide-react";
+import { ArrowLeft, Trophy, Gamepad2, Shield } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -20,6 +21,7 @@ const bracketTypes = [
 
 export default function CreateTournamentPage() {
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const [games, setGames] = useState([]);
   const [selectedGame, setSelectedGame] = useState(null);
   const [form, setForm] = useState({
