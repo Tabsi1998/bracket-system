@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,9 @@ export default function TeamsPage() {
     twitch_url: "",
     youtube_url: "",
   });
+  const [publicTeams, setPublicTeams] = useState([]);
+  const [publicLoading, setPublicLoading] = useState(true);
+  const [publicQuery, setPublicQuery] = useState("");
 
   const fetchTeams = async () => {
     try {
@@ -50,7 +54,30 @@ export default function TeamsPage() {
     } catch { /* ignore */ } finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchTeams(); }, []);
+  const fetchPublicTeams = async (query = "") => {
+    setPublicLoading(true);
+    try {
+      const params = query.trim() ? { q: query.trim() } : {};
+      const res = await axios.get(`${API}/teams/public`, { params });
+      setPublicTeams(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setPublicTeams([]);
+    } finally {
+      setPublicLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      setLoading(true);
+      fetchTeams();
+    } else {
+      setTeams([]);
+      setLoading(false);
+    }
+    fetchPublicTeams(publicQuery);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const fetchSubTeams = async (teamId) => {
     try {
@@ -189,9 +216,95 @@ export default function TeamsPage() {
     toast.success("Kopiert!");
   };
 
+  const renderSocialLinks = (team, compact = false) => {
+    const cls = compact
+      ? "text-[11px] px-2 py-1 rounded border border-white/10 bg-zinc-900/60 hover:border-yellow-500/40"
+      : "text-[11px] px-2 py-1 rounded border border-white/10 bg-zinc-950/70 hover:border-yellow-500/40";
+    return (
+      <div className="flex flex-wrap gap-2">
+        {team.discord_url && <a href={team.discord_url} target="_blank" rel="noreferrer" className={`${cls} text-cyan-300`}>💬 Discord</a>}
+        {team.website_url && <a href={team.website_url} target="_blank" rel="noreferrer" className={`${cls} text-zinc-200`}>🌐 Website</a>}
+        {team.twitter_url && <a href={team.twitter_url} target="_blank" rel="noreferrer" className={`${cls} text-sky-300`}>🐦 X/Twitter</a>}
+        {team.instagram_url && <a href={team.instagram_url} target="_blank" rel="noreferrer" className={`${cls} text-pink-300`}>📸 Instagram</a>}
+        {team.twitch_url && <a href={team.twitch_url} target="_blank" rel="noreferrer" className={`${cls} text-purple-300`}>🎮 Twitch</a>}
+        {team.youtube_url && <a href={team.youtube_url} target="_blank" rel="noreferrer" className={`${cls} text-red-300`}>▶️ YouTube</a>}
+      </div>
+    );
+  };
+
   if (!user) return (
-    <div className="pt-20 min-h-screen flex items-center justify-center">
-      <p className="text-zinc-500">Bitte einloggen um Teams zu verwalten</p>
+    <div className="pt-20 min-h-screen">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        <div className="glass rounded-xl border border-white/5 p-6">
+          <h1 className="font-['Barlow_Condensed'] text-3xl sm:text-4xl font-bold text-white uppercase tracking-tight">Team Directory</h1>
+          <p className="text-sm text-zinc-400 mt-2">Sieh dir Hauptteams und Sub-Teams mit Banner, Logo und Social Links an.</p>
+          <div className="mt-4 flex flex-col sm:flex-row gap-2">
+            <Input
+              value={publicQuery}
+              onChange={(e) => setPublicQuery(e.target.value)}
+              placeholder="Teamname, Tag oder Bio suchen..."
+              className="bg-zinc-900 border-white/10 text-white"
+            />
+            <Button variant="outline" className="border-yellow-500/30 text-yellow-500 hover:bg-yellow-500/10" onClick={() => fetchPublicTeams(publicQuery)}>
+              Suchen
+            </Button>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <Link to="/login"><Button className="bg-yellow-500 text-black hover:bg-yellow-400">Einloggen</Button></Link>
+            <Link to="/register"><Button variant="outline" className="border-white/20 text-zinc-200 hover:bg-white/5">Registrieren</Button></Link>
+          </div>
+        </div>
+
+        {publicLoading ? (
+          <div className="flex justify-center py-10"><div className="w-8 h-8 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" /></div>
+        ) : publicTeams.length === 0 ? (
+          <div className="text-center py-14 glass rounded-xl border border-white/5 text-zinc-500">Keine Teams gefunden</div>
+        ) : (
+          <div className="space-y-4">
+            {publicTeams.map((team) => (
+              <div key={`public-${team.id}`} className="glass rounded-xl border border-white/5 overflow-hidden">
+                <div className="h-20 bg-zinc-900 relative">
+                  {team.banner_url ? <img src={team.banner_url} alt="" className="w-full h-full object-cover opacity-80" /> : null}
+                  <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/70" />
+                </div>
+                <div className="p-5 -mt-8 relative">
+                  <div className="flex items-start gap-3">
+                    <div className="w-14 h-14 rounded-xl border border-white/10 bg-zinc-900 overflow-hidden">
+                      {team.logo_url ? <img src={team.logo_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-yellow-500"><Users className="w-5 h-5" /></div>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="font-['Barlow_Condensed'] text-2xl text-white">{team.name}</h2>
+                        {team.tag ? <Badge className="bg-zinc-800 text-zinc-300 text-xs">[{team.tag}]</Badge> : null}
+                        <Badge className="bg-cyan-500/10 text-cyan-300 text-xs">{team.member_count || 0} Mitglieder</Badge>
+                        <Badge className="bg-purple-500/10 text-purple-300 text-xs">{team.sub_team_count || 0} Sub-Teams</Badge>
+                      </div>
+                      {team.bio ? <p className="text-sm text-zinc-400 mt-2 whitespace-pre-wrap">{team.bio}</p> : null}
+                      <div className="mt-3">{renderSocialLinks(team, true)}</div>
+                    </div>
+                  </div>
+
+                  {(team.sub_teams || []).length > 0 ? (
+                    <div className="mt-4 pt-4 border-t border-white/5 space-y-2">
+                      <p className="text-xs text-zinc-500 uppercase tracking-wider">Sub-Teams</p>
+                      {(team.sub_teams || []).map((sub) => (
+                        <div key={`public-sub-${sub.id}`} className="rounded-lg border border-white/5 bg-zinc-900/40 p-3">
+                          <div className="flex flex-wrap items-center gap-2 mb-2">
+                            <span className="text-sm font-semibold text-white">{sub.name}</span>
+                            {sub.tag ? <span className="text-xs text-zinc-500 font-mono">[{sub.tag}]</span> : null}
+                            <span className="text-xs text-zinc-600">{sub.member_count || 0} Mitglieder</span>
+                          </div>
+                          {renderSocialLinks(sub, true)}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -334,14 +447,7 @@ export default function TeamsPage() {
                   {(team.bio || team.discord_url || team.website_url || team.twitter_url || team.instagram_url || team.twitch_url || team.youtube_url) && (
                     <div className="mb-4 p-3 rounded-lg bg-zinc-900/40 border border-white/5 space-y-2">
                       {team.bio && <p className="text-xs text-zinc-400 whitespace-pre-wrap">{team.bio}</p>}
-                      <div className="flex flex-wrap gap-2 text-[11px]">
-                        {team.discord_url && <a href={team.discord_url} target="_blank" rel="noreferrer" className="text-cyan-400 hover:text-cyan-300">Discord</a>}
-                        {team.website_url && <a href={team.website_url} target="_blank" rel="noreferrer" className="text-zinc-300 hover:text-white">Website</a>}
-                        {team.twitter_url && <a href={team.twitter_url} target="_blank" rel="noreferrer" className="text-sky-400 hover:text-sky-300">X/Twitter</a>}
-                        {team.instagram_url && <a href={team.instagram_url} target="_blank" rel="noreferrer" className="text-pink-400 hover:text-pink-300">Instagram</a>}
-                        {team.twitch_url && <a href={team.twitch_url} target="_blank" rel="noreferrer" className="text-purple-400 hover:text-purple-300">Twitch</a>}
-                        {team.youtube_url && <a href={team.youtube_url} target="_blank" rel="noreferrer" className="text-red-400 hover:text-red-300">YouTube</a>}
-                      </div>
+                      {renderSocialLinks(team)}
                     </div>
                   )}
 
@@ -386,18 +492,35 @@ export default function TeamsPage() {
                     ) : (
                       <div className="space-y-2">
                         {subTeams[team.id].map(st => (
-                          <div key={st.id} className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/50 border border-white/5">
-                            <div className="flex items-center gap-2">
-                              <Users className="w-4 h-4 text-cyan-500" />
-                              <span className="text-sm text-white font-semibold">{st.name}</span>
-                              {st.tag && <span className="text-xs text-zinc-500 font-mono">[{st.tag}]</span>}
-                              <span className="text-xs text-zinc-600">{st.members?.length || 0} Mitglieder</span>
+                          <div key={st.id} className="p-3 rounded-lg bg-zinc-900/50 border border-white/5">
+                            {st.banner_url ? (
+                              <div className="h-14 rounded-md overflow-hidden mb-2 border border-white/5">
+                                <img src={st.banner_url} alt="" className="w-full h-full object-cover" />
+                              </div>
+                            ) : null}
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-start gap-2">
+                                <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden border border-white/10">
+                                  {st.logo_url ? <img src={st.logo_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Users className="w-4 h-4 text-cyan-500" /></div>}
+                                </div>
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm text-white font-semibold">{st.name}</span>
+                                    {st.tag && <span className="text-xs text-zinc-500 font-mono">[{st.tag}]</span>}
+                                    <span className="text-xs text-zinc-600">{st.members?.length || 0} Mitglieder</span>
+                                  </div>
+                                  {(st.inherited_fields || []).length > 0 && (
+                                    <p className="text-[10px] text-zinc-600 mt-1">Übernimmt Profilfelder vom Hauptteam</p>
+                                  )}
+                                  <div className="mt-2">{renderSocialLinks(st, true)}</div>
+                                </div>
+                              </div>
+                              {isOwner(team) && (
+                                <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-400 h-6" onClick={() => handleDelete(st.id)}>
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              )}
                             </div>
-                            {isOwner(team) && (
-                              <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-400 h-6" onClick={() => handleDelete(st.id)}>
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
-                            )}
                           </div>
                         ))}
                       </div>
@@ -408,6 +531,60 @@ export default function TeamsPage() {
             ))}
           </div>
         )}
+
+        <div className="mt-10 pt-8 border-t border-white/5">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <div>
+              <h2 className="font-['Barlow_Condensed'] text-2xl text-white uppercase tracking-tight">Team Finder</h2>
+              <p className="text-xs text-zinc-600">Alle öffentlichen Hauptteams inkl. Sub-Teams und Social Links</p>
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={publicQuery}
+                onChange={(e) => setPublicQuery(e.target.value)}
+                placeholder="Suchen..."
+                className="bg-zinc-900 border-white/10 text-white h-9 w-44"
+              />
+              <Button variant="outline" className="h-9 border-yellow-500/30 text-yellow-500 hover:bg-yellow-500/10" onClick={() => fetchPublicTeams(publicQuery)}>
+                Suchen
+              </Button>
+            </div>
+          </div>
+          {publicLoading ? (
+            <div className="flex justify-center py-8"><div className="w-7 h-7 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" /></div>
+          ) : publicTeams.length === 0 ? (
+            <div className="text-center py-10 glass rounded-xl border border-white/5 text-zinc-500">Keine Teams gefunden</div>
+          ) : (
+            <div className="space-y-3">
+              {publicTeams.map((team) => (
+                <div key={`finder-${team.id}`} className="rounded-xl border border-white/5 bg-zinc-950/40 p-4">
+                  <div className="flex flex-wrap items-start gap-3">
+                    <div className="w-10 h-10 rounded-lg overflow-hidden border border-white/10 bg-zinc-900">
+                      {team.logo_url ? <img src={team.logo_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Users className="w-4 h-4 text-yellow-500" /></div>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-white font-semibold">{team.name}</span>
+                        {team.tag ? <span className="text-xs text-zinc-500 font-mono">[{team.tag}]</span> : null}
+                        <span className="text-xs text-zinc-600">{team.sub_team_count || 0} Sub-Teams</span>
+                      </div>
+                      <div className="mt-2">{renderSocialLinks(team, true)}</div>
+                      {(team.sub_teams || []).length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1">
+                          {(team.sub_teams || []).map((sub) => (
+                            <Badge key={`finder-sub-${sub.id}`} className="bg-cyan-500/10 text-cyan-300 text-xs">
+                              {sub.name}{sub.tag ? ` [${sub.tag}]` : ""}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Team Edit Dialog */}
         <Dialog open={editOpen} onOpenChange={setEditOpen}>

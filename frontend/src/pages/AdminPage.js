@@ -143,10 +143,12 @@ export default function AdminPage() {
   };
 
   const settingKeys = [
+    { key: "payment_provider", label: "Payment Provider", placeholder: "stripe oder paypal" },
     { key: "stripe_public_key", label: "Stripe Public Key", placeholder: "pk_test_..." },
     { key: "stripe_secret_key", label: "Stripe Secret Key", placeholder: "sk_test_..." },
     { key: "paypal_client_id", label: "PayPal Client ID", placeholder: "PayPal Client ID" },
     { key: "paypal_secret", label: "PayPal Secret", placeholder: "PayPal Secret" },
+    { key: "paypal_mode", label: "PayPal Mode", placeholder: "sandbox oder live" },
     { key: "smtp_host", label: "SMTP Host", placeholder: "smtp.gmail.com" },
     { key: "smtp_port", label: "SMTP Port", placeholder: "587" },
     { key: "smtp_user", label: "SMTP Benutzer", placeholder: "email@domain.de" },
@@ -379,7 +381,7 @@ export default function AdminPage() {
                   <CreditCard className="w-5 h-5 text-yellow-500" />Zahlungs-Einstellungen
                 </h3>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  {settingKeys.filter(s => s.key.startsWith("stripe") || s.key.startsWith("paypal")).map(sk => (
+                  {settingKeys.filter(s => s.key.startsWith("stripe") || s.key.startsWith("paypal") || s.key === "payment_provider").map(sk => (
                     <div key={sk.key}>
                       <Label className="text-zinc-400 text-sm">{sk.label}</Label>
                       <Input

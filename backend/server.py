@@ -3,10 +3,14 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import asyncio
 import logging
 import math
 import re
 import json
+import base64
+import urllib.request
+import urllib.error
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any, Tuple, Set
@@ -103,6 +107,7 @@ class PaymentRequest(BaseModel):
     tournament_id: str
     registration_id: str
     origin_url: str
+    provider: Optional[str] = None
 
 class UserRegister(BaseModel):
     username: Optional[str] = ""
@@ -207,6 +212,18 @@ SUPPORTED_BRACKET_TYPES = {
 
 SUPPORTED_PARTICIPANT_MODES = {"team", "solo"}
 
+TEAM_PROFILE_FIELDS = (
+    "bio",
+    "logo_url",
+    "banner_url",
+    "discord_url",
+    "website_url",
+    "twitter_url",
+    "instagram_url",
+    "twitch_url",
+    "youtube_url",
+)
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -232,6 +249,28 @@ def registration_slot(reg: Dict) -> Dict[str, str]:
         "team_logo_url": str(reg.get("team_logo_url", "") or ""),
         "team_tag": str(reg.get("team_tag", "") or ""),
     }
+
+def merge_team_with_parent(team: Dict, parent: Optional[Dict]) -> Dict:
+    if not team:
+        return {}
+    merged = dict(team)
+    inherited_fields = []
+    if parent:
+        merged["main_team_name"] = str(parent.get("name", "") or "")
+        for field in TEAM_PROFILE_FIELDS:
+            if not str(merged.get(field, "") or "").strip():
+                parent_value = str(parent.get(field, "") or "").strip()
+                if parent_value:
+                    merged[field] = parent_value
+                    inherited_fields.append(field)
+        if not str(merged.get("tag", "") or "").strip():
+            parent_tag = str(parent.get("tag", "") or "").strip()
+            if parent_tag:
+                merged["tag"] = parent_tag
+                inherited_fields.append("tag")
+    merged["inherited_fields"] = inherited_fields
+    merged["inherits_from_parent"] = bool(inherited_fields)
+    return merged
 
 def normalize_email(value: str) -> str:
     return str(value or "").strip().strip('"').strip("'").lower()
@@ -503,6 +542,155 @@ async def get_stripe_webhook_secret() -> Optional[str]:
     setting = await db.admin_settings.find_one({"key": "stripe_webhook_secret"}, {"_id": 0})
     value = str((setting or {}).get("value", "")).strip()
     return value or None
+
+def normalize_payment_provider(value: str) -> str:
+    provider = str(value or "").strip().lower()
+    if provider in {"", "auto"}:
+        return "auto"
+    if provider in {"stripe", "paypal"}:
+        return provider
+    raise HTTPException(400, "Ungültiger Payment-Provider")
+
+async def get_payment_provider(requested_provider: Optional[str] = None) -> str:
+    provider = normalize_payment_provider(requested_provider or "")
+    if provider in {"stripe", "paypal"}:
+        return provider
+    setting = await db.admin_settings.find_one({"key": "payment_provider"}, {"_id": 0, "value": 1})
+    setting_provider_raw = str((setting or {}).get("value", ""))
+    try:
+        setting_provider = normalize_payment_provider(setting_provider_raw)
+    except HTTPException:
+        logger.warning(f"Ignoring invalid payment_provider setting: {setting_provider_raw}")
+        setting_provider = "auto"
+    if setting_provider in {"stripe", "paypal"}:
+        return setting_provider
+    paypal_client_id = await get_paypal_client_id()
+    paypal_secret = await get_paypal_secret()
+    if paypal_client_id and paypal_secret:
+        return "paypal"
+    return "stripe"
+
+async def get_paypal_client_id() -> Optional[str]:
+    env_value = str(os.environ.get("PAYPAL_CLIENT_ID", "") or "").strip()
+    if env_value:
+        return env_value
+    setting = await db.admin_settings.find_one({"key": "paypal_client_id"}, {"_id": 0, "value": 1})
+    value = str((setting or {}).get("value", "") or "").strip()
+    return value or None
+
+async def get_paypal_secret() -> Optional[str]:
+    env_value = str(os.environ.get("PAYPAL_SECRET", "") or "").strip()
+    if env_value:
+        return env_value
+    setting = await db.admin_settings.find_one({"key": "paypal_secret"}, {"_id": 0, "value": 1})
+    value = str((setting or {}).get("value", "") or "").strip()
+    return value or None
+
+async def get_paypal_base_url() -> str:
+    env_mode = str(os.environ.get("PAYPAL_MODE", "") or "").strip().lower()
+    if env_mode == "live":
+        return "https://api-m.paypal.com"
+    if env_mode == "sandbox":
+        return "https://api-m.sandbox.paypal.com"
+    setting = await db.admin_settings.find_one({"key": "paypal_mode"}, {"_id": 0, "value": 1})
+    mode = str((setting or {}).get("value", "") or "").strip().lower()
+    if mode == "live":
+        return "https://api-m.paypal.com"
+    return "https://api-m.sandbox.paypal.com"
+
+async def paypal_api_request(
+    method: str,
+    path: str,
+    payload: Optional[Dict] = None,
+    bearer_token: Optional[str] = None,
+    basic_auth: Optional[str] = None,
+    raw_body: Optional[bytes] = None,
+    content_type: str = "application/json",
+) -> Dict:
+    base_url = await get_paypal_base_url()
+    url = f"{base_url}{path}"
+    data = None
+    headers = {"Content-Type": content_type, "Accept": "application/json"}
+    if raw_body is not None:
+        data = raw_body
+    elif payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
+    if basic_auth:
+        headers["Authorization"] = f"Basic {basic_auth}"
+
+    request_obj = urllib.request.Request(url=url, data=data, headers=headers, method=method.upper())
+
+    def _do_request():
+        with urllib.request.urlopen(request_obj, timeout=20) as response:
+            body = response.read().decode("utf-8") if response else "{}"
+            return json.loads(body or "{}")
+
+    try:
+        return await asyncio.to_thread(_do_request)
+    except urllib.error.HTTPError as http_error:
+        body = http_error.read().decode("utf-8", errors="ignore") if http_error else ""
+        logger.warning(f"PayPal API error {http_error.code}: {body}")
+        detail = "PayPal API Fehler"
+        try:
+            parsed = json.loads(body or "{}")
+            detail = str((parsed.get("message") or detail)).strip() or detail
+        except Exception:
+            pass
+        raise HTTPException(400, detail)
+    except Exception as e:
+        logger.warning(f"PayPal request failed: {e}")
+        raise HTTPException(400, "PayPal Verbindung fehlgeschlagen")
+
+async def get_paypal_access_token() -> str:
+    client_id = await get_paypal_client_id()
+    secret = await get_paypal_secret()
+    if not client_id or not secret:
+        raise HTTPException(500, "PayPal ist nicht konfiguriert")
+    auth_raw = f"{client_id}:{secret}".encode("utf-8")
+    basic_auth = base64.b64encode(auth_raw).decode("ascii")
+    token_response = await paypal_api_request(
+        "POST",
+        "/v1/oauth2/token",
+        raw_body=b"grant_type=client_credentials",
+        content_type="application/x-www-form-urlencoded",
+        basic_auth=basic_auth,
+    )
+    access_token = str((token_response or {}).get("access_token", "")).strip()
+    if not access_token:
+        raise HTTPException(500, "PayPal Token konnte nicht erzeugt werden")
+    return access_token
+
+async def create_paypal_order(amount: float, currency: str, tournament_name: str, return_url: str, cancel_url: str) -> Dict:
+    token = await get_paypal_access_token()
+    payload = {
+        "intent": "CAPTURE",
+        "purchase_units": [
+            {
+                "description": f"Turniergebühr: {tournament_name}",
+                "amount": {
+                    "currency_code": str(currency or "EUR").upper(),
+                    "value": f"{float(amount):.2f}",
+                },
+            }
+        ],
+        "application_context": {
+            "return_url": return_url,
+            "cancel_url": cancel_url,
+            "shipping_preference": "NO_SHIPPING",
+            "user_action": "PAY_NOW",
+        },
+    }
+    return await paypal_api_request("POST", "/v2/checkout/orders", payload=payload, bearer_token=token)
+
+async def get_paypal_order(order_id: str) -> Dict:
+    token = await get_paypal_access_token()
+    return await paypal_api_request("GET", f"/v2/checkout/orders/{order_id}", payload=None, bearer_token=token)
+
+async def capture_paypal_order(order_id: str) -> Dict:
+    token = await get_paypal_access_token()
+    return await paypal_api_request("POST", f"/v2/checkout/orders/{order_id}/capture", payload={}, bearer_token=token)
 
 def sanitize_registration(reg: Dict, include_private: bool = False, include_player_emails: bool = False) -> Dict:
     players = []
@@ -900,9 +1088,9 @@ async def seed_admin():
 async def list_teams(request: Request):
     user = await require_auth(request)
     teams = await db.teams.find({"$or": [{"owner_id": user["id"]}, {"member_ids": user["id"]}], "parent_team_id": {"$in": [None, ""]}}, {"_id": 0}).to_list(100)
-    # Strip join_code for non-owners
     result = []
     for t in teams:
+        t = merge_team_with_parent(t, None)
         if t.get("owner_id") != user["id"]:
             t.pop("join_code", None)
         result.append(t)
@@ -920,19 +1108,129 @@ async def list_registerable_sub_teams(request: Request):
     parent_ids = list(dict.fromkeys(str(t.get("parent_team_id", "")).strip() for t in sub_teams if str(t.get("parent_team_id", "")).strip()))
     parent_docs = []
     if parent_ids:
-        parent_docs = await db.teams.find({"id": {"$in": parent_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(300)
+        parent_docs = await db.teams.find(
+            {"id": {"$in": parent_ids}},
+            {"_id": 0, "id": 1, "name": 1, "tag": 1, "logo_url": 1, "banner_url": 1, "discord_url": 1, "website_url": 1, "twitter_url": 1, "instagram_url": 1, "twitch_url": 1, "youtube_url": 1, "bio": 1},
+        ).to_list(300)
     parent_map = {p["id"]: p.get("name", "") for p in parent_docs}
+    parent_doc_map = {p["id"]: p for p in parent_docs}
 
     result = []
     for t in sub_teams:
+        parent_id = str(t.get("parent_team_id", "")).strip()
+        t = merge_team_with_parent(t, parent_doc_map.get(parent_id))
         if t.get("owner_id") != user["id"]:
             t.pop("join_code", None)
-        parent_id = str(t.get("parent_team_id", "")).strip()
         t["parent_team_name"] = parent_map.get(parent_id, "")
         t["is_sub_team"] = True
         result.append(t)
     result.sort(key=lambda item: (str(item.get("parent_team_name", "")).lower(), str(item.get("name", "")).lower()))
     return result
+
+@api_router.get("/teams/public")
+async def list_public_teams(q: Optional[str] = None):
+    term = normalize_optional_text(q, max_len=80) if q else ""
+    query = {"parent_team_id": {"$in": [None, ""]}}
+    if term:
+        query["$or"] = [
+            {"name": {"$regex": re.escape(term), "$options": "i"}},
+            {"tag": {"$regex": re.escape(term), "$options": "i"}},
+            {"bio": {"$regex": re.escape(term), "$options": "i"}},
+        ]
+
+    team_projection = {
+        "_id": 0,
+        "id": 1,
+        "name": 1,
+        "tag": 1,
+        "bio": 1,
+        "logo_url": 1,
+        "banner_url": 1,
+        "discord_url": 1,
+        "website_url": 1,
+        "twitter_url": 1,
+        "instagram_url": 1,
+        "twitch_url": 1,
+        "youtube_url": 1,
+        "parent_team_id": 1,
+        "member_ids": 1,
+        "created_at": 1,
+    }
+    main_teams = await db.teams.find(query, team_projection).sort("created_at", -1).to_list(500)
+    main_team_map = {str(t.get("id", "")).strip(): t for t in main_teams if str(t.get("id", "")).strip()}
+
+    # If a sub-team matches the search term, include its parent main team as well.
+    if term:
+        sub_parent_rows = await db.teams.find(
+            {
+                "parent_team_id": {"$nin": [None, ""]},
+                "$or": [
+                    {"name": {"$regex": re.escape(term), "$options": "i"}},
+                    {"tag": {"$regex": re.escape(term), "$options": "i"}},
+                    {"bio": {"$regex": re.escape(term), "$options": "i"}},
+                ],
+            },
+            {"_id": 0, "parent_team_id": 1},
+        ).to_list(2000)
+        missing_parent_ids = [
+            parent_id
+            for parent_id in {
+                str(row.get("parent_team_id", "")).strip()
+                for row in sub_parent_rows
+                if str(row.get("parent_team_id", "")).strip()
+            }
+            if parent_id not in main_team_map
+        ]
+        if missing_parent_ids:
+            extra_main_teams = await db.teams.find({"id": {"$in": missing_parent_ids}}, team_projection).to_list(500)
+            for extra in extra_main_teams:
+                extra_id = str(extra.get("id", "")).strip()
+                if extra_id:
+                    main_team_map[extra_id] = extra
+
+    main_teams = list(main_team_map.values())
+    main_teams.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+    main_team_ids = [str(t.get("id", "")).strip() for t in main_teams if str(t.get("id", "")).strip()]
+
+    subs = []
+    if main_team_ids:
+        subs = await db.teams.find(
+            {"parent_team_id": {"$in": main_team_ids}},
+            team_projection,
+        ).sort("created_at", -1).to_list(2000)
+
+    sub_map: Dict[str, List[Dict]] = {}
+    for sub in subs:
+        parent_id = str(sub.get("parent_team_id", "")).strip()
+        if not parent_id:
+            continue
+        sub_map.setdefault(parent_id, []).append(sub)
+
+    payload = []
+    for team in main_teams:
+        team_id = str(team.get("id", "")).strip()
+        merged_main = merge_team_with_parent(team, None)
+        merged_main["is_sub_team"] = False
+        merged_main["member_count"] = len(merged_main.pop("member_ids", []) or [])
+        for private_field in ("members", "leader_ids", "owner_id", "owner_name", "join_code"):
+            merged_main.pop(private_field, None)
+
+        children = []
+        for sub in sub_map.get(team_id, []):
+            merged_sub = merge_team_with_parent(sub, team)
+            merged_sub["is_sub_team"] = True
+            merged_sub["parent_team_name"] = team.get("name", "")
+            merged_sub["member_count"] = len(merged_sub.pop("member_ids", []) or [])
+            for private_field in ("members", "leader_ids", "owner_id", "owner_name", "join_code"):
+                merged_sub.pop(private_field, None)
+            children.append(merged_sub)
+        children.sort(key=lambda item: str(item.get("name", "")).lower())
+
+        merged_main["sub_teams"] = children
+        merged_main["sub_team_count"] = len(children)
+        payload.append(merged_main)
+
+    return payload
 
 @api_router.post("/teams")
 async def create_team(request: Request, body: TeamCreate):
@@ -943,14 +1241,19 @@ async def create_team(request: Request, body: TeamCreate):
     tag = normalize_optional_text(body.tag, max_len=20)
 
     parent_team_id = str(body.parent_team_id or "").strip() or None
+    parent_profile = None
     if parent_team_id:
-        parent = await db.teams.find_one({"id": parent_team_id}, {"_id": 0, "id": 1, "owner_id": 1, "parent_team_id": 1})
+        parent = await db.teams.find_one(
+            {"id": parent_team_id},
+            {"_id": 0, "id": 1, "owner_id": 1, "parent_team_id": 1, "bio": 1, "logo_url": 1, "banner_url": 1, "discord_url": 1, "website_url": 1, "twitter_url": 1, "instagram_url": 1, "twitch_url": 1, "youtube_url": 1},
+        )
         if not parent:
             raise HTTPException(404, "Hauptteam nicht gefunden")
         if is_sub_team(parent):
             raise HTTPException(400, "Sub-Teams können nicht unter weiteren Sub-Teams erstellt werden")
         if parent.get("owner_id") != user["id"] and user.get("role") != "admin":
             raise HTTPException(403, "Nur der Owner des Hauptteams kann Sub-Teams erstellen")
+        parent_profile = parent
 
     doc = {
         "id": str(uuid.uuid4()), "name": name, "tag": tag,
@@ -960,15 +1263,15 @@ async def create_team(request: Request, body: TeamCreate):
         "leader_ids": [user["id"]],
         "members": [{"id": user["id"], "username": user["username"], "email": user["email"], "role": "owner"}],
         "parent_team_id": parent_team_id,
-        "bio": "",
-        "logo_url": "",
-        "banner_url": "",
-        "discord_url": "",
-        "website_url": "",
-        "twitter_url": "",
-        "instagram_url": "",
-        "twitch_url": "",
-        "youtube_url": "",
+        "bio": str((parent_profile or {}).get("bio", "") or ""),
+        "logo_url": str((parent_profile or {}).get("logo_url", "") or ""),
+        "banner_url": str((parent_profile or {}).get("banner_url", "") or ""),
+        "discord_url": str((parent_profile or {}).get("discord_url", "") or ""),
+        "website_url": str((parent_profile or {}).get("website_url", "") or ""),
+        "twitter_url": str((parent_profile or {}).get("twitter_url", "") or ""),
+        "instagram_url": str((parent_profile or {}).get("instagram_url", "") or ""),
+        "twitch_url": str((parent_profile or {}).get("twitch_url", "") or ""),
+        "youtube_url": str((parent_profile or {}).get("youtube_url", "") or ""),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.teams.insert_one(doc)
@@ -981,6 +1284,11 @@ async def get_team(request: Request, team_id: str):
     team = await db.teams.find_one({"id": team_id}, {"_id": 0})
     if not team:
         raise HTTPException(404, "Team nicht gefunden")
+    parent_doc = None
+    parent_id = str(team.get("parent_team_id", "") or "").strip()
+    if parent_id:
+        parent_doc = await db.teams.find_one({"id": parent_id}, {"_id": 0, "join_code": 0})
+    team = merge_team_with_parent(team, parent_doc)
     # Hide join_code for non-owners
     if not user or team.get("owner_id") != user.get("id"):
         team.pop("join_code", None)
@@ -1043,6 +1351,32 @@ async def update_team(request: Request, team_id: str, body: TeamUpdate):
         reg_updates["team_tag"] = updates["tag"]
     if reg_updates:
         await db.registrations.update_many({"team_id": team_id}, {"$set": reg_updates})
+
+    # Main-team branding fallback for sub-teams: only fill empty child fields.
+    if not is_sub_team(team):
+        child_teams = await db.teams.find({"parent_team_id": team_id}, {"_id": 0, "id": 1, "logo_url": 1, "banner_url": 1, "tag": 1}).to_list(500)
+        for child in child_teams:
+            child_updates = {}
+            if "logo_url" in updates and not str(child.get("logo_url", "") or "").strip():
+                child_updates["logo_url"] = updates["logo_url"]
+            if "banner_url" in updates and not str(child.get("banner_url", "") or "").strip():
+                child_updates["banner_url"] = updates["banner_url"]
+            if "tag" in updates and not str(child.get("tag", "") or "").strip():
+                child_updates["tag"] = updates["tag"]
+
+            if child_updates:
+                child_updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+                await db.teams.update_one({"id": child["id"]}, {"$set": child_updates})
+
+                reg_child_updates = {}
+                if "logo_url" in child_updates:
+                    reg_child_updates["team_logo_url"] = child_updates["logo_url"]
+                if "banner_url" in child_updates:
+                    reg_child_updates["team_banner_url"] = child_updates["banner_url"]
+                if "tag" in child_updates:
+                    reg_child_updates["team_tag"] = child_updates["tag"]
+                if reg_child_updates:
+                    await db.registrations.update_many({"team_id": child["id"]}, {"$set": reg_child_updates})
 
     updated = await db.teams.find_one({"id": team_id}, {"_id": 0})
     if updated and user.get("role") != "admin" and updated.get("owner_id") != user["id"]:
@@ -1148,17 +1482,23 @@ async def demote_leader(request: Request, team_id: str, user_id: str):
 @api_router.get("/teams/{team_id}/sub-teams")
 async def list_sub_teams(request: Request, team_id: str):
     user = await require_auth(request)
-    parent = await db.teams.find_one({"id": team_id}, {"_id": 0, "owner_id": 1, "member_ids": 1})
+    parent = await db.teams.find_one(
+        {"id": team_id},
+        {"_id": 0, "id": 1, "name": 1, "owner_id": 1, "member_ids": 1, "tag": 1, "bio": 1, "logo_url": 1, "banner_url": 1, "discord_url": 1, "website_url": 1, "twitter_url": 1, "instagram_url": 1, "twitch_url": 1, "youtube_url": 1},
+    )
     if not parent:
         raise HTTPException(404, "Team nicht gefunden")
     can_view = user.get("role") == "admin" or parent.get("owner_id") == user["id"] or user["id"] in parent.get("member_ids", [])
     if not can_view:
         raise HTTPException(403, "Keine Berechtigung")
     subs = await db.teams.find({"parent_team_id": team_id}, {"_id": 0}).to_list(50)
+    merged_subs = []
     for s in subs:
+        s = merge_team_with_parent(s, parent)
         if user.get("role") != "admin" and s.get("owner_id") != user["id"]:
             s.pop("join_code", None)
-    return subs
+        merged_subs.append(s)
+    return merged_subs
 
 # ─── Game Endpoints ───
 
@@ -1340,8 +1680,9 @@ async def list_registrations(request: Request, tournament_id: str):
     parent_ids = list(dict.fromkeys(str(t.get("parent_team_id", "")).strip() for t in teams if str(t.get("parent_team_id", "")).strip()))
     parent_docs = []
     if parent_ids:
-        parent_docs = await db.teams.find({"id": {"$in": parent_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+        parent_docs = await db.teams.find({"id": {"$in": parent_ids}}, {"_id": 0, "id": 1, "name": 1, "tag": 1, "logo_url": 1, "banner_url": 1}).to_list(500)
     parent_map = {p["id"]: p.get("name", "") for p in parent_docs}
+    parent_doc_map = {p["id"]: p for p in parent_docs}
 
     for reg in regs:
         team_id = str(reg.get("team_id", "")).strip()
@@ -1353,6 +1694,13 @@ async def list_registrations(request: Request, tournament_id: str):
         reg["team_tag"] = team.get("tag", "")
         parent_id = str(team.get("parent_team_id", "")).strip()
         reg["main_team_name"] = parent_map.get(parent_id, "")
+        parent_doc = parent_doc_map.get(parent_id, {})
+        if not reg.get("team_logo_url"):
+            reg["team_logo_url"] = parent_doc.get("logo_url", "")
+        if not reg.get("team_banner_url"):
+            reg["team_banner_url"] = parent_doc.get("banner_url", "")
+        if not reg.get("team_tag"):
+            reg["team_tag"] = parent_doc.get("tag", "")
 
     is_admin = bool(user and user.get("role") == "admin")
     return [sanitize_registration(r, include_private=is_admin, include_player_emails=is_admin) for r in regs]
@@ -1428,8 +1776,14 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
         team_tag = str(team.get("tag", "") or "")
         parent_team_id = str(team.get("parent_team_id", "") or "").strip()
         if parent_team_id:
-            parent = await db.teams.find_one({"id": parent_team_id}, {"_id": 0, "name": 1})
+            parent = await db.teams.find_one({"id": parent_team_id}, {"_id": 0, "name": 1, "tag": 1, "logo_url": 1, "banner_url": 1})
             main_team_name = str((parent or {}).get("name", "") or "")
+            if not team_logo_url:
+                team_logo_url = str((parent or {}).get("logo_url", "") or "")
+            if not team_banner_url:
+                team_banner_url = str((parent or {}).get("banner_url", "") or "")
+            if not team_tag:
+                team_tag = str((parent or {}).get("tag", "") or "")
 
     payment_status = "free" if t["entry_fee"] <= 0 else "pending"
     doc = {
@@ -2932,7 +3286,7 @@ async def update_match_score(request: Request, tournament_id: str, match_id: str
     await _apply_score_to_bracket(tournament_id, match_id, body.score1, body.score2, body.winner_id)
     return await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
 
-# ─── Payment Endpoints (Stripe) ───
+# ─── Payment Endpoints ───
 
 @api_router.post("/payments/create-checkout")
 async def create_checkout(request: Request, body: PaymentRequest):
@@ -2952,20 +3306,59 @@ async def create_checkout(request: Request, body: PaymentRequest):
     if reg.get("user_id") and (not user or (user["id"] != reg["user_id"] and user.get("role") != "admin")):
         raise HTTPException(403, "Keine Berechtigung für diese Zahlung")
 
-    stripe_api_key = await get_stripe_api_key()
-    if not stripe_api_key:
-        raise HTTPException(500, "Payment system not configured")
-    stripe.api_key = stripe_api_key
+    payment_provider = await get_payment_provider(body.provider)
     host_url = body.origin_url.rstrip("/")
     if not (host_url.startswith("http://") or host_url.startswith("https://")):
         raise HTTPException(400, "Invalid origin URL")
-    success_url = f"{host_url}/tournaments/{body.tournament_id}?session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = f"{host_url}/tournaments/{body.tournament_id}"
 
     currency = str(t.get("currency", "usd") or "usd").lower()
     unit_amount = int(round(float(entry_fee) * 100))
     if unit_amount <= 0:
         raise HTTPException(400, "Invalid entry fee")
+    if payment_provider == "paypal":
+        return_url = f"{host_url}/tournaments/{body.tournament_id}?payment_provider=paypal"
+        cancel_url = f"{host_url}/tournaments/{body.tournament_id}?payment_cancelled=1"
+        order = await create_paypal_order(
+            amount=float(entry_fee),
+            currency=currency,
+            tournament_name=str(t.get("name", "Tournament") or "Tournament"),
+            return_url=return_url,
+            cancel_url=cancel_url,
+        )
+        order_id = str((order or {}).get("id", "")).strip()
+        if not order_id:
+            raise HTTPException(500, "PayPal Order konnte nicht erstellt werden")
+        approve_url = ""
+        for link in (order or {}).get("links", []):
+            if str((link or {}).get("rel", "")).strip().lower() == "approve":
+                approve_url = str((link or {}).get("href", "")).strip()
+                break
+        if not approve_url:
+            raise HTTPException(500, "PayPal Freigabe-URL fehlt")
+
+        payment_doc = {
+            "id": str(uuid.uuid4()),
+            "provider": "paypal",
+            "session_id": order_id,
+            "tournament_id": body.tournament_id,
+            "registration_id": body.registration_id,
+            "amount": float(entry_fee),
+            "currency": currency,
+            "payment_status": "pending",
+            "status": str((order or {}).get("status", "CREATED") or "CREATED"),
+            "metadata": {"tournament_id": body.tournament_id, "registration_id": body.registration_id},
+            "created_at": now_iso(),
+        }
+        await db.payment_transactions.insert_one(payment_doc)
+        await db.registrations.update_one({"id": body.registration_id}, {"$set": {"payment_session_id": order_id}})
+        return {"url": approve_url, "session_id": order_id, "provider": "paypal"}
+
+    stripe_api_key = await get_stripe_api_key()
+    if not stripe_api_key:
+        raise HTTPException(500, "Stripe ist nicht konfiguriert")
+    stripe.api_key = stripe_api_key
+    success_url = f"{host_url}/tournaments/{body.tournament_id}?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{host_url}/tournaments/{body.tournament_id}?payment_cancelled=1"
     try:
         session = stripe.checkout.Session.create(
             mode="payment",
@@ -2989,6 +3382,7 @@ async def create_checkout(request: Request, body: PaymentRequest):
 
     payment_doc = {
         "id": str(uuid.uuid4()),
+        "provider": "stripe",
         "session_id": session.id,
         "tournament_id": body.tournament_id,
         "registration_id": body.registration_id,
@@ -3001,34 +3395,89 @@ async def create_checkout(request: Request, body: PaymentRequest):
     }
     await db.payment_transactions.insert_one(payment_doc)
     await db.registrations.update_one({"id": body.registration_id}, {"$set": {"payment_session_id": session.id}})
-    return {"url": session.url, "session_id": session.id}
+    return {"url": session.url, "session_id": session.id, "provider": "stripe"}
 
 @api_router.get("/payments/status/{session_id}")
 async def check_payment_status(request: Request, session_id: str):
+    user = await require_auth(request)
+    existing = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Payment session not found")
+
+    registration = await db.registrations.find_one({"id": existing.get("registration_id")}, {"_id": 0, "user_id": 1})
+    if registration and registration.get("user_id") and registration.get("user_id") != user.get("id") and user.get("role") != "admin":
+        raise HTTPException(403, "Keine Berechtigung")
+
+    provider = str(existing.get("provider", "stripe") or "stripe").strip().lower()
+    if provider == "paypal":
+        order = await get_paypal_order(session_id)
+        order_status = str((order or {}).get("status", "") or "").strip().upper()
+        payment_status = "pending"
+
+        if order_status == "APPROVED":
+            try:
+                capture = await capture_paypal_order(session_id)
+                capture_status = str((capture or {}).get("status", "") or "").strip().upper()
+                if capture_status:
+                    order_status = capture_status
+            except HTTPException:
+                refreshed = await get_paypal_order(session_id)
+                order = refreshed or order
+                order_status = str((refreshed or {}).get("status", order_status) or order_status).strip().upper()
+
+        if order_status == "COMPLETED":
+            payment_status = "paid"
+        elif order_status in {"VOIDED", "CANCELLED", "DECLINED", "FAILED"}:
+            payment_status = "failed"
+
+        amount_total = 0
+        currency_code = str(existing.get("currency", "") or "").upper()
+        try:
+            purchase_units = (order or {}).get("purchase_units", []) or []
+            amount_obj = ((purchase_units[0] if purchase_units else {}) or {}).get("amount", {}) or {}
+            if amount_obj.get("value"):
+                amount_total = int(round(float(amount_obj.get("value")) * 100))
+            if amount_obj.get("currency_code"):
+                currency_code = str(amount_obj.get("currency_code") or "").upper()
+        except Exception:
+            pass
+
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {"payment_status": payment_status, "status": order_status, "updated_at": now_iso()}},
+        )
+        if payment_status == "paid":
+            await db.registrations.update_one({"id": existing["registration_id"]}, {"$set": {"payment_status": "paid"}})
+
+        return {
+            "provider": "paypal",
+            "status": order_status,
+            "payment_status": payment_status,
+            "amount_total": amount_total,
+            "currency": currency_code.lower(),
+        }
+
     stripe_api_key = await get_stripe_api_key()
     if not stripe_api_key:
-        raise HTTPException(500, "Payment system not configured")
+        raise HTTPException(500, "Stripe ist nicht konfiguriert")
     stripe.api_key = stripe_api_key
     try:
         session = stripe.checkout.Session.retrieve(session_id)
     except Exception as e:
         logger.error(f"Stripe checkout status error: {e}")
         raise HTTPException(404, "Payment session not found")
-    # Update payment transaction
-    existing = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+
     payment_status = str(getattr(session, "payment_status", "") or "")
     session_status = str(getattr(session, "status", "") or "")
-    if existing and existing.get("payment_status") != "paid":
+    if existing.get("payment_status") != "paid":
         await db.payment_transactions.update_one(
             {"session_id": session_id},
-            {"$set": {"payment_status": payment_status, "status": session_status}}
+            {"$set": {"payment_status": payment_status, "status": session_status, "updated_at": now_iso()}},
         )
         if payment_status == "paid":
-            await db.registrations.update_one(
-                {"id": existing["registration_id"]},
-                {"$set": {"payment_status": "paid"}}
-            )
+            await db.registrations.update_one({"id": existing["registration_id"]}, {"$set": {"payment_status": "paid"}})
     return {
+        "provider": "stripe",
         "status": session_status,
         "payment_status": payment_status,
         "amount_total": int(getattr(session, "amount_total", 0) or 0),

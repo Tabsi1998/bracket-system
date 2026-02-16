@@ -49,13 +49,24 @@ resolve_nginx_service() {
   local configured="${NGINX_SERVICE_NAME:-}"
   local name=""
   local unit_files=""
+  local active_units=""
 
   if [ -n "$configured" ]; then
     echo "$configured"
     return 0
   fi
 
+  if $SUDO systemctl is-active --quiet nginx || $SUDO systemctl is-active --quiet nginx.service; then
+    echo "nginx"
+    return 0
+  fi
+
   if $SUDO systemctl cat nginx >/dev/null 2>&1 || $SUDO systemctl cat nginx.service >/dev/null 2>&1; then
+    echo "nginx"
+    return 0
+  fi
+
+  if $SUDO systemctl status nginx >/dev/null 2>&1 || $SUDO systemctl status nginx.service >/dev/null 2>&1; then
     echo "nginx"
     return 0
   fi
@@ -67,6 +78,13 @@ resolve_nginx_service() {
       return 0
     fi
   done
+
+  active_units="$($SUDO systemctl list-units --type=service --all --no-pager --no-legend 2>/dev/null | awk '{print $1}')"
+  name="$(printf '%s\n' "$active_units" | grep -E '^nginx(\.service|@.+\.service)?$' | head -n1 || true)"
+  if [ -n "$name" ]; then
+    echo "$name"
+    return 0
+  fi
 
   return 1
 }

@@ -14,9 +14,9 @@ Vollständiges eSports-Turniersystem mit dynamischen Brackets, Team-Management, 
 | **Teilnehmer-Modus** | Turniere als Team-Modus oder Einzelspieler-Modus (Solo) |
 | **14+ Spiele** | CoD, FIFA, Rocket League, CS2, Valorant, LoL, Fortnite u.v.m. – erweiterbar |
 | **Rollen-System** | Admin (erstellt Turniere/Spiele) und Spieler (nimmt teil) |
-| **Team-Management** | Teams erstellen, Beitrittscode, Leader-System, Sub-Teams |
+| **Team-Management** | Hauptteam + Sub-Teams, Beitrittscode, Leader-System, Team-Profile mit Banner/Logo/Socials |
 | **Ergebnis-System** | Team-Scores mit Auto-Bestätigung oder optionaler Admin-Freigabe; Battle Royale mit Platzierungs-Workflow + Admin-Resolve |
-| **Zahlungen** | Stripe-Integration für Startgebühren (PayPal vorbereitet) |
+| **Zahlungen** | Stripe und PayPal (umschaltbar via Admin-Settings) |
 | **Kommentare** | Kommentare auf Turnier- und Match-Ebene |
 | **Benachrichtigungen** | In-App Benachrichtigungsglocke mit Unread-Counter |
 | **Admin-Panel** | Dashboard, Benutzer-/Team-/Turnier-/Spiel-Verwaltung, Rollenwechsel, Last-Login, Zahlungs- & SMTP-Einstellungen |
@@ -41,6 +41,7 @@ Das Skript installiert automatisch:
 - Systemd Service für den Backend-Server
 - Production Build des Frontends
 - optional Demo-Daten (Testnutzer, Teams, Turniere in verschiedenen Stati)
+- optional Admin-Reset per CLI
 
 Nach der Installation ist die Anwendung unter `http://deine-domain` erreichbar.
 
@@ -81,6 +82,9 @@ DB_NAME=arena_esports
 JWT_SECRET=dein-geheimer-schluessel-hier
 CORS_ORIGINS=http://localhost:3000,https://deine-domain.de
 STRIPE_API_KEY=sk_test_...
+PAYPAL_CLIENT_ID=...
+PAYPAL_SECRET=...
+PAYPAL_MODE=sandbox
 ```
 
 Backend starten:
@@ -156,6 +160,7 @@ sudo certbot --nginx -d deine-domain.de
 arena/
 ├── backend/
 │   ├── server.py              # FastAPI – alle API-Endpunkte
+│   ├── seed_demo_data.py      # Demo-Daten erzeugen (optional)
 │   ├── requirements.prod.txt  # Python-Abhängigkeiten (Production)
 │   └── .env                   # Konfiguration (wird beim Install erstellt)
 ├── frontend/
@@ -178,6 +183,7 @@ arena/
 │   │       └── WidgetPage.js             # Einbettbar
 │   └── .env
 ├── install.sh                 # Ein-Befehl-Installer
+├── update.sh                  # Produktions-Update inkl. Admin-Reset/Demo-Seed
 └── README.md
 ```
 
@@ -189,7 +195,7 @@ arena/
 | Datenbank | MongoDB 7.0 |
 | Frontend | React 19, Tailwind CSS, Shadcn/UI, Framer Motion |
 | Auth | JWT (python-jose + bcrypt) |
-| Zahlungen | Stripe (PayPal vorbereitet) |
+| Zahlungen | Stripe + PayPal |
 | Reverse Proxy | Nginx |
 
 ---
@@ -234,9 +240,13 @@ Bei Unstimmigkeiten:
 - **Team erstellen**: Jedes Team erhält einen automatischen 6-stelligen Beitrittscode
 - **Beitreten**: Spieler treten mit Team-ID + Beitrittscode bei
 - **Leader**: Owner kann Mitglieder zu "Leadern" befördern (können Ergebnisse eintragen)
-- **Sub-Teams**: Unterteams für verschiedene Spiele/Saisons (z.B. "Alpha CoD", "Alpha FIFA")
-- **Turnierregistrierung**: erfolgt nur über Sub-Teams (Main-Team ist organisatorisch)
-- **Verwaltung**: Owner sieht Team-ID und Code, kann Code erneuern
+- **Hauptteam + Sub-Teams**: Sub-Teams für einzelne Ligen/Spiele (z.B. "Alpha CoD", "Alpha FIFA")
+- **Profil-Vererbung**: Sub-Teams übernehmen standardmäßig Banner, Logo, Tag und Social-Links vom Hauptteam
+- **Turnierregistrierung**:
+  - Team-Modus: Registrierung über Sub-Teams
+  - Solo-Modus: Registrierung über den Benutzer (ohne Team)
+- **Öffentliche Teamliste**: Gast- und Spieleransicht mit Team-Finder, Sub-Team-Übersicht und Social-Links (Discord/Website/X/Instagram/Twitch/YouTube)
+- **Verwaltung**: Owner sieht Team-ID und Code, kann Code erneuern und Profil zentral pflegen
 
 ---
 
@@ -289,6 +299,7 @@ Bei Unstimmigkeiten:
 | Methode | Endpunkt | Beschreibung |
 |---------|----------|-------------|
 | GET | `/api/teams` | Eigene Teams auflisten |
+| GET | `/api/teams/public` | Öffentliche Teamliste (inkl. Sub-Teams) |
 | GET | `/api/teams/registerable-sub-teams` | Eigene registrierbare Sub-Teams |
 | POST | `/api/teams` | Team erstellen |
 | POST | `/api/teams/join` | Team beitreten (ID + Code) |
@@ -327,6 +338,13 @@ Bei Unstimmigkeiten:
 | PUT | `/api/notifications/:id/read` | Als gelesen markieren |
 | PUT | `/api/notifications/read-all` | Alle gelesen markieren |
 
+### Payments
+
+| Methode | Endpunkt | Beschreibung |
+|---------|----------|-------------|
+| POST | `/api/payments/create-checkout` | Payment-Checkout erzeugen (Stripe oder PayPal) |
+| GET | `/api/payments/status/:sessionId` | Payment-Status prüfen und Registrierung auf paid setzen |
+
 ### Admin
 
 | Methode | Endpunkt | Beschreibung |
@@ -363,6 +381,11 @@ Bei Unstimmigkeiten:
 | `JWT_SECRET` | Geheimer Schlüssel für Token-Signierung | ✅ |
 | `CORS_ORIGINS` | Erlaubte Origins (kommagetrennt) | ✅ |
 | `STRIPE_API_KEY` | Stripe Secret Key für Zahlungen | Optional |
+| `PAYPAL_CLIENT_ID` | PayPal Client ID | Optional |
+| `PAYPAL_SECRET` | PayPal Secret | Optional |
+| `PAYPAL_MODE` | `sandbox` oder `live` | Optional |
+| `ADMIN_EMAIL` | Seed/Admin-Reset Default E-Mail | Optional |
+| `ADMIN_USERNAME` | Seed/Admin-Reset Default Username | Optional |
 
 ### Frontend `.env`
 
@@ -374,9 +397,36 @@ Bei Unstimmigkeiten:
 
 Folgende Einstellungen können im Admin-Panel konfiguriert werden:
 
-- **Stripe** – Public Key, Secret Key
-- **PayPal** – Client ID, Secret
+- **Payment Provider** – `stripe`, `paypal` oder leer/auto
+- **Stripe** – Public Key, Secret Key, Webhook Secret
+- **PayPal** – Client ID, Secret, Mode (`sandbox`/`live`)
 - **SMTP** – Host, Port, Benutzer, Passwort (für E-Mail-Benachrichtigungen)
+
+---
+
+## Updates (Production)
+
+Standard-Update:
+
+```bash
+./update.sh
+```
+
+Nützliche Optionen:
+
+```bash
+# Update trotz lokaler Änderungen
+./update.sh --force
+
+# Admin-Konto direkt zurücksetzen/erstellen
+./update.sh --admin-reset --admin-email admin@arena.gg --admin-password 'NeuesPasswort'
+
+# Demo-Daten importieren
+./update.sh --seed-demo
+
+# Demo-Daten vorher zurücksetzen und neu importieren
+./update.sh --seed-demo-reset
+```
 
 ---
 

@@ -131,10 +131,10 @@ export default function TournamentDetailPage() {
   }, [user]);
 
   useEffect(() => {
-    const sessionId = searchParams.get("session_id");
+    const sessionId = searchParams.get("session_id") || searchParams.get("token");
     if (sessionId) {
       const pollPayment = async (attempts = 0) => {
-        if (attempts >= 5) return;
+        if (attempts >= 8) return;
         try {
           const res = await axios.get(`${API}/payments/status/${sessionId}`);
           if (res.data.payment_status === "paid") {
@@ -142,10 +142,17 @@ export default function TournamentDetailPage() {
             fetchData();
             return;
           }
+          if (res.data.payment_status === "failed") {
+            toast.error("Zahlung fehlgeschlagen oder abgebrochen.");
+            return;
+          }
         } catch { /* ignore */ }
         setTimeout(() => pollPayment(attempts + 1), 2000);
       };
       pollPayment();
+    }
+    if (searchParams.get("payment_cancelled")) {
+      toast.error("Zahlung abgebrochen.");
     }
   }, [searchParams, fetchData]);
 
