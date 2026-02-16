@@ -76,8 +76,8 @@ class RegistrationCreate(BaseModel):
     team_id: Optional[str] = None
 
 class ScoreUpdate(BaseModel):
-    score1: int
-    score2: int
+    score1: int = Field(ge=0)
+    score2: int = Field(ge=0)
     winner_id: Optional[str] = None
 
 class PaymentRequest(BaseModel):
@@ -116,12 +116,12 @@ class TimeProposal(BaseModel):
     proposed_time: str
 
 class ScoreSubmission(BaseModel):
-    score1: int
-    score2: int
+    score1: int = Field(ge=0)
+    score2: int = Field(ge=0)
 
 class AdminScoreResolve(BaseModel):
-    score1: int
-    score2: int
+    score1: int = Field(ge=0)
+    score2: int = Field(ge=0)
     winner_id: Optional[str] = None
     disqualify_team_id: Optional[str] = None
 
@@ -205,6 +205,15 @@ async def get_user_team_role(user_id: str, team_id: str):
     if user_id in team.get("member_ids", []):
         return "member"
     return None
+
+async def get_stripe_api_key() -> Optional[str]:
+    """Resolve Stripe key from env first, then admin settings."""
+    env_key = os.environ.get("STRIPE_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    setting = await db.admin_settings.find_one({"key": "stripe_secret_key"}, {"_id": 0})
+    value = (setting or {}).get("value", "").strip()
+    return value or None
 
 # ─── Seed Data ───
 
@@ -407,15 +416,40 @@ async def get_me(request: Request):
     return user
 
 async def seed_admin():
-    if not await db.users.find_one({"role": "admin"}):
-        admin_doc = {
-            "id": str(uuid.uuid4()), "username": "admin", "email": "admin@arena.gg",
-            "password_hash": hash_password("admin123"), "role": "admin",
-            "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=admin",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await db.users.insert_one(admin_doc)
-        logger.info("Admin user seeded: admin@arena.gg / admin123")
+    if await db.users.find_one({"role": "admin"}):
+        return
+
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@arena.gg").strip().lower()
+    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    default_username = os.environ.get("ADMIN_USERNAME", admin_email.split("@")[0] or "admin").strip()
+    username = default_username or "admin"
+
+    existing_with_email = await db.users.find_one({"email": admin_email}, {"_id": 0})
+    if existing_with_email:
+        await db.users.update_one(
+            {"id": existing_with_email["id"]},
+            {
+                "$set": {
+                    "role": "admin",
+                    "password_hash": hash_password(admin_password),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+        )
+        logger.info(f"Promoted existing user to admin: {admin_email}")
+        return
+
+    if await db.users.find_one({"username": username}, {"_id": 0}):
+        username = f"{username}_{uuid.uuid4().hex[:6]}"
+
+    admin_doc = {
+        "id": str(uuid.uuid4()), "username": username, "email": admin_email,
+        "password_hash": hash_password(admin_password), "role": "admin",
+        "avatar_url": f"https://api.dicebear.com/7.x/avataaars/svg?seed={username}",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(admin_doc)
+    logger.info(f"Admin user seeded: {admin_email}")
 
 # ─── Team Endpoints ───
 
@@ -681,14 +715,50 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
     reg_count = await db.registrations.count_documents({"tournament_id": tournament_id})
     if reg_count >= t["max_participants"]:
         raise HTTPException(400, "Tournament is full")
+    team_name = body.team_name.strip()
+    if not team_name:
+        raise HTTPException(400, "Team-Name ist erforderlich")
+
+    expected_team_size = max(1, int(t.get("team_size", 1)))
+    if len(body.players) != expected_team_size:
+        raise HTTPException(400, f"Es werden genau {expected_team_size} Spieler benötigt")
+
+    normalized_players = []
+    seen_emails = set()
+    for p in body.players:
+        name = str(p.get("name", "")).strip() if isinstance(p, dict) else ""
+        email = str(p.get("email", "")).strip().lower() if isinstance(p, dict) else ""
+        if not name or not email:
+            raise HTTPException(400, "Alle Spieler benötigen Name und E-Mail")
+        if email in seen_emails:
+            raise HTTPException(400, "Spieler-E-Mails dürfen nicht doppelt sein")
+        seen_emails.add(email)
+        normalized_players.append({"name": name, "email": email})
+
     user = await get_current_user(request)
+    team_id = body.team_id.strip() if isinstance(body.team_id, str) and body.team_id.strip() else None
+    if team_id:
+        team = await db.teams.find_one({"id": team_id}, {"_id": 0})
+        if not team:
+            raise HTTPException(404, "Team nicht gefunden")
+        if not user:
+            raise HTTPException(401, "Ein Login ist für Team-Registrierungen erforderlich")
+        team_role = await get_user_team_role(user["id"], team_id)
+        if team_role not in ("owner", "leader", "member"):
+            raise HTTPException(403, "Du bist kein Mitglied dieses Teams")
+        if await db.registrations.find_one({"tournament_id": tournament_id, "team_id": team_id}, {"_id": 0}):
+            raise HTTPException(400, "Dieses Team ist bereits registriert")
+
+    if user and not team_id and await db.registrations.find_one({"tournament_id": tournament_id, "user_id": user["id"]}, {"_id": 0}):
+        raise HTTPException(400, "Du bist bereits für dieses Turnier registriert")
+
     payment_status = "free" if t["entry_fee"] <= 0 else "pending"
     doc = {
         "id": str(uuid.uuid4()),
         "tournament_id": tournament_id,
-        "team_name": body.team_name,
-        "players": body.players,
-        "team_id": body.team_id,
+        "team_name": team_name,
+        "players": normalized_players,
+        "team_id": team_id,
         "user_id": user["id"] if user else None,
         "checked_in": False,
         "payment_status": payment_status,
@@ -701,12 +771,32 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
     return doc
 
 @api_router.post("/tournaments/{tournament_id}/checkin/{registration_id}")
-async def checkin(tournament_id: str, registration_id: str):
+async def checkin(request: Request, tournament_id: str, registration_id: str):
+    user = await require_auth(request)
+    t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Tournament not found")
+    if t.get("status") != "checkin":
+        raise HTTPException(400, "Check-in ist aktuell nicht aktiv")
+
     reg = await db.registrations.find_one({"id": registration_id, "tournament_id": tournament_id}, {"_id": 0})
     if not reg:
         raise HTTPException(404, "Registration not found")
+    if reg.get("checked_in"):
+        return reg
     if reg["payment_status"] == "pending":
         raise HTTPException(400, "Payment required before check-in")
+
+    can_checkin = user.get("role") == "admin"
+    if not can_checkin and reg.get("user_id") == user["id"]:
+        can_checkin = True
+    if not can_checkin and reg.get("team_id"):
+        team_role = await get_user_team_role(user["id"], reg["team_id"])
+        if team_role in ("owner", "leader"):
+            can_checkin = True
+    if not can_checkin:
+        raise HTTPException(403, "Keine Berechtigung für diesen Check-in")
+
     await db.registrations.update_one({"id": registration_id}, {"$set": {"checked_in": True}})
     reg["checked_in"] = True
     return reg
@@ -959,9 +1049,10 @@ async def submit_match_score(request: Request, tournament_id: str, match_id: str
         raise HTTPException(403, "Du bist kein Leader/Owner eines beteiligten Teams")
 
     # Store submission
-    existing = await db.score_submissions.find_one({"match_id": match_id, "side": submitting_for}, {"_id": 0})
+    submission_filter = {"tournament_id": tournament_id, "match_id": match_id, "side": submitting_for}
+    existing = await db.score_submissions.find_one(submission_filter, {"_id": 0})
     if existing:
-        await db.score_submissions.update_one({"match_id": match_id, "side": submitting_for}, {
+        await db.score_submissions.update_one(submission_filter, {
             "$set": {"score1": body.score1, "score2": body.score2, "submitted_by": user["id"], "submitted_by_name": user["username"], "updated_at": datetime.now(timezone.utc).isoformat()}
         })
     else:
@@ -973,18 +1064,18 @@ async def submit_match_score(request: Request, tournament_id: str, match_id: str
         })
 
     # Check if both sides submitted
-    subs = await db.score_submissions.find({"match_id": match_id}, {"_id": 0}).to_list(2)
+    subs = await db.score_submissions.find({"tournament_id": tournament_id, "match_id": match_id}, {"_id": 0}).to_list(2)
     sides = {s["side"]: s for s in subs}
     if "team1" in sides and "team2" in sides:
         s1, s2 = sides["team1"], sides["team2"]
         if s1["score1"] == s2["score1"] and s1["score2"] == s2["score2"]:
             # Scores agree → auto-confirm
             await _apply_score_to_bracket(tournament_id, match_id, s1["score1"], s1["score2"])
-            await db.score_submissions.update_many({"match_id": match_id}, {"$set": {"status": "confirmed"}})
+            await db.score_submissions.update_many({"tournament_id": tournament_id, "match_id": match_id}, {"$set": {"status": "confirmed"}})
             return {"status": "confirmed", "message": "Ergebnisse stimmen überein - automatisch bestätigt!"}
         else:
             # Scores differ → disputed
-            await db.score_submissions.update_many({"match_id": match_id}, {"$set": {"status": "disputed"}})
+            await db.score_submissions.update_many({"tournament_id": tournament_id, "match_id": match_id}, {"$set": {"status": "disputed"}})
             # Notify admins
             admins = await db.users.find({"role": "admin"}, {"_id": 0}).to_list(10)
             for admin in admins:
@@ -1000,7 +1091,7 @@ async def submit_match_score(request: Request, tournament_id: str, match_id: str
 
 @api_router.get("/tournaments/{tournament_id}/matches/{match_id}/submissions")
 async def get_score_submissions(tournament_id: str, match_id: str):
-    subs = await db.score_submissions.find({"match_id": match_id}, {"_id": 0}).to_list(10)
+    subs = await db.score_submissions.find({"tournament_id": tournament_id, "match_id": match_id}, {"_id": 0}).to_list(10)
     return subs
 
 async def _apply_score_to_bracket(tournament_id: str, match_id: str, score1: int, score2: int, winner_id: str = None, disqualify_id: str = None):
@@ -1076,7 +1167,7 @@ async def _apply_score_to_bracket(tournament_id: str, match_id: str, score1: int
 async def admin_resolve_score(request: Request, tournament_id: str, match_id: str, body: AdminScoreResolve):
     await require_admin(request)
     await _apply_score_to_bracket(tournament_id, match_id, body.score1, body.score2, body.winner_id, body.disqualify_team_id)
-    await db.score_submissions.update_many({"match_id": match_id}, {"$set": {"status": "resolved_by_admin"}})
+    await db.score_submissions.update_many({"tournament_id": tournament_id, "match_id": match_id}, {"$set": {"status": "resolved_by_admin"}})
     return await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
 
 # Keep legacy admin score update for backwards compat
@@ -1097,13 +1188,22 @@ async def create_checkout(request: Request, body: PaymentRequest):
     entry_fee = t.get("entry_fee", 0)
     if entry_fee <= 0:
         raise HTTPException(400, "This tournament is free")
-    reg = await db.registrations.find_one({"id": body.registration_id}, {"_id": 0})
+    reg = await db.registrations.find_one({"id": body.registration_id, "tournament_id": body.tournament_id}, {"_id": 0})
     if not reg:
         raise HTTPException(404, "Registration not found")
-    stripe_api_key = os.environ.get("STRIPE_API_KEY")
+    if reg.get("payment_status") == "paid":
+        raise HTTPException(400, "Registration is already paid")
+
+    user = await get_current_user(request)
+    if reg.get("user_id") and (not user or (user["id"] != reg["user_id"] and user.get("role") != "admin")):
+        raise HTTPException(403, "Keine Berechtigung für diese Zahlung")
+
+    stripe_api_key = await get_stripe_api_key()
     if not stripe_api_key:
         raise HTTPException(500, "Payment system not configured")
     host_url = body.origin_url.rstrip("/")
+    if not (host_url.startswith("http://") or host_url.startswith("https://")):
+        raise HTTPException(400, "Invalid origin URL")
     success_url = f"{host_url}/tournaments/{body.tournament_id}?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{host_url}/tournaments/{body.tournament_id}"
     webhook_url = f"{str(request.base_url).rstrip('/')}api/webhook/stripe"
@@ -1135,7 +1235,7 @@ async def create_checkout(request: Request, body: PaymentRequest):
 @api_router.get("/payments/status/{session_id}")
 async def check_payment_status(request: Request, session_id: str):
     from emergentintegrations.payments.stripe.checkout import StripeCheckout
-    stripe_api_key = os.environ.get("STRIPE_API_KEY")
+    stripe_api_key = await get_stripe_api_key()
     if not stripe_api_key:
         raise HTTPException(500, "Payment system not configured")
     webhook_url = f"{str(request.base_url).rstrip('/')}api/webhook/stripe"
@@ -1168,7 +1268,9 @@ async def check_payment_status(request: Request, session_id: str):
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     from emergentintegrations.payments.stripe.checkout import StripeCheckout
-    stripe_api_key = os.environ.get("STRIPE_API_KEY")
+    stripe_api_key = await get_stripe_api_key()
+    if not stripe_api_key:
+        raise HTTPException(500, "Payment system not configured")
     webhook_url = f"{str(request.base_url).rstrip('/')}api/webhook/stripe"
     stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
     body = await request.body()

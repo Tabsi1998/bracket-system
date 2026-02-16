@@ -32,19 +32,28 @@ const statusLabels = {
 function MarkdownRules({ text }) {
   if (!text) return null;
   const lines = text.split("\n");
+
+  const renderInlineBold = (line) => {
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, idx) => {
+      const match = part.match(/^\*\*(.+)\*\*$/);
+      if (match) return <strong key={idx} className="text-white">{match[1]}</strong>;
+      return <span key={idx}>{part}</span>;
+    });
+  };
+
   return (
     <div className="prose-sm text-zinc-400 space-y-2">
       {lines.map((line, i) => {
         if (line.startsWith("### ")) return <h4 key={i} className="text-white font-semibold text-sm mt-3">{line.slice(4)}</h4>;
         if (line.startsWith("## ")) return <h3 key={i} className="text-white font-bold text-base mt-4">{line.slice(3)}</h3>;
         if (line.startsWith("# ")) return <h2 key={i} className="text-white font-bold text-lg mt-4">{line.slice(2)}</h2>;
-        if (line.startsWith("- ") || line.startsWith("* ")) return <li key={i} className="ml-4 text-sm text-zinc-400 list-disc">{line.slice(2)}</li>;
-        if (line.match(/^\d+\.\s/)) return <li key={i} className="ml-4 text-sm text-zinc-400 list-decimal">{line.replace(/^\d+\.\s/, "")}</li>;
-        if (line.startsWith("> ")) return <blockquote key={i} className="border-l-2 border-yellow-500/50 pl-3 text-sm italic text-zinc-500">{line.slice(2)}</blockquote>;
+        if (line.startsWith("- ") || line.startsWith("* ")) return <li key={i} className="ml-4 text-sm text-zinc-400 list-disc">{renderInlineBold(line.slice(2))}</li>;
+        if (line.match(/^\d+\.\s/)) return <li key={i} className="ml-4 text-sm text-zinc-400 list-decimal">{renderInlineBold(line.replace(/^\d+\.\s/, ""))}</li>;
+        if (line.startsWith("> ")) return <blockquote key={i} className="border-l-2 border-yellow-500/50 pl-3 text-sm italic text-zinc-500">{renderInlineBold(line.slice(2))}</blockquote>;
         if (line.startsWith("---")) return <hr key={i} className="border-white/5 my-3" />;
         if (line.trim() === "") return <div key={i} className="h-2" />;
-        const formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>');
-        return <p key={i} className="text-sm text-zinc-400" dangerouslySetInnerHTML={{ __html: formatted }} />;
+        return <p key={i} className="text-sm text-zinc-400">{renderInlineBold(line)}</p>;
       })}
     </div>
   );
@@ -113,6 +122,7 @@ export default function TournamentDetailPage() {
 
   const handleRegister = async () => {
     if (!teamName.trim()) { toast.error("Team-Name ist erforderlich"); return; }
+    if (players.length !== tournament.team_size) { toast.error(`Genau ${tournament.team_size} Spieler erforderlich`); return; }
     if (players.some(p => !p.name.trim() || !p.email.trim())) { toast.error("Alle Spieler-Daten ausfüllen"); return; }
     try {
       const res = await axios.post(`${API}/tournaments/${id}/register`, { team_name: teamName, players });
@@ -443,7 +453,7 @@ export default function TournamentDetailPage() {
                         {reg.payment_status === "pending" && <Badge className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs">Ausstehend</Badge>}
                         {reg.checked_in ? (
                           <Badge className="bg-green-500/10 text-green-400 border border-green-500/20 text-xs"><Check className="w-3 h-3 mr-1" />Eingecheckt</Badge>
-                        ) : tournament.status === "checkin" && (
+                        ) : tournament.status === "checkin" && user && (
                           <Button data-testid={`checkin-${reg.id}`} size="sm" variant="outline" className="text-xs border-yellow-500/30 text-yellow-500 hover:bg-yellow-500/10" onClick={() => handleCheckin(reg.id)}>Check-in</Button>
                         )}
                       </div>
