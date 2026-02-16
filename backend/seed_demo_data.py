@@ -108,6 +108,10 @@ def players_for(team_members: List[Dict], team_size: int = 2) -> List[Dict]:
     return picked
 
 
+def players_for_user(user: Dict) -> List[Dict]:
+    return [{"name": user.get("username", "Player"), "email": user.get("email", "")}]
+
+
 def iso_from_now(days: int = 0) -> str:
     return (now_utc() + timedelta(days=days)).isoformat()
 
@@ -294,6 +298,8 @@ def seed_demo_data(reset: bool = False) -> None:
     game_single = choose_game(games, ["Counter-Strike 2", "Valorant", "Call of Duty"])
     game_league = choose_game(games, ["Call of Duty", "Rocket League", "EA FC (FIFA)"])
     game_groups = choose_game(games, ["Rocket League", "EA FC (FIFA)", "Counter-Strike 2"])
+    game_fighting = choose_game(games, ["Street Fighter 6", "Tekken 8", "Super Smash Bros", "Mario Kart"])
+    game_battle_royale = choose_game(games, ["Fortnite", "Apex Legends", "Call of Duty"])
 
     tournament_specs = [
         {
@@ -301,8 +307,10 @@ def seed_demo_data(reset: bool = False) -> None:
             "name": "Demo Open Cup (Single)",
             "status": "registration",
             "bracket_type": "single_elimination",
+            "participant_mode": "team",
             "game": game_single,
             "team_size": 2,
+            "max_participants": 8,
             "start_days": 7,
             "checkin_days": 6,
         },
@@ -311,8 +319,10 @@ def seed_demo_data(reset: bool = False) -> None:
             "name": "Demo Challenger (Double)",
             "status": "checkin",
             "bracket_type": "double_elimination",
+            "participant_mode": "team",
             "game": game_single,
             "team_size": 2,
+            "max_participants": 8,
             "start_days": 3,
             "checkin_days": 1,
         },
@@ -321,8 +331,10 @@ def seed_demo_data(reset: bool = False) -> None:
             "name": "Demo Live Knockout",
             "status": "live",
             "bracket_type": "single_elimination",
+            "participant_mode": "team",
             "game": game_single,
             "team_size": 2,
+            "max_participants": 8,
             "start_days": 0,
             "checkin_days": -1,
         },
@@ -331,8 +343,10 @@ def seed_demo_data(reset: bool = False) -> None:
             "name": "Demo Season Final",
             "status": "completed",
             "bracket_type": "single_elimination",
+            "participant_mode": "team",
             "game": game_single,
             "team_size": 2,
+            "max_participants": 8,
             "start_days": -3,
             "checkin_days": -4,
         },
@@ -341,8 +355,10 @@ def seed_demo_data(reset: bool = False) -> None:
             "name": "Demo Pro League",
             "status": "live",
             "bracket_type": "league",
+            "participant_mode": "team",
             "game": game_league,
             "team_size": 2,
+            "max_participants": 8,
             "start_days": -7,
             "checkin_days": -8,
         },
@@ -351,11 +367,103 @@ def seed_demo_data(reset: bool = False) -> None:
             "name": "Demo Groups Stage",
             "status": "live",
             "bracket_type": "group_stage",
+            "participant_mode": "team",
             "group_size": 2,
             "game": game_groups,
             "team_size": 2,
+            "max_participants": 8,
             "start_days": -1,
             "checkin_days": -2,
+        },
+        {
+            "key": "live_group_playoffs",
+            "name": "Demo Groups + Playoffs",
+            "status": "live",
+            "bracket_type": "group_playoffs",
+            "participant_mode": "team",
+            "group_size": 2,
+            "advance_per_group": 1,
+            "game": game_groups,
+            "team_size": 2,
+            "max_participants": 8,
+            "start_days": -2,
+            "checkin_days": -3,
+        },
+        {
+            "key": "live_swiss",
+            "name": "Demo Swiss Open",
+            "status": "live",
+            "bracket_type": "swiss_system",
+            "participant_mode": "team",
+            "swiss_rounds": 3,
+            "game": game_single,
+            "team_size": 2,
+            "max_participants": 8,
+            "start_days": -2,
+            "checkin_days": -3,
+        },
+        {
+            "key": "live_ladder",
+            "name": "Demo Ladder Sprint",
+            "status": "live",
+            "bracket_type": "ladder_system",
+            "participant_mode": "team",
+            "game": game_single,
+            "team_size": 2,
+            "max_participants": 8,
+            "start_days": -4,
+            "checkin_days": -5,
+        },
+        {
+            "key": "live_koth",
+            "name": "Demo King of the Hill",
+            "status": "live",
+            "bracket_type": "king_of_the_hill",
+            "participant_mode": "team",
+            "game": game_single,
+            "team_size": 2,
+            "max_participants": 8,
+            "start_days": -4,
+            "checkin_days": -5,
+        },
+        {
+            "key": "live_battle_royale",
+            "name": "Demo Battle Royale Series",
+            "status": "live",
+            "bracket_type": "battle_royale",
+            "participant_mode": "solo",
+            "game": game_battle_royale,
+            "team_size": 1,
+            "max_participants": 12,
+            "battle_royale_group_size": 3,
+            "battle_royale_advance": 2,
+            "require_admin_score_approval": True,
+            "start_days": -1,
+            "checkin_days": -2,
+        },
+        {
+            "key": "open_solo_single",
+            "name": "Demo Solo Cup (MK)",
+            "status": "registration",
+            "bracket_type": "single_elimination",
+            "participant_mode": "solo",
+            "game": game_fighting,
+            "team_size": 1,
+            "max_participants": 16,
+            "start_days": 8,
+            "checkin_days": 7,
+        },
+        {
+            "key": "checkin_solo_double",
+            "name": "Demo Solo Double (Fighters)",
+            "status": "checkin",
+            "bracket_type": "double_elimination",
+            "participant_mode": "solo",
+            "game": game_fighting,
+            "team_size": 1,
+            "max_participants": 16,
+            "start_days": 2,
+            "checkin_days": 1,
         },
     ]
 
@@ -371,10 +479,16 @@ def seed_demo_data(reset: bool = False) -> None:
             "game_id": game.get("id"),
             "game_name": game.get("name", "Demo Game"),
             "game_mode": mode_name,
+            "participant_mode": spec.get("participant_mode", "team"),
             "team_size": team_size,
-            "max_participants": 8,
+            "max_participants": int(spec.get("max_participants", 8)),
             "bracket_type": spec["bracket_type"],
             "group_size": int(spec.get("group_size", 4)),
+            "advance_per_group": int(spec.get("advance_per_group", 2)),
+            "swiss_rounds": int(spec.get("swiss_rounds", 5)),
+            "battle_royale_group_size": int(spec.get("battle_royale_group_size", spec.get("group_size", 4))),
+            "battle_royale_advance": int(spec.get("battle_royale_advance", spec.get("advance_per_group", 2))),
+            "require_admin_score_approval": bool(spec.get("require_admin_score_approval", spec["bracket_type"] == "battle_royale")),
             "best_of": 1,
             "entry_fee": 0.0,
             "currency": "usd",
@@ -411,47 +525,112 @@ def seed_demo_data(reset: bool = False) -> None:
         {"key": "live_groups_nova", "tournament_key": "live_groups", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 2},
         {"key": "live_groups_bravo", "tournament_key": "live_groups", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 3},
         {"key": "live_groups_charlie", "tournament_key": "live_groups", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": True, "seed": 4},
+        {"key": "live_group_playoffs_alpha", "tournament_key": "live_group_playoffs", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "live_group_playoffs_nova", "tournament_key": "live_group_playoffs", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 2},
+        {"key": "live_group_playoffs_bravo", "tournament_key": "live_group_playoffs", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 3},
+        {"key": "live_group_playoffs_charlie", "tournament_key": "live_group_playoffs", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": True, "seed": 4},
+        {"key": "live_swiss_alpha", "tournament_key": "live_swiss", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "live_swiss_bravo", "tournament_key": "live_swiss", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 2},
+        {"key": "live_swiss_nova", "tournament_key": "live_swiss", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 3},
+        {"key": "live_swiss_charlie", "tournament_key": "live_swiss", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": True, "seed": 4},
+        {"key": "live_ladder_alpha", "tournament_key": "live_ladder", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "live_ladder_bravo", "tournament_key": "live_ladder", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 2},
+        {"key": "live_ladder_nova", "tournament_key": "live_ladder", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 3},
+        {"key": "live_ladder_charlie", "tournament_key": "live_ladder", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": True, "seed": 4},
+        {"key": "live_koth_alpha", "tournament_key": "live_koth", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "live_koth_bravo", "tournament_key": "live_koth", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 2},
+        {"key": "live_koth_nova", "tournament_key": "live_koth", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 3},
+        {"key": "live_koth_charlie", "tournament_key": "live_koth", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": True, "seed": 4},
+        {"key": "solo_br_alpha1", "tournament_key": "live_battle_royale", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "solo_br_bravo1", "tournament_key": "live_battle_royale", "user_key": "bravo1", "checked_in": True, "seed": 2},
+        {"key": "solo_br_nova1", "tournament_key": "live_battle_royale", "user_key": "nova1", "checked_in": True, "seed": 3},
+        {"key": "solo_br_charlie1", "tournament_key": "live_battle_royale", "user_key": "charlie1", "checked_in": True, "seed": 4},
+        {"key": "solo_br_alpha2", "tournament_key": "live_battle_royale", "user_key": "alpha2", "checked_in": True, "seed": 5},
+        {"key": "solo_br_bravo2", "tournament_key": "live_battle_royale", "user_key": "bravo2", "checked_in": True, "seed": 6},
+        {"key": "open_solo_alpha1", "tournament_key": "open_solo_single", "user_key": "alpha1", "checked_in": False, "seed": 1},
+        {"key": "open_solo_bravo1", "tournament_key": "open_solo_single", "user_key": "bravo1", "checked_in": False, "seed": 2},
+        {"key": "open_solo_nova1", "tournament_key": "open_solo_single", "user_key": "nova1", "checked_in": False, "seed": 3},
+        {"key": "open_solo_charlie1", "tournament_key": "open_solo_single", "user_key": "charlie1", "checked_in": False, "seed": 4},
+        {"key": "checkin_solo_alpha1", "tournament_key": "checkin_solo_double", "user_key": "alpha1", "checked_in": True, "seed": 1},
+        {"key": "checkin_solo_bravo1", "tournament_key": "checkin_solo_double", "user_key": "bravo1", "checked_in": True, "seed": 2},
+        {"key": "checkin_solo_nova1", "tournament_key": "checkin_solo_double", "user_key": "nova1", "checked_in": False, "seed": 3},
+        {"key": "checkin_solo_charlie1", "tournament_key": "checkin_solo_double", "user_key": "charlie1", "checked_in": False, "seed": 4},
     ]
 
     registrations: Dict[str, Dict] = {}
     for spec in registration_specs:
         reg_id = demo_id(f"registration:{spec['key']}")
-        team = teams[spec["team_key"]]
         tournament = tournaments[spec["tournament_key"]]
         captain = users[spec["user_key"]]
-        parent_name = ""
-        parent_id = str(team.get("parent_team_id", "") or "").strip()
-        if parent_id:
-            parent = next((t for t in teams.values() if t["id"] == parent_id), None)
-            parent_name = (parent or {}).get("name", "")
-        reg_doc = {
-            "id": reg_id,
-            "tournament_id": tournament["id"],
-            "team_id": team["id"],
-            "team_name": team["name"],
-            "team_logo_url": team.get("logo_url", ""),
-            "team_banner_url": team.get("banner_url", ""),
-            "team_tag": team.get("tag", ""),
-            "main_team_name": parent_name,
-            "players": players_for(team["members"], team_size=int(tournament["team_size"])),
-            "user_id": captain["id"],
-            "checked_in": bool(spec["checked_in"]),
-            "payment_status": "free",
-            "payment_session_id": None,
-            "seed": int(spec["seed"]),
-            "is_demo": True,
-            "updated_at": ts,
-        }
+
+        team_key = spec.get("team_key")
+        if team_key:
+            team = teams[team_key]
+            parent_name = ""
+            parent_id = str(team.get("parent_team_id", "") or "").strip()
+            if parent_id:
+                parent = next((t for t in teams.values() if t["id"] == parent_id), None)
+                parent_name = (parent or {}).get("name", "")
+
+            reg_doc = {
+                "id": reg_id,
+                "tournament_id": tournament["id"],
+                "team_id": team["id"],
+                "team_name": team["name"],
+                "team_logo_url": team.get("logo_url", ""),
+                "team_banner_url": team.get("banner_url", ""),
+                "team_tag": team.get("tag", ""),
+                "main_team_name": parent_name,
+                "players": players_for(team["members"], team_size=int(tournament["team_size"])),
+                "user_id": captain["id"],
+                "participant_mode": tournament.get("participant_mode", "team"),
+                "checked_in": bool(spec["checked_in"]),
+                "payment_status": "free",
+                "payment_session_id": None,
+                "seed": int(spec["seed"]),
+                "is_demo": True,
+                "updated_at": ts,
+            }
+        else:
+            reg_doc = {
+                "id": reg_id,
+                "tournament_id": tournament["id"],
+                "team_id": None,
+                "team_name": captain["username"],
+                "team_logo_url": captain.get("avatar_url", ""),
+                "team_banner_url": captain.get("banner_url", ""),
+                "team_tag": "",
+                "main_team_name": "",
+                "players": players_for_user(captain),
+                "user_id": captain["id"],
+                "participant_mode": "solo",
+                "checked_in": bool(spec["checked_in"]),
+                "payment_status": "free",
+                "payment_session_id": None,
+                "seed": int(spec["seed"]),
+                "is_demo": True,
+                "updated_at": ts,
+            }
         db.registrations.update_one({"id": reg_id}, {"$set": reg_doc, "$setOnInsert": {"created_at": ts}}, upsert=True)
         registrations[spec["key"]] = reg_doc
 
-    def match_from_regs(key: str, reg1: str, reg2: str, status: str = "pending", score1: int = 0, score2: int = 0, winner: str = "") -> Dict:
+    def match_from_regs(
+        key: str,
+        reg1: str,
+        reg2: str,
+        status: str = "pending",
+        score1: int = 0,
+        score2: int = 0,
+        winner: str = "",
+        round_num: int = 1,
+        position: int = 0,
+    ) -> Dict:
         r1 = registrations[reg1]
         r2 = registrations[reg2]
         return {
             "id": demo_id(f"match:{key}"),
-            "round": 1,
-            "position": 0,
+            "round": round_num,
+            "position": position,
             "team1_id": r1["id"],
             "team1_name": r1["team_name"],
             "team1_logo_url": r1.get("team_logo_url", ""),
@@ -466,6 +645,49 @@ def seed_demo_data(reset: bool = False) -> None:
             "status": status,
             "best_of": 1,
             "disqualified": None,
+        }
+
+    def reg_pair_key(reg_a: str, reg_b: str) -> str:
+        a = registrations[reg_a]["id"]
+        b = registrations[reg_b]["id"]
+        return "|".join(sorted([a, b]))
+
+    def br_heat(
+        key: str,
+        round_num: int,
+        position: int,
+        reg_keys: List[str],
+        status: str = "pending",
+        placements: List[str] | None = None,
+    ) -> Dict:
+        participants = []
+        for reg_key in reg_keys:
+            reg = registrations[reg_key]
+            participants.append(
+                {
+                    "registration_id": reg["id"],
+                    "name": reg["team_name"],
+                    "logo_url": reg.get("team_logo_url", ""),
+                    "tag": reg.get("team_tag", ""),
+                }
+            )
+        ordered = [registrations[key]["id"] for key in (placements or [])]
+        points_map = {}
+        if ordered:
+            total = len(ordered)
+            for idx, reg_id in enumerate(ordered):
+                points_map[reg_id] = max(0, total - idx)
+        return {
+            "id": demo_id(f"match:{key}"),
+            "round": round_num,
+            "position": position,
+            "type": "battle_royale_heat",
+            "participants": participants,
+            "placements": ordered,
+            "points_map": points_map,
+            "status": status,
+            "approved": status == "completed",
+            "scheduled_for": iso_from_now(round_num - 1),
         }
 
     live_single_bracket = {
@@ -599,10 +821,246 @@ def seed_demo_data(reset: bool = False) -> None:
         "total_groups": 2,
     }
 
+    group_playoffs_bracket = {
+        "type": "group_playoffs",
+        "group_size": 2,
+        "total_groups": 2,
+        "advance_per_group": 1,
+        "groups": [
+            {
+                "id": 1,
+                "name": "Gruppe A",
+                "rounds": [
+                    {
+                        "round": 1,
+                        "name": "Spieltag 1",
+                        "matches": [
+                            {
+                                **match_from_regs(
+                                    "group-playoffs-a-r1",
+                                    "live_group_playoffs_alpha",
+                                    "live_group_playoffs_nova",
+                                    status="completed",
+                                    score1=2,
+                                    score2=1,
+                                    winner=registrations["live_group_playoffs_alpha"]["id"],
+                                ),
+                                "group_id": 1,
+                                "group_name": "Gruppe A",
+                            }
+                        ],
+                    }
+                ],
+                "total_rounds": 1,
+            },
+            {
+                "id": 2,
+                "name": "Gruppe B",
+                "rounds": [
+                    {
+                        "round": 1,
+                        "name": "Spieltag 1",
+                        "matches": [
+                            {
+                                **match_from_regs(
+                                    "group-playoffs-b-r1",
+                                    "live_group_playoffs_bravo",
+                                    "live_group_playoffs_charlie",
+                                    status="completed",
+                                    score1=0,
+                                    score2=2,
+                                    winner=registrations["live_group_playoffs_charlie"]["id"],
+                                ),
+                                "group_id": 2,
+                                "group_name": "Gruppe B",
+                            }
+                        ],
+                    }
+                ],
+                "total_rounds": 1,
+            },
+        ],
+        "playoffs_generated": True,
+        "playoffs": {
+            "type": "single_elimination",
+            "rounds": [
+                {
+                    "round": 1,
+                    "name": "Finale",
+                    "matches": [match_from_regs("group-playoffs-final", "live_group_playoffs_alpha", "live_group_playoffs_charlie")],
+                }
+            ],
+            "total_rounds": 1,
+        },
+    }
+
+    swiss_bracket = {
+        "type": "swiss_system",
+        "rounds": [
+            {
+                "round": 1,
+                "name": "Swiss Runde 1",
+                "matches": [
+                    match_from_regs(
+                        "swiss-r1-m1",
+                        "live_swiss_alpha",
+                        "live_swiss_bravo",
+                        status="completed",
+                        score1=2,
+                        score2=1,
+                        winner=registrations["live_swiss_alpha"]["id"],
+                        round_num=1,
+                        position=0,
+                    ),
+                    match_from_regs(
+                        "swiss-r1-m2",
+                        "live_swiss_nova",
+                        "live_swiss_charlie",
+                        status="completed",
+                        score1=0,
+                        score2=2,
+                        winner=registrations["live_swiss_charlie"]["id"],
+                        round_num=1,
+                        position=1,
+                    ),
+                ],
+            },
+            {
+                "round": 2,
+                "name": "Swiss Runde 2",
+                "matches": [
+                    match_from_regs("swiss-r2-m1", "live_swiss_alpha", "live_swiss_charlie", round_num=2, position=0),
+                    match_from_regs("swiss-r2-m2", "live_swiss_nova", "live_swiss_bravo", round_num=2, position=1),
+                ],
+            },
+        ],
+        "current_round": 2,
+        "max_rounds": 3,
+        "total_rounds": 3,
+        "used_pairs": [
+            reg_pair_key("live_swiss_alpha", "live_swiss_bravo"),
+            reg_pair_key("live_swiss_nova", "live_swiss_charlie"),
+        ],
+        "bye_reg_ids": [],
+    }
+
+    ladder_bracket = {
+        "type": "ladder_system",
+        "rounds": [
+            {
+                "round": 1,
+                "name": "Ladder Match 1",
+                "matches": [
+                    match_from_regs(
+                        "ladder-r1",
+                        "live_ladder_alpha",
+                        "live_ladder_bravo",
+                        status="completed",
+                        score1=2,
+                        score2=0,
+                        winner=registrations["live_ladder_alpha"]["id"],
+                        round_num=1,
+                        position=0,
+                    )
+                ],
+            },
+            {
+                "round": 2,
+                "name": "Ladder Match 2",
+                "matches": [match_from_regs("ladder-r2", "live_ladder_alpha", "live_ladder_nova", round_num=2, position=0)],
+            },
+        ],
+        "champion_id": registrations["live_ladder_alpha"]["id"],
+        "challenger_queue": [registrations["live_ladder_nova"]["id"], registrations["live_ladder_charlie"]["id"]],
+        "ladder_cycle_count": 1,
+        "ladder_max_cycles": 8,
+        "total_rounds": 8,
+    }
+
+    koth_bracket = {
+        "type": "king_of_the_hill",
+        "rounds": [
+            {
+                "round": 1,
+                "name": "KOTH Runde 1",
+                "matches": [
+                    match_from_regs(
+                        "koth-r1",
+                        "live_koth_alpha",
+                        "live_koth_bravo",
+                        status="completed",
+                        score1=0,
+                        score2=2,
+                        winner=registrations["live_koth_bravo"]["id"],
+                        round_num=1,
+                        position=0,
+                    )
+                ],
+            },
+            {
+                "round": 2,
+                "name": "KOTH Runde 2",
+                "matches": [match_from_regs("koth-r2", "live_koth_bravo", "live_koth_nova", round_num=2, position=0)],
+            },
+        ],
+        "champion_id": registrations["live_koth_bravo"]["id"],
+        "koth_queue": [registrations["live_koth_nova"]["id"], registrations["live_koth_charlie"]["id"]],
+        "total_rounds": 3,
+    }
+
+    battle_royale_bracket = {
+        "type": "battle_royale",
+        "group_size": 3,
+        "advance_per_heat": 2,
+        "rounds": [
+            {
+                "round": 1,
+                "name": "Battle Royale Runde 1",
+                "matches": [
+                    br_heat(
+                        "br-r1-h1",
+                        round_num=1,
+                        position=0,
+                        reg_keys=["solo_br_alpha1", "solo_br_bravo1", "solo_br_nova1"],
+                        status="completed",
+                        placements=["solo_br_alpha1", "solo_br_nova1", "solo_br_bravo1"],
+                    ),
+                    br_heat(
+                        "br-r1-h2",
+                        round_num=1,
+                        position=1,
+                        reg_keys=["solo_br_charlie1", "solo_br_alpha2", "solo_br_bravo2"],
+                        status="completed",
+                        placements=["solo_br_charlie1", "solo_br_alpha2", "solo_br_bravo2"],
+                    ),
+                ],
+            },
+            {
+                "round": 2,
+                "name": "Battle Royale Runde 2",
+                "matches": [
+                    br_heat(
+                        "br-r2-h1",
+                        round_num=2,
+                        position=0,
+                        reg_keys=["solo_br_alpha1", "solo_br_nova1", "solo_br_charlie1", "solo_br_alpha2"],
+                    )
+                ],
+            },
+        ],
+        "current_round": 2,
+        "total_rounds": 2,
+    }
+
     db.tournaments.update_one({"id": tournaments["live_single"]["id"]}, {"$set": {"bracket": live_single_bracket, "status": "live", "updated_at": ts}})
     db.tournaments.update_one({"id": tournaments["completed_single"]["id"]}, {"$set": {"bracket": completed_single_bracket, "status": "completed", "updated_at": ts}})
     db.tournaments.update_one({"id": tournaments["live_league"]["id"]}, {"$set": {"bracket": live_league_bracket, "status": "live", "updated_at": ts}})
     db.tournaments.update_one({"id": tournaments["live_groups"]["id"]}, {"$set": {"bracket": groups_bracket, "status": "live", "updated_at": ts}})
+    db.tournaments.update_one({"id": tournaments["live_group_playoffs"]["id"]}, {"$set": {"bracket": group_playoffs_bracket, "status": "live", "updated_at": ts}})
+    db.tournaments.update_one({"id": tournaments["live_swiss"]["id"]}, {"$set": {"bracket": swiss_bracket, "status": "live", "updated_at": ts}})
+    db.tournaments.update_one({"id": tournaments["live_ladder"]["id"]}, {"$set": {"bracket": ladder_bracket, "status": "live", "updated_at": ts}})
+    db.tournaments.update_one({"id": tournaments["live_koth"]["id"]}, {"$set": {"bracket": koth_bracket, "status": "live", "updated_at": ts}})
+    db.tournaments.update_one({"id": tournaments["live_battle_royale"]["id"]}, {"$set": {"bracket": battle_royale_bracket, "status": "live", "updated_at": ts}})
 
     keep_user_ids = [demo_id(f"user:{u['key']}") for u in user_specs]
     keep_team_ids = [demo_id(f"team:{t['key']}") for t in team_specs]

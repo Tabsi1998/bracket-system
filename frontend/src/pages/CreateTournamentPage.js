@@ -17,8 +17,13 @@ const bracketTypes = [
   { value: "single_elimination", label: "Single Elimination" },
   { value: "double_elimination", label: "Double Elimination" },
   { value: "round_robin", label: "Round Robin" },
+  { value: "group_playoffs", label: "Gruppenphase + Playoffs" },
   { value: "league", label: "Liga (Spieltage + Tabelle)" },
   { value: "group_stage", label: "Gruppenphase" },
+  { value: "swiss_system", label: "Swiss System" },
+  { value: "ladder_system", label: "Ladder System" },
+  { value: "king_of_the_hill", label: "King of the Hill" },
+  { value: "battle_royale", label: "Battle Royale" },
 ];
 
 export default function CreateTournamentPage() {
@@ -30,9 +35,11 @@ export default function CreateTournamentPage() {
     name: "",
     game_id: "",
     game_mode: "",
+    participant_mode: "team",
     team_size: 1,
     max_participants: 8,
     bracket_type: "single_elimination",
+    require_admin_score_approval: false,
     best_of: 1,
     entry_fee: 0,
     currency: "usd",
@@ -41,6 +48,10 @@ export default function CreateTournamentPage() {
     rules: "",
     start_date: "",
     group_size: 4,
+    advance_per_group: 2,
+    swiss_rounds: 5,
+    battle_royale_group_size: 4,
+    battle_royale_advance: 2,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -56,7 +67,11 @@ export default function CreateTournamentPage() {
 
   const handleModeSelect = (modeName) => {
     const mode = selectedGame?.modes?.find(m => m.name === modeName);
-    setForm({ ...form, game_mode: modeName, team_size: mode?.team_size || 1 });
+    setForm({
+      ...form,
+      game_mode: modeName,
+      team_size: form.participant_mode === "solo" ? 1 : (mode?.team_size || 1),
+    });
   };
 
   const handleSubmit = async () => {
@@ -65,7 +80,13 @@ export default function CreateTournamentPage() {
     if (!form.game_mode) { toast.error("Bitte wähle einen Spielmodus"); return; }
     setSubmitting(true);
     try {
-      const res = await axios.post(`${API}/tournaments`, form);
+      const payload = {
+        ...form,
+        team_size: form.participant_mode === "solo" ? 1 : form.team_size,
+        require_admin_score_approval:
+          form.bracket_type === "battle_royale" ? true : form.require_admin_score_approval,
+      };
+      const res = await axios.post(`${API}/tournaments`, payload);
       toast.success("Turnier erstellt!");
       navigate(`/tournaments/${res.data.id}`);
     } catch (e) {
@@ -181,6 +202,18 @@ export default function CreateTournamentPage() {
                   </Select>
                 </div>
                 <div>
+                  <Label className="text-zinc-400 text-sm">Teilnehmer-Modus</Label>
+                  <Select value={form.participant_mode} onValueChange={v => setForm({ ...form, participant_mode: v, team_size: v === "solo" ? 1 : form.team_size })}>
+                    <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-950 border-white/10">
+                      <SelectItem value="team">Team</SelectItem>
+                      <SelectItem value="solo">Einzelspieler</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
                   <Label className="text-zinc-400 text-sm">Bracket-Typ</Label>
                   <Select value={form.bracket_type} onValueChange={v => setForm({ ...form, bracket_type: v })}>
                     <SelectTrigger data-testid="bracket-type-select" className="bg-zinc-900 border-white/10 text-white mt-1">
@@ -193,7 +226,7 @@ export default function CreateTournamentPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                {form.bracket_type === "group_stage" && (
+                {(form.bracket_type === "group_stage" || form.bracket_type === "group_playoffs") && (
                   <div>
                     <Label className="text-zinc-400 text-sm">Gruppengröße</Label>
                     <Select value={String(form.group_size)} onValueChange={v => setForm({ ...form, group_size: parseInt(v, 10) || 4 })}>
@@ -208,6 +241,85 @@ export default function CreateTournamentPage() {
                     </Select>
                   </div>
                 )}
+                {form.bracket_type === "group_playoffs" && (
+                  <div>
+                    <Label className="text-zinc-400 text-sm">Aufsteiger pro Gruppe</Label>
+                    <Select value={String(form.advance_per_group)} onValueChange={v => setForm({ ...form, advance_per_group: parseInt(v, 10) || 2 })}>
+                      <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-zinc-950 border-white/10">
+                        {[1, 2, 3, 4].map(n => (
+                          <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {form.bracket_type === "swiss_system" && (
+                  <div>
+                    <Label className="text-zinc-400 text-sm">Swiss-Runden</Label>
+                    <Select value={String(form.swiss_rounds)} onValueChange={v => setForm({ ...form, swiss_rounds: parseInt(v, 10) || 5 })}>
+                      <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-zinc-950 border-white/10">
+                        {[3, 4, 5, 6, 7, 8, 9].map(n => (
+                          <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {form.bracket_type === "battle_royale" && (
+                  <>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Heat-Größe</Label>
+                      <Select value={String(form.battle_royale_group_size)} onValueChange={v => setForm({ ...form, battle_royale_group_size: parseInt(v, 10) || 4 })}>
+                        <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-950 border-white/10">
+                          {[3, 4, 5, 6, 8, 10, 12].map(n => (
+                            <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Aufsteiger pro Heat</Label>
+                      <Select value={String(form.battle_royale_advance)} onValueChange={v => setForm({ ...form, battle_royale_advance: parseInt(v, 10) || 2 })}>
+                        <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-950 border-white/10">
+                          {[1, 2, 3, 4, 5, 6].map(n => (
+                            <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
+                <div>
+                  <Label className="text-zinc-400 text-sm">Admin-Freigabe für Ergebnisse</Label>
+                  <Select
+                    value={String(form.bracket_type === "battle_royale" ? true : form.require_admin_score_approval)}
+                    onValueChange={v => setForm({ ...form, require_admin_score_approval: v === "true" })}
+                    disabled={form.bracket_type === "battle_royale"}
+                  >
+                    <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1 disabled:opacity-70">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-950 border-white/10">
+                      <SelectItem value="false">Nein, Team-Eingaben bestätigen direkt</SelectItem>
+                      <SelectItem value="true">Ja, Admin muss freigeben</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {form.bracket_type === "battle_royale" && (
+                    <p className="text-[11px] text-zinc-600 mt-1">Bei Battle Royale ist die Admin-Freigabe immer aktiv.</p>
+                  )}
+                </div>
                 <div>
                   <Label className="text-zinc-400 text-sm">Best of</Label>
                   <Select value={String(form.best_of)} onValueChange={v => setForm({ ...form, best_of: parseInt(v) })}>

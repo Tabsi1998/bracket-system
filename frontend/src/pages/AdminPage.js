@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Shield, Users, Trophy, Gamepad2, Settings, CreditCard, Trash2, Eye } from "lucide-react";
+import { Shield, Users, Trophy, Gamepad2, Settings, CreditCard, Trash2, Eye, Mail } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
@@ -22,6 +22,7 @@ export default function AdminPage() {
   const [tournaments, setTournaments] = useState([]);
   const [games, setGames] = useState([]);
   const [settings, setSettings] = useState([]);
+  const [smtpTestEmail, setSmtpTestEmail] = useState("");
 
   const fetchAdminData = useCallback(async () => {
     try {
@@ -76,6 +77,18 @@ export default function AdminPage() {
       setGames((prev) => prev.filter((g) => g.id !== id));
       fetchAdminData();
     } catch { toast.error("Fehler"); }
+  };
+
+  const handleSendCheckinReminder = async (tournament) => {
+    if (!tournament?.id) return;
+    try {
+      const res = await axios.post(`${API}/admin/reminders/checkin/${tournament.id}`);
+      const sent = res.data?.sent || 0;
+      const failed = res.data?.failed || 0;
+      toast.success(`Reminder versendet: ${sent} erfolgreich, ${failed} fehlgeschlagen`);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Reminder konnte nicht gesendet werden");
+    }
   };
 
   const handleSetUserRole = async (targetUser) => {
@@ -138,6 +151,11 @@ export default function AdminPage() {
     { key: "smtp_port", label: "SMTP Port", placeholder: "587" },
     { key: "smtp_user", label: "SMTP Benutzer", placeholder: "email@domain.de" },
     { key: "smtp_password", label: "SMTP Passwort", placeholder: "Passwort" },
+    { key: "smtp_from_name", label: "SMTP Absendername", placeholder: "ARENA eSports" },
+    { key: "smtp_from_email", label: "SMTP Absender E-Mail", placeholder: "noreply@domain.de" },
+    { key: "smtp_reply_to", label: "SMTP Reply-To", placeholder: "support@domain.de" },
+    { key: "smtp_use_starttls", label: "SMTP STARTTLS", placeholder: "true" },
+    { key: "smtp_use_ssl", label: "SMTP SSL", placeholder: "false" },
   ];
 
   return (
@@ -207,6 +225,9 @@ export default function AdminPage() {
                         <td className="px-4 py-3">
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => navigate(`/tournaments/${t.id}`)} className="text-zinc-400 hover:text-white"><Eye className="w-4 h-4" /></Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleSendCheckinReminder(t)} className="text-cyan-400 hover:text-cyan-300">
+                              <Mail className="w-4 h-4" />
+                            </Button>
                             <Button data-testid={`admin-delete-tournament-${t.id}`} variant="ghost" size="sm" onClick={() => handleDeleteTournament(t.id)} className="text-red-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></Button>
                           </div>
                         </td>
@@ -405,6 +426,35 @@ export default function AdminPage() {
                       />
                     </div>
                   ))}
+                </div>
+                <div className="mt-5 pt-4 border-t border-white/5">
+                  <Label className="text-zinc-400 text-sm">SMTP Test-E-Mail senden</Label>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      value={smtpTestEmail}
+                      onChange={(e) => setSmtpTestEmail(e.target.value)}
+                      placeholder="test@domain.de"
+                      className="bg-zinc-900 border-white/10 text-white"
+                    />
+                    <Button
+                      variant="outline"
+                      className="border-yellow-500/30 text-yellow-500 hover:bg-yellow-500/10"
+                      onClick={async () => {
+                        if (!smtpTestEmail.trim()) {
+                          toast.error("Bitte Test-E-Mail eingeben");
+                          return;
+                        }
+                        try {
+                          await axios.post(`${API}/admin/email/test`, { email: smtpTestEmail.trim() });
+                          toast.success("Testmail wurde versendet");
+                        } catch (e) {
+                          toast.error(e.response?.data?.detail || "SMTP Test fehlgeschlagen");
+                        }
+                      }}
+                    >
+                      Test senden
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

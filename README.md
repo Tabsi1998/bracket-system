@@ -10,11 +10,12 @@ Vollständiges eSports-Turniersystem mit dynamischen Brackets, Team-Management, 
 
 | Feature | Beschreibung |
 |---------|-------------|
-| **Turnierverwaltung** | Single/Double Elimination, Round Robin mit automatischer Bracket-Generierung |
+| **Turnierverwaltung** | Single/Double Elimination, Round Robin, Gruppenphase, Gruppenphase+Playoffs, Swiss, Ladder, King of the Hill, Battle Royale, Liga |
+| **Teilnehmer-Modus** | Turniere als Team-Modus oder Einzelspieler-Modus (Solo) |
 | **14+ Spiele** | CoD, FIFA, Rocket League, CS2, Valorant, LoL, Fortnite u.v.m. – erweiterbar |
 | **Rollen-System** | Admin (erstellt Turniere/Spiele) und Spieler (nimmt teil) |
 | **Team-Management** | Teams erstellen, Beitrittscode, Leader-System, Sub-Teams |
-| **Ergebnis-System** | Beide Teams tragen ein → Auto-Bestätigung bei Übereinstimmung → Admin löst Streitfälle |
+| **Ergebnis-System** | Team-Scores mit Auto-Bestätigung oder optionaler Admin-Freigabe; Battle Royale mit Platzierungs-Workflow + Admin-Resolve |
 | **Zahlungen** | Stripe-Integration für Startgebühren (PayPal vorbereitet) |
 | **Kommentare** | Kommentare auf Turnier- und Match-Ebene |
 | **Benachrichtigungen** | In-App Benachrichtigungsglocke mit Unread-Counter |
@@ -279,6 +280,9 @@ Bei Unstimmigkeiten:
 | GET | `/api/tournaments/:id/matches/:matchId/submissions` | Eingereichte Ergebnisse |
 | PUT | `/api/tournaments/:id/matches/:matchId/resolve` | Streit lösen (Admin) |
 | PUT | `/api/tournaments/:id/matches/:matchId/score` | Ergebnis direkt setzen (Admin) |
+| POST | `/api/tournaments/:id/matches/:matchId/submit-battle-royale` | BR-Platzierungen einreichen |
+| GET | `/api/tournaments/:id/matches/:matchId/battle-royale-submissions` | BR-Einreichungen ansehen |
+| PUT | `/api/tournaments/:id/matches/:matchId/battle-royale-resolve` | BR-Ergebnis freigeben (Admin) |
 
 ### Teams
 

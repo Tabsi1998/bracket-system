@@ -79,22 +79,25 @@ const BezierConnectors = ({ roundIndex, matchCount, nextMatchCount, containerHei
     const yTarget = nextStep * nextIdx + nextStep / 2;
     const cp = w * 0.6;
 
-    // Top match to middle
     paths.push(
-      <path key={`t-${roundIndex}-${i}`}
+      <path
+        key={`t-${roundIndex}-${i}`}
         d={`M 0 ${y1} C ${cp} ${y1}, ${w - cp} ${yTarget}, ${w} ${yTarget}`}
-        fill="none" stroke="rgba(234,179,8,0.15)" strokeWidth="2" />
+        fill="none"
+        stroke="rgba(234,179,8,0.15)"
+        strokeWidth="2"
+      />
     );
-    // Bottom match to middle
     paths.push(
-      <path key={`b-${roundIndex}-${i}`}
+      <path
+        key={`b-${roundIndex}-${i}`}
         d={`M 0 ${y2} C ${cp} ${y2}, ${w - cp} ${yTarget}, ${w} ${yTarget}`}
-        fill="none" stroke="rgba(234,179,8,0.15)" strokeWidth="2" />
+        fill="none"
+        stroke="rgba(234,179,8,0.15)"
+        strokeWidth="2"
+      />
     );
-    // Glow dot at junction
-    paths.push(
-      <circle key={`dot-${roundIndex}-${i}`} cx={w} cy={yTarget} r="2.5" fill="rgba(234,179,8,0.3)" />
-    );
+    paths.push(<circle key={`dot-${roundIndex}-${i}`} cx={w} cy={yTarget} r="2.5" fill="rgba(234,179,8,0.3)" />);
   }
 
   return (
@@ -104,8 +107,38 @@ const BezierConnectors = ({ roundIndex, matchCount, nextMatchCount, containerHei
   );
 };
 
-export default function BracketView({ bracket }) {
-  if (!bracket || !bracket.rounds || bracket.rounds.length === 0) {
+const BattleRoyaleHeatCard = ({ heat }) => {
+  const placements = heat.placements || [];
+
+  return (
+    <div className={`rounded-lg border p-3 ${heat.status === "completed" ? "border-zinc-700 bg-zinc-900/30" : "border-white/10 bg-zinc-900"}`}>
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs uppercase tracking-wider text-zinc-500">
+          Heat {heat.round}-{(heat.position || 0) + 1}
+        </h4>
+        <span className={`text-[10px] px-2 py-0.5 rounded border ${heat.status === "completed" ? "border-green-500/30 text-green-400 bg-green-500/10" : "border-amber-500/30 text-amber-400 bg-amber-500/10"}`}>
+          {heat.status === "completed" ? "Abgeschlossen" : "Offen"}
+        </span>
+      </div>
+      <div className="space-y-1">
+        {(heat.participants || []).map((p) => {
+          const rank = placements.indexOf(p.registration_id);
+          return (
+            <div key={`${heat.id}-${p.registration_id}`} className="flex items-center justify-between text-xs">
+              <span className={`${rank === 0 ? "text-yellow-500 font-semibold" : "text-zinc-300"}`}>
+                {p.name}{p.tag ? ` [${p.tag}]` : ""}
+              </span>
+              <span className="text-zinc-500">{rank >= 0 ? `#${rank + 1}` : "-"}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+function DefaultKnockoutView({ rounds }) {
+  if (!rounds || rounds.length === 0) {
     return (
       <div className="flex items-center justify-center py-16 text-zinc-600">
         <p>Bracket noch nicht generiert</p>
@@ -113,14 +146,6 @@ export default function BracketView({ bracket }) {
     );
   }
 
-  const bracketType = bracket.type || "single_elimination";
-
-  if (bracketType === "round_robin") return <RoundRobinView bracket={bracket} />;
-  if (bracketType === "league") return <RoundRobinView bracket={bracket} />;
-  if (bracketType === "double_elimination") return <DoubleEliminationView bracket={bracket} />;
-  if (bracketType === "group_stage") return <GroupStageView bracket={bracket} />;
-
-  const rounds = bracket.rounds;
   const matchHeight = 56;
   const baseGap = 16;
   const firstRoundH = rounds[0].matches.length * (matchHeight + baseGap) - baseGap;
@@ -131,15 +156,16 @@ export default function BracketView({ bracket }) {
       <div className="flex items-start gap-0 min-w-max">
         {rounds.map((round, roundIdx) => {
           const nextMatchCount = roundIdx < rounds.length - 1 ? rounds[roundIdx + 1].matches.length : 0;
-
           return (
-            <div key={round.round} className="flex items-start">
+            <div key={round.round || round.name || roundIdx} className="flex items-start">
               <div className="flex flex-col" style={{ minWidth: 220 }}>
                 <div className="text-center mb-4">
-                  <span className="text-xs text-zinc-500 uppercase tracking-wider font-mono">{round.name}</span>
+                  <span className="text-xs text-zinc-500 uppercase tracking-wider font-mono">
+                    {round.name || `Runde ${round.round || roundIdx + 1}`}
+                  </span>
                 </div>
                 <div className="flex flex-col justify-around" style={{ minHeight: containerHeight }}>
-                  {round.matches.map((match) => (
+                  {(round.matches || []).map((match) => (
                     <div key={match.id} className="px-2">
                       <MatchNode match={match} />
                     </div>
@@ -150,7 +176,7 @@ export default function BracketView({ bracket }) {
                 <div className="flex items-center" style={{ minHeight: containerHeight, paddingTop: 32 }}>
                   <BezierConnectors
                     roundIndex={roundIdx}
-                    matchCount={round.matches.length}
+                    matchCount={(round.matches || []).length}
                     nextMatchCount={nextMatchCount}
                     containerHeight={containerHeight}
                   />
@@ -175,17 +201,17 @@ function DoubleEliminationView({ bracket }) {
         <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-yellow-500 uppercase mb-4 tracking-wider">
           Winners Bracket
         </h3>
-        <BracketView bracket={wb} />
+        <DefaultKnockoutView rounds={wb?.rounds || []} />
       </div>
-      {lb && lb.rounds && lb.rounds.length > 0 && (
+      {lb?.rounds?.length ? (
         <div>
           <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-cyan-500 uppercase mb-4 tracking-wider">
             Losers Bracket
           </h3>
-          <BracketView bracket={lb} />
+          <DefaultKnockoutView rounds={lb.rounds || []} />
         </div>
-      )}
-      {gf && (
+      ) : null}
+      {gf ? (
         <div>
           <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-purple-500 uppercase mb-4 tracking-wider">
             Grand Final
@@ -194,18 +220,24 @@ function DoubleEliminationView({ bracket }) {
             <MatchNode match={gf} />
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
 function RoundRobinView({ bracket }) {
-  const allMatches = bracket.rounds?.flatMap(r => r.matches) || [];
-
+  const allMatches = bracket.rounds?.flatMap((r) => r.matches || []) || [];
+  if (allMatches.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12 text-zinc-600">
+        <p>Noch keine Matches vorhanden</p>
+      </div>
+    );
+  }
   return (
     <div data-testid="bracket-view-rr" className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {allMatches.map(match => (
+        {allMatches.map((match) => (
           <MatchNode key={match.id} match={match} />
         ))}
       </div>
@@ -229,9 +261,84 @@ function GroupStageView({ bracket }) {
           <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-cyan-400 uppercase tracking-wider mb-3">
             {group.name}
           </h3>
-          <RoundRobinView bracket={{ type: "round_robin", rounds: group.rounds || [] }} />
+          <RoundRobinView bracket={{ rounds: group.rounds || [] }} />
         </div>
       ))}
     </div>
   );
+}
+
+function GroupPlayoffsView({ bracket }) {
+  const groups = bracket.groups || [];
+  const playoffs = bracket.playoffs;
+
+  return (
+    <div data-testid="bracket-view-group-playoffs" className="space-y-8">
+      <div>
+        <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-cyan-400 uppercase tracking-wider mb-3">
+          Gruppenphase
+        </h3>
+        <GroupStageView bracket={{ groups }} />
+      </div>
+      <div>
+        <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-yellow-500 uppercase tracking-wider mb-3">
+          Playoffs
+        </h3>
+        {playoffs?.rounds?.length ? (
+          <DefaultKnockoutView rounds={playoffs.rounds} />
+        ) : (
+          <div className="rounded-xl border border-white/5 p-6 text-zinc-500 text-sm">
+            Playoffs werden automatisch erzeugt, sobald alle Gruppenspiele abgeschlossen sind.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BattleRoyaleView({ bracket }) {
+  const rounds = bracket.rounds || [];
+  if (rounds.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12 text-zinc-600">
+        <p>Noch keine Battle-Royale Heats vorhanden</p>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="bracket-view-battle-royale" className="space-y-6">
+      {rounds.map((round) => (
+        <div key={round.round || round.name} className="rounded-xl border border-white/5 p-4">
+          <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-orange-400 uppercase tracking-wider mb-3">
+            {round.name || `Runde ${round.round}`}
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {(round.matches || []).map((heat) => (
+              <BattleRoyaleHeatCard key={heat.id} heat={heat} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function BracketView({ bracket }) {
+  if (!bracket) {
+    return (
+      <div className="flex items-center justify-center py-16 text-zinc-600">
+        <p>Bracket noch nicht generiert</p>
+      </div>
+    );
+  }
+
+  const bracketType = bracket.type || "single_elimination";
+  if (["round_robin", "league", "swiss_system", "ladder_system", "king_of_the_hill"].includes(bracketType)) {
+    return <RoundRobinView bracket={bracket} />;
+  }
+  if (bracketType === "double_elimination") return <DoubleEliminationView bracket={bracket} />;
+  if (bracketType === "group_stage") return <GroupStageView bracket={bracket} />;
+  if (bracketType === "group_playoffs") return <GroupPlayoffsView bracket={bracket} />;
+  if (bracketType === "battle_royale") return <BattleRoyaleView bracket={bracket} />;
+  return <DefaultKnockoutView rounds={bracket.rounds || []} />;
 }

@@ -75,6 +75,9 @@ export default function TournamentDetailPage() {
   const [submissions, setSubmissions] = useState({});
   const [standings, setStandings] = useState(null);
   const [standingsLoading, setStandingsLoading] = useState(false);
+  const [brDialogOpen, setBrDialogOpen] = useState(false);
+  const [selectedBRHeat, setSelectedBRHeat] = useState(null);
+  const [brPlacementsInput, setBrPlacementsInput] = useState("");
 
   const [teamName, setTeamName] = useState("");
   const [players, setPlayers] = useState([{ name: "", email: "" }]);
@@ -83,7 +86,7 @@ export default function TournamentDetailPage() {
 
   const fetchStandings = useCallback(async (tournamentData) => {
     const bracketType = tournamentData?.bracket?.type || tournamentData?.bracket_type;
-    if (!tournamentData?.bracket || !["round_robin", "league", "group_stage"].includes(bracketType)) {
+    if (!tournamentData?.bracket || !["round_robin", "league", "group_stage", "group_playoffs", "swiss_system", "battle_royale", "ladder_system", "king_of_the_hill"].includes(bracketType)) {
       setStandings(null);
       return;
     }
@@ -146,6 +149,16 @@ export default function TournamentDetailPage() {
     }
   }, [searchParams, fetchData]);
 
+  useEffect(() => {
+    if (!regOpen || !tournament) return;
+    if ((tournament.participant_mode || "team") === "solo" && user) {
+      const displayName = user.username || user.email || "Solo Player";
+      setSelectedTeamId("");
+      setTeamName(displayName);
+      setPlayers([{ name: displayName, email: user.email || "" }]);
+    }
+  }, [regOpen, tournament, user]);
+
   const fetchSubmissions = async (matchId) => {
     try {
       const res = await axios.get(`${API}/tournaments/${id}/matches/${matchId}/submissions`);
@@ -155,20 +168,30 @@ export default function TournamentDetailPage() {
 
   const handleRegister = async () => {
     if (!user) { toast.error("Bitte zuerst einloggen"); return; }
+    const participantMode = tournament.participant_mode || "team";
     const alreadyRegisteredTeamIds = new Set(registrations.map((r) => r.team_id).filter(Boolean));
     const selectableTeams = userTeams.filter((t) => !alreadyRegisteredTeamIds.has(t.id));
     const selectedTeam = selectedTeamId ? selectableTeams.find((t) => t.id === selectedTeamId) : null;
-    if (!selectedTeam) { toast.error("Bitte ein Sub-Team auswählen"); return; }
-    const effectiveTeamName = selectedTeam.name;
+
+    if (participantMode === "team" && !selectedTeam) { toast.error("Bitte ein Sub-Team auswählen"); return; }
+    const soloDisplayName = (teamName || "").trim() || (user.username || user.email || "Solo Player");
+    const effectiveTeamName = participantMode === "team"
+      ? selectedTeam.name
+      : soloDisplayName;
 
     if (!effectiveTeamName) { toast.error("Team-Name ist erforderlich"); return; }
-    if (players.length !== tournament.team_size) { toast.error(`Genau ${tournament.team_size} Spieler erforderlich`); return; }
-    if (players.some(p => !p.name.trim() || !p.email.trim())) { toast.error("Alle Spieler-Daten ausfüllen"); return; }
+    if (participantMode === "team") {
+      if (players.length !== tournament.team_size) { toast.error(`Genau ${tournament.team_size} Spieler erforderlich`); return; }
+      if (players.some(p => !p.name.trim() || !p.email.trim())) { toast.error("Alle Spieler-Daten ausfüllen"); return; }
+    }
     try {
+      const regPlayers = participantMode === "team"
+        ? players
+        : [{ name: soloDisplayName, email: user.email || "" }];
       const payload = {
         team_name: effectiveTeamName,
-        players,
-        team_id: selectedTeam.id,
+        players: regPlayers,
+        team_id: participantMode === "team" ? selectedTeam.id : null,
       };
       const res = await axios.post(`${API}/tournaments/${id}/register`, payload);
       toast.success("Registrierung erfolgreich!");
@@ -285,6 +308,39 @@ export default function TournamentDetailPage() {
 
   const copyToClipboard = (text) => { navigator.clipboard.writeText(text); toast.success("Kopiert!"); };
 
+  const parsePlacementsInput = (input) => {
+    return (input || "")
+      .split(/[\n,\s]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  };
+
+  const openBRDialog = (heat) => {
+    setSelectedBRHeat(heat);
+    const seedOrder = (heat.participants || []).map((p) => p.registration_id).filter(Boolean);
+    setBrPlacementsInput(seedOrder.join("\n"));
+    setBrDialogOpen(true);
+  };
+
+  const handleBRSubmit = async (adminResolve = false) => {
+    if (!selectedBRHeat) return;
+    const placements = parsePlacementsInput(brPlacementsInput);
+    if (placements.length < 2) { toast.error("Mindestens 2 Platzierungen eingeben"); return; }
+    try {
+      if (adminResolve) {
+        await axios.put(`${API}/tournaments/${id}/matches/${selectedBRHeat.id}/battle-royale-resolve`, { placements });
+        toast.success("Battle-Royale-Ergebnis freigegeben");
+      } else {
+        const res = await axios.post(`${API}/tournaments/${id}/matches/${selectedBRHeat.id}/submit-battle-royale`, { placements });
+        toast.success(res.data?.message || "Ergebnis eingereicht");
+      }
+      setBrDialogOpen(false);
+      fetchData();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "BR-Ergebnis konnte nicht gespeichert werden");
+    }
+  };
+
   if (loading) return (
     <div className="pt-20 min-h-screen flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
@@ -305,7 +361,7 @@ export default function TournamentDetailPage() {
   const getAllMatches = () => {
     if (!tournament.bracket) return [];
     const bt = tournament.bracket.type;
-    if (bt === "single_elimination" || bt === "round_robin") {
+    if (bt === "single_elimination" || bt === "round_robin" || bt === "swiss_system" || bt === "ladder_system" || bt === "king_of_the_hill" || bt === "battle_royale") {
       return tournament.bracket.rounds?.flatMap(r => r.matches) || [];
     }
     if (bt === "double_elimination") {
@@ -321,12 +377,20 @@ export default function TournamentDetailPage() {
       const groups = tournament.bracket.groups || [];
       return groups.flatMap(g => (g.rounds || []).flatMap(r => (r.matches || [])));
     }
+    if (bt === "group_playoffs") {
+      const groups = tournament.bracket.groups || [];
+      const groupMatches = groups.flatMap(g => (g.rounds || []).flatMap(r => (r.matches || [])));
+      const playoffMatches = (tournament.bracket.playoffs?.rounds || []).flatMap(r => r.matches || []);
+      return [...groupMatches, ...playoffMatches];
+    }
     return [];
   };
 
   const embedCode = `<iframe src="${window.location.origin}/widget/${id}" width="100%" height="400" frameborder="0" style="border-radius:12px;overflow:hidden;"></iframe>`;
 
-  const hasStandings = ["round_robin", "league", "group_stage"].includes(tournament?.bracket?.type || tournament?.bracket_type);
+  const bracketType = tournament?.bracket?.type || tournament?.bracket_type;
+  const hasStandings = ["round_robin", "league", "group_stage", "group_playoffs", "swiss_system", "battle_royale", "ladder_system", "king_of_the_hill"].includes(bracketType);
+  const isBattleRoyale = bracketType === "battle_royale";
   const renderStandingsTable = (rows) => (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -423,7 +487,7 @@ export default function TournamentDetailPage() {
                   <DialogTitle className="font-['Barlow_Condensed'] text-xl text-white">Für Turnier registrieren</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 mt-4">
-                  {user && (
+                  {(tournament.participant_mode || "team") === "team" && user && (
                     <div>
                       <Label className="text-zinc-400 text-sm">Sub-Team wählen (Pflicht)</Label>
                       <select
@@ -444,29 +508,34 @@ export default function TournamentDetailPage() {
                       )}
                     </div>
                   )}
+                  {(tournament.participant_mode || "team") === "solo" && (
+                    <div className="p-3 rounded-lg bg-zinc-900/50 border border-white/5 text-xs text-zinc-400">
+                      Dieses Turnier läuft im Einzelspieler-Modus. Du registrierst dich mit deinem Benutzerkonto.
+                    </div>
+                  )}
                   <div>
-                    <Label className="text-zinc-400 text-sm">Team-Name</Label>
+                    <Label className="text-zinc-400 text-sm">{(tournament.participant_mode || "team") === "solo" ? "Anzeigename" : "Team-Name"}</Label>
                     <Input
                       data-testid="reg-team-name"
                       value={teamName}
                       onChange={e => setTeamName(e.target.value)}
-                      placeholder="Wird automatisch vom Sub-Team übernommen"
-                      disabled
+                      placeholder={(tournament.participant_mode || "team") === "solo" ? "Optional" : "Wird automatisch vom Sub-Team übernommen"}
+                      disabled={(tournament.participant_mode || "team") !== "solo"}
                       className="bg-zinc-900 border-white/10 text-white mt-1"
                     />
                   </div>
                   <div>
-                    <Label className="text-zinc-400 text-sm">Spieler ({tournament.team_size} benötigt)</Label>
+                    <Label className="text-zinc-400 text-sm">Spieler ({(tournament.participant_mode || "team") === "solo" ? 1 : tournament.team_size} benötigt)</Label>
                     {players.map((p, idx) => (
                       <div key={idx} className="flex gap-2 mt-2">
-                        <Input data-testid={`reg-player-name-${idx}`} value={p.name} onChange={e => updatePlayer(idx, "name", e.target.value)} placeholder="Name" className="bg-zinc-900 border-white/10 text-white flex-1" />
-                        <Input data-testid={`reg-player-email-${idx}`} value={p.email} onChange={e => updatePlayer(idx, "email", e.target.value)} placeholder="E-Mail" className="bg-zinc-900 border-white/10 text-white flex-1" />
-                        {players.length > 1 && (
+                        <Input data-testid={`reg-player-name-${idx}`} value={p.name} onChange={e => updatePlayer(idx, "name", e.target.value)} placeholder="Name" className="bg-zinc-900 border-white/10 text-white flex-1" disabled={(tournament.participant_mode || "team") === "solo"} />
+                        <Input data-testid={`reg-player-email-${idx}`} value={p.email} onChange={e => updatePlayer(idx, "email", e.target.value)} placeholder="E-Mail" className="bg-zinc-900 border-white/10 text-white flex-1" disabled={(tournament.participant_mode || "team") === "solo"} />
+                        {players.length > 1 && (tournament.participant_mode || "team") !== "solo" && (
                           <Button variant="ghost" size="sm" onClick={() => removePlayer(idx)} className="text-red-500 hover:text-red-400 px-2"><XIcon className="w-4 h-4" /></Button>
                         )}
                       </div>
                     ))}
-                    {players.length < tournament.team_size && (
+                    {(tournament.participant_mode || "team") !== "solo" && players.length < tournament.team_size && (
                       <Button variant="ghost" size="sm" onClick={addPlayer} className="mt-2 text-yellow-500">+ Spieler hinzufügen</Button>
                     )}
                   </div>
@@ -477,7 +546,12 @@ export default function TournamentDetailPage() {
                       </p>
                     </div>
                   )}
-                  <Button data-testid="submit-registration-btn" onClick={handleRegister} disabled={!selectedTeamId} className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-semibold disabled:opacity-50">
+                  <Button
+                    data-testid="submit-registration-btn"
+                    onClick={handleRegister}
+                    disabled={(tournament.participant_mode || "team") === "team" && !selectedTeamId}
+                    className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-semibold disabled:opacity-50"
+                  >
                     {tournament.entry_fee > 0 ? "Registrieren & Bezahlen" : "Jetzt registrieren"}
                   </Button>
                 </div>
@@ -516,67 +590,110 @@ export default function TournamentDetailPage() {
                 {tournament.status === "live" && (
                   <div className="mt-8 border-t border-white/5 pt-6">
                     <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-white mb-1">Ergebnisse</h3>
-                    <p className="text-xs text-zinc-500 mb-4">
-                      {isAdmin ? "Admin: Du kannst Ergebnisse direkt setzen oder Streitfälle lösen." : "Beide Teams müssen das gleiche Ergebnis eintragen. Bei Unstimmigkeiten entscheidet der Admin."}
-                    </p>
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {getAllMatches().filter(m => m.team1_name !== "TBD" && m.team2_name !== "TBD" && m.team1_name !== "BYE" && m.team2_name !== "BYE").map(match => {
-                        const subs = submissions[match.id] || [];
-                        const isDisputed = subs.some(s => s.status === "disputed");
-                        const isCompleted = match.status === "completed";
-                        return (
-                          <div key={match.id} data-testid={`match-card-${match.id}`}
-                            className={`p-3 rounded-lg border transition-all ${isDisputed ? "bg-red-500/5 border-red-500/20" : isCompleted ? "bg-zinc-900/30 border-white/5" : "bg-zinc-900 border-white/5 hover:border-yellow-500/30"}`}
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="text-sm text-white flex-1">
-                                <div className={`flex items-center gap-2 ${match.winner_id === match.team1_id ? "text-yellow-500 font-bold" : ""}`}>
-                                  {match.team1_logo_url ? <img src={match.team1_logo_url} alt="" className="w-4 h-4 rounded object-cover border border-white/10" /> : null}
-                                  <span>{match.team1_name}</span>
+                    {isBattleRoyale ? (
+                      <>
+                        <p className="text-xs text-zinc-500 mb-4">
+                          Battle Royale: Spieler können Platzierungen melden, ein Admin gibt sie final frei.
+                        </p>
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {getAllMatches().map((heat) => (
+                            <div key={heat.id} className={`p-3 rounded-lg border ${heat.status === "completed" ? "bg-zinc-900/30 border-white/5" : "bg-zinc-900 border-white/5"}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-sm font-semibold text-white">Heat {heat.round}-{(heat.position || 0) + 1}</h4>
+                                <Badge className={heat.status === "completed" ? "bg-green-500/10 text-green-400 border border-green-500/20 text-xs" : "bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs"}>
+                                  {heat.status === "completed" ? "Abgeschlossen" : "Offen"}
+                                </Badge>
+                              </div>
+                              <div className="space-y-1 text-xs text-zinc-400">
+                                {(heat.participants || []).map((p) => (
+                                  <div key={`${heat.id}-${p.registration_id}`} className="flex items-center justify-between">
+                                    <span>{p.name}{p.tag ? ` [${p.tag}]` : ""}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              {heat.status === "completed" && (heat.placements || []).length > 0 && (
+                                <div className="mt-2 p-2 rounded bg-zinc-900/70 border border-white/5 text-[11px] text-zinc-400">
+                                  {(heat.placements || []).map((rid, idx) => (
+                                    <div key={`${heat.id}-pl-${rid}-${idx}`}>{idx + 1}. {((heat.participants || []).find(p => p.registration_id === rid) || {}).name || rid}</div>
+                                  ))}
                                 </div>
-                                <div className="text-zinc-600 text-xs">vs</div>
-                                <div className={`flex items-center gap-2 ${match.winner_id === match.team2_id ? "text-yellow-500 font-bold" : ""}`}>
-                                  {match.team2_logo_url ? <img src={match.team2_logo_url} alt="" className="w-4 h-4 rounded object-cover border border-white/10" /> : null}
-                                  <span>{match.team2_name}</span>
+                              )}
+                              <div className="mt-3 flex gap-2">
+                                {user && heat.status !== "completed" && (
+                                  <Button size="sm" className="flex-1 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 text-xs h-7" onClick={() => openBRDialog(heat)}>
+                                    {isAdmin ? "Ergebnis freigeben" : "Ergebnis melden"}
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-zinc-500 mb-4">
+                          {isAdmin ? "Admin: Du kannst Ergebnisse direkt setzen oder Streitfälle lösen." : "Beide Teams müssen das gleiche Ergebnis eintragen. Bei Unstimmigkeiten entscheidet der Admin."}
+                        </p>
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {getAllMatches().filter(m => m.team1_name !== "TBD" && m.team2_name !== "TBD" && m.team1_name !== "BYE" && m.team2_name !== "BYE").map(match => {
+                            const subs = submissions[match.id] || [];
+                            const isDisputed = subs.some(s => s.status === "disputed");
+                            const isCompleted = match.status === "completed";
+                            return (
+                              <div key={match.id} data-testid={`match-card-${match.id}`}
+                                className={`p-3 rounded-lg border transition-all ${isDisputed ? "bg-red-500/5 border-red-500/20" : isCompleted ? "bg-zinc-900/30 border-white/5" : "bg-zinc-900 border-white/5 hover:border-yellow-500/30"}`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="text-sm text-white flex-1">
+                                    <div className={`flex items-center gap-2 ${match.winner_id === match.team1_id ? "text-yellow-500 font-bold" : ""}`}>
+                                      {match.team1_logo_url ? <img src={match.team1_logo_url} alt="" className="w-4 h-4 rounded object-cover border border-white/10" /> : null}
+                                      <span>{match.team1_name}</span>
+                                    </div>
+                                    <div className="text-zinc-600 text-xs">vs</div>
+                                    <div className={`flex items-center gap-2 ${match.winner_id === match.team2_id ? "text-yellow-500 font-bold" : ""}`}>
+                                      {match.team2_logo_url ? <img src={match.team2_logo_url} alt="" className="w-4 h-4 rounded object-cover border border-white/10" /> : null}
+                                      <span>{match.team2_name}</span>
+                                    </div>
+                                  </div>
+                                  {isCompleted && (
+                                    <div className="text-right font-mono text-sm">
+                                      <div className={match.winner_id === match.team1_id ? "text-yellow-500 font-bold" : "text-zinc-500"}>{match.score1}</div>
+                                      <div className="text-zinc-700">-</div>
+                                      <div className={match.winner_id === match.team2_id ? "text-yellow-500 font-bold" : "text-zinc-500"}>{match.score2}</div>
+                                    </div>
+                                  )}
+                                </div>
+                                {isDisputed && (
+                                  <div className="flex items-center gap-1 text-red-400 text-xs mb-2">
+                                    <AlertTriangle className="w-3 h-3" />Ergebnisse stimmen nicht überein!
+                                  </div>
+                                )}
+                                <div className="flex gap-1">
+                                  {!isCompleted && user && (
+                                    <Button data-testid={`submit-score-${match.id}`} size="sm" className="flex-1 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 text-xs h-7"
+                                      onClick={() => openScoreDialog(match)}>
+                                      Ergebnis eintragen
+                                    </Button>
+                                  )}
+                                  {isAdmin && isDisputed && (
+                                    <Button data-testid={`resolve-score-${match.id}`} size="sm" className="flex-1 bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs h-7"
+                                      onClick={() => openResolveDialog(match)}>
+                                      Streit lösen
+                                    </Button>
+                                  )}
+                                  {isAdmin && !isCompleted && (
+                                    <Button size="sm" variant="ghost" className="text-zinc-500 hover:text-white text-xs h-7 px-2"
+                                      onClick={() => { setSelectedMatch(match); setScoreForm({ score1: match.score1 || 0, score2: match.score2 || 0 }); setScoreOpen(true); }}>
+                                      Admin
+                                    </Button>
+                                  )}
                                 </div>
                               </div>
-                              {isCompleted && (
-                                <div className="text-right font-mono text-sm">
-                                  <div className={match.winner_id === match.team1_id ? "text-yellow-500 font-bold" : "text-zinc-500"}>{match.score1}</div>
-                                  <div className="text-zinc-700">-</div>
-                                  <div className={match.winner_id === match.team2_id ? "text-yellow-500 font-bold" : "text-zinc-500"}>{match.score2}</div>
-                                </div>
-                              )}
-                            </div>
-                            {isDisputed && (
-                              <div className="flex items-center gap-1 text-red-400 text-xs mb-2">
-                                <AlertTriangle className="w-3 h-3" />Ergebnisse stimmen nicht überein!
-                              </div>
-                            )}
-                            <div className="flex gap-1">
-                              {!isCompleted && user && (
-                                <Button data-testid={`submit-score-${match.id}`} size="sm" className="flex-1 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 text-xs h-7"
-                                  onClick={() => openScoreDialog(match)}>
-                                  Ergebnis eintragen
-                                </Button>
-                              )}
-                              {isAdmin && isDisputed && (
-                                <Button data-testid={`resolve-score-${match.id}`} size="sm" className="flex-1 bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs h-7"
-                                  onClick={() => openResolveDialog(match)}>
-                                  Streit lösen
-                                </Button>
-                              )}
-                              {isAdmin && !isCompleted && (
-                                <Button size="sm" variant="ghost" className="text-zinc-500 hover:text-white text-xs h-7 px-2"
-                                  onClick={() => { setSelectedMatch(match); setScoreForm({ score1: match.score1 || 0, score2: match.score2 || 0 }); setScoreOpen(true); }}>
-                                  Admin
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -634,7 +751,7 @@ export default function TournamentDetailPage() {
                   <div className="flex justify-center py-8">
                     <div className="w-7 h-7 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
                   </div>
-                ) : standings?.type === "group_stage" ? (
+                ) : (standings?.type === "group_stage" || standings?.type === "group_playoffs") ? (
                   <div className="space-y-6">
                     {(standings.groups || []).map((group) => (
                       <div key={`standings-group-${group.id}`} className="rounded-lg border border-white/5 p-4">
@@ -644,6 +761,11 @@ export default function TournamentDetailPage() {
                         {renderStandingsTable(group.standings || [])}
                       </div>
                     ))}
+                    {standings?.type === "group_playoffs" && (
+                      <div className="rounded-lg border border-white/5 p-4 text-xs text-zinc-500">
+                        Playoffs generiert: {standings.playoffs_generated ? "Ja" : "Noch nicht"}
+                      </div>
+                    )}
                   </div>
                 ) : standings?.standings?.length ? (
                   renderStandingsTable(standings.standings)
@@ -663,6 +785,7 @@ export default function TournamentDetailPage() {
                     {[
                       ["Spiel", tournament.game_name],
                       ["Modus", tournament.game_mode],
+                      ["Teilnehmer", (tournament.participant_mode || "team") === "solo" ? "Einzelspieler" : "Team"],
                       ["Team-Größe", tournament.team_size],
                       ["Bracket-Typ", tournament.bracket_type?.replace("_", " ")],
                       ["Best of", tournament.best_of],
@@ -830,6 +953,39 @@ export default function TournamentDetailPage() {
                 </div>
                 <Button onClick={handleAdminResolve} className="w-full bg-red-500 text-white hover:bg-red-400 font-semibold">
                   Endgültiges Ergebnis festlegen
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={brDialogOpen} onOpenChange={setBrDialogOpen}>
+          <DialogContent className="bg-zinc-950 border-white/10 text-white max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-['Barlow_Condensed'] text-xl text-white">
+                Battle Royale Platzierungen
+              </DialogTitle>
+            </DialogHeader>
+            {selectedBRHeat && (
+              <div className="space-y-4 mt-3">
+                <p className="text-xs text-zinc-500">
+                  Gib die `registration_id` Reihenfolge ein (oben = Platz 1). Trennzeichen: Zeilenumbruch, Komma oder Leerzeichen.
+                </p>
+                <div className="text-xs text-zinc-400 space-y-1">
+                  {(selectedBRHeat.participants || []).map((p) => (
+                    <div key={`heat-participant-${p.registration_id}`} className="flex justify-between">
+                      <span>{p.name}</span>
+                      <code className="text-zinc-500">{p.registration_id}</code>
+                    </div>
+                  ))}
+                </div>
+                <textarea
+                  value={brPlacementsInput}
+                  onChange={(e) => setBrPlacementsInput(e.target.value)}
+                  className="w-full min-h-[130px] rounded-md bg-zinc-900 border border-white/10 text-white p-3 text-xs font-mono"
+                />
+                <Button onClick={() => handleBRSubmit(isAdmin)} className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-semibold">
+                  {isAdmin ? "Ergebnis freigeben" : "Ergebnis einreichen"}
                 </Button>
               </div>
             )}
