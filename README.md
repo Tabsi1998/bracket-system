@@ -1,372 +1,174 @@
 # ARENA – eSports Tournament System
 
-Vollständiges eSports-Turniersystem mit dynamischen Brackets, Team-Management, Ergebnis-Bestätigung, Admin-Panel und mehr.
+Vollständiges eSports-Turniersystem mit FastAPI + React + MongoDB für Team- und Solo-Turniere.
+
+Dokumentationsstand: 2026-02-16 (entspricht dem aktuellen Code in `main`).
 
 ![Status](https://img.shields.io/badge/Status-Production_Ready-green) ![License](https://img.shields.io/badge/Lizenz-Privat-blue) ![Stack](https://img.shields.io/badge/Stack-FastAPI_+_React_+_MongoDB-yellow)
 
 ---
 
-## Features
+## Überblick
 
-| Feature | Beschreibung |
-|---------|-------------|
-| **Turnierverwaltung** | Single/Double Elimination, Round Robin, Gruppenphase, Gruppenphase+Playoffs, Swiss, Ladder, King of the Hill, Battle Royale, Liga |
-| **Teilnehmer-Modus** | Turniere als Team-Modus oder Einzelspieler-Modus (Solo) |
-| **14+ Spiele** | CoD, FIFA, Rocket League, CS2, Valorant, LoL, Fortnite u.v.m. – erweiterbar |
-| **Rollen-System** | Admin (erstellt Turniere/Spiele) und Spieler (nimmt teil) |
-| **Team-Management** | Hauptteam + Sub-Teams, Beitrittscode, Leader-System, Team-Profile mit Banner/Logo/Socials |
-| **Ergebnis-System** | Team-Scores mit Auto-Bestätigung oder optionaler Admin-Freigabe; Battle Royale mit Platzierungs-Workflow + Admin-Resolve |
-| **Zahlungen** | Stripe und PayPal (umschaltbar via Admin-Settings) |
-| **Kommentare** | Kommentare auf Turnier- und Match-Ebene |
-| **Benachrichtigungen** | In-App Benachrichtigungsglocke mit Unread-Counter |
-| **Admin-Panel** | Dashboard, Benutzer-/Team-/Turnier-/Spiel-Verwaltung, Rollenwechsel, Last-Login, Zahlungs- & SMTP-Einstellungen |
-| **Profil-Seiten** | Spieler-Statistiken, Wins/Losses, Team-Zugehörigkeiten |
-| **Widget** | Einbettbares iFrame für externe Webseiten |
-| **Regelwerk** | Markdown-Rendering für Turnierregeln |
+ARENA deckt den kompletten Flow ab:
+
+- Benutzer-Registrierung/Login mit JWT
+- Team-Management mit Hauptteam + Sub-Teams
+- Turniere mit mehreren Bracket-Formaten
+- Score-Submission mit Auto-Confirm/Dispute/Admin-Resolve
+- Battle-Royale-Heats mit Placement-Workflow
+- Check-in, Payments (Stripe + PayPal)
+- Kommentare, Benachrichtigungen, Match-Terminabstimmung
+- Admin-Panel (User/Team/Turnier/Spiel/Settings)
+- Profilseiten und Widget-Einbettung
 
 ---
 
-## Schnellstart
+## Kernfunktionen
 
-### Ein-Befehl-Installation (Ubuntu 22.04/24.04)
+| Bereich | Status |
+|---|---|
+| Auth (Register/Login/Me) | ✅ |
+| Team-System (Main/Sub, Join-Code, Leader) | ✅ |
+| Öffentliche Teamliste mit Team Finder | ✅ |
+| Turniere (Create/Update/Delete/Register/Check-in) | ✅ |
+| Brackets (11 Formate) | ✅ |
+| Tabellen/Standings API | ✅ |
+| Match-Scheduling (Vorschläge/Accept) | ✅ |
+| Score-Workflow inkl. Dispute/Admin-Resolve | ✅ |
+| Battle Royale Workflow inkl. Admin-Resolve | ✅ |
+| Zahlungen (Stripe + PayPal) | ✅ |
+| Stripe Webhook | ✅ |
+| SMTP-Test + Check-in-Reminder | ✅ |
+| Admin-Panel (Users/Teams/Games/Tournaments/Settings) | ✅ |
+| Profil bearbeiten (User selbst) | ✅ |
+| Widget-API + Frontend-Widgetseite | ✅ |
+
+---
+
+## Unterstützte Formate
+
+Interner `bracket_type` in der API:
+
+- `single_elimination`
+- `double_elimination`
+- `round_robin`
+- `group_stage`
+- `group_playoffs`
+- `swiss_system`
+- `ladder_system`
+- `king_of_the_hill`
+- `battle_royale`
+- `league`
+
+Teilnehmermodus:
+
+- `team`
+- `solo`
+
+Hinweise:
+
+- `battle_royale` erzwingt `require_admin_score_approval=true`.
+- `solo` erzwingt `team_size=1`.
+- `group_playoffs` generiert die Playoffs automatisch nach Abschluss der Gruppen.
+- `swiss_system`, `ladder_system` und `king_of_the_hill` erweitern das Bracket dynamisch.
+
+---
+
+## Rollen & Rechte
+
+| Aktion | Gast | User | Admin |
+|---|:---:|:---:|:---:|
+| Turniere ansehen | ✅ | ✅ | ✅ |
+| Spiele ansehen | ✅ | ✅ | ✅ |
+| Registrieren für Turnier | ❌ | ✅ | ✅ |
+| Team erstellen/joinen | ❌ | ✅ | ✅ |
+| Turniere erstellen/bearbeiten/löschen | ❌ | ❌ | ✅ |
+| Bracket generieren | ❌ | ❌ | ✅ |
+| Score einreichen (eigenes Team/Solo) | ❌ | ✅ | ✅ |
+| Streitfall lösen / Score direkt setzen | ❌ | ❌ | ✅ |
+| BR-Heat final freigeben | ❌ | ❌ | ✅ |
+| Admin-Panel | ❌ | ❌ | ✅ |
+
+---
+
+## Architektur
+
+```text
+bracket-system/
+├── backend/
+│   ├── server.py
+│   ├── seed_demo_data.py
+│   ├── requirements.prod.txt
+│   ├── requirements.txt
+│   └── tests/
+├── frontend/
+│   ├── src/
+│   │   ├── pages/
+│   │   ├── components/
+│   │   └── context/
+│   ├── package.json
+│   └── README.md
+├── install.sh
+├── update.sh
+├── backend_test.py
+└── README.md
+```
+
+Stack:
+
+- Backend: FastAPI, Motor/PyMongo, Pydantic v2, python-jose, bcrypt, Stripe SDK
+- Frontend: React 19, React Router, Tailwind, Shadcn UI, Framer Motion
+- DB: MongoDB
+- Runtime: Uvicorn
+- Reverse Proxy: Nginx
+
+---
+
+## Installation
+
+### Option A: Ein-Befehl-Installer (empfohlen für Ubuntu Server)
 
 ```bash
 sudo bash install.sh
 ```
 
-Das Skript installiert automatisch:
-- Python 3.11+, Node.js 20, Yarn
-- MongoDB 7.0
-- Nginx als Reverse Proxy
-- Systemd Service für den Backend-Server
-- Production Build des Frontends
-- optional Demo-Daten (Testnutzer, Teams, Turniere in verschiedenen Stati)
-- optional Admin-Reset per CLI
+`install.sh` macht automatisch:
 
-Nach der Installation ist die Anwendung unter `http://deine-domain` erreichbar.
+- Systempakete installieren
+- Node.js 20 + Yarn installieren
+- MongoDB 8.0 installieren/aktivieren
+- Backend-Venv + Dependencies installieren
+- `backend/.env` erzeugen
+- Frontend bauen
+- `arena-backend` systemd-Service anlegen/starten
+- Nginx konfigurieren und reloaden
+- optional Demo-Daten importieren
 
-### Manuelle Installation
+### Option B: Manuell
 
-<details>
-<summary>Schritt-für-Schritt-Anleitung</summary>
-
-#### Voraussetzungen
-
-- Ubuntu 22.04+ / Debian 12+
-- Python 3.11+
-- Node.js 18+
-- MongoDB 7.0+
-- Nginx
-
-#### 1. Repository klonen
-
-```bash
-git clone <repo-url> /opt/arena
-cd /opt/arena
-```
-
-#### 2. Backend einrichten
+1. Backend:
 
 ```bash
 cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.prod.txt
-```
-
-Backend `.env` erstellen:
-
-```env
-MONGO_URL=mongodb://localhost:27017
-DB_NAME=arena_esports
-JWT_SECRET=dein-geheimer-schluessel-hier
-CORS_ORIGINS=http://localhost:3000,https://deine-domain.de
-STRIPE_API_KEY=sk_test_...
-PAYPAL_CLIENT_ID=...
-PAYPAL_SECRET=...
-PAYPAL_MODE=sandbox
-```
-
-Backend starten:
-
-```bash
 uvicorn server:app --host 0.0.0.0 --port 8001
 ```
 
-#### 3. Frontend einrichten
+2. Frontend:
 
 ```bash
 cd frontend
-```
-
-Frontend `.env` erstellen:
-
-```env
-REACT_APP_BACKEND_URL=https://deine-domain.de
-```
-
-Für Production:
-
-```bash
 yarn install
 yarn build
-# Build-Ordner über Nginx ausliefern
 ```
 
-Für Entwicklung:
+3. Nginx so konfigurieren, dass:
 
-```bash
-yarn install
-yarn start
-```
-
-#### 4. Nginx konfigurieren
-
-```nginx
-server {
-    listen 80;
-    server_name deine-domain.de;
-
-    root /opt/arena/frontend/build;
-    index index.html;
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:8001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-}
-```
-
-#### 5. SSL mit Let's Encrypt (empfohlen)
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d deine-domain.de
-```
-
-</details>
-
----
-
-## Architektur
-
-```
-arena/
-├── backend/
-│   ├── server.py              # FastAPI – alle API-Endpunkte
-│   ├── seed_demo_data.py      # Demo-Daten erzeugen (optional)
-│   ├── requirements.prod.txt  # Python-Abhängigkeiten (Production)
-│   └── .env                   # Konfiguration (wird beim Install erstellt)
-├── frontend/
-│   ├── src/
-│   │   ├── context/AuthContext.js     # JWT Auth State
-│   │   ├── components/
-│   │   │   ├── Navbar.js              # Navigation (rollenbasiert)
-│   │   │   ├── BracketView.js         # Bracket mit Bezier-SVG
-│   │   │   ├── CommentSection.js      # Kommentar-Komponente
-│   │   │   └── NotificationBell.js    # Benachrichtigungen
-│   │   └── pages/
-│   │       ├── HomePage.js
-│   │       ├── LoginPage.js / RegisterPage.js
-│   │       ├── TournamentsPage.js / TournamentDetailPage.js
-│   │       ├── CreateTournamentPage.js   # Nur Admin
-│   │       ├── GamesPage.js
-│   │       ├── TeamsPage.js
-│   │       ├── AdminPage.js              # Nur Admin
-│   │       ├── ProfilePage.js
-│   │       └── WidgetPage.js             # Einbettbar
-│   └── .env
-├── install.sh                 # Ein-Befehl-Installer
-├── update.sh                  # Produktions-Update inkl. Admin-Reset/Demo-Seed
-└── README.md
-```
-
-**Tech-Stack:**
-
-| Komponente | Technologie |
-|-----------|-------------|
-| Backend | FastAPI (Python) |
-| Datenbank | MongoDB 7.0 |
-| Frontend | React 19, Tailwind CSS, Shadcn/UI, Framer Motion |
-| Auth | JWT (python-jose + bcrypt) |
-| Zahlungen | Stripe + PayPal |
-| Reverse Proxy | Nginx |
-
----
-
-## Rollen & Berechtigungen
-
-| Aktion | Admin | Spieler | Gast |
-|--------|:-----:|:-------:|:----:|
-| Turniere ansehen | ✅ | ✅ | ✅ |
-| Für Turnier registrieren | ✅ | ✅ | ✅ |
-| Turnier erstellen/bearbeiten | ✅ | ❌ | ❌ |
-| Bracket generieren | ✅ | ❌ | ❌ |
-| Spiele hinzufügen/löschen | ✅ | ❌ | ❌ |
-| Ergebnis eintragen | ✅ | ✅* | ❌ |
-| Streitfall lösen / Disqualifizierung | ✅ | ❌ | ❌ |
-| Team erstellen / beitreten | ✅ | ✅ | ❌ |
-| Kommentieren | ✅ | ✅ | ❌ |
-| Admin-Panel | ✅ | ❌ | ❌ |
-
-*\* Nur Team-Owner oder Leader können Ergebnisse für ihr Team eintragen.*
-
----
-
-## Ergebnis-System
-
-Das Ergebnis-System funktioniert in drei Stufen:
-
-1. **Team A** trägt das Ergebnis ein (z.B. 3:1)
-2. **Team B** trägt das Ergebnis ein (z.B. 3:1)
-3. **Automatische Bestätigung** wenn beide Ergebnisse übereinstimmen
-
-Bei Unstimmigkeiten:
-- Match wird als **"Streitfall"** markiert
-- Admins werden **automatisch benachrichtigt**
-- Admin prüft die Einreichungen und setzt das **endgültige Ergebnis**
-- Optional: Admin kann ein Team **disqualifizieren**
-
----
-
-## Team-System
-
-- **Team erstellen**: Jedes Team erhält einen automatischen 6-stelligen Beitrittscode
-- **Beitreten**: Spieler treten mit Team-ID + Beitrittscode bei
-- **Leader**: Owner kann Mitglieder zu "Leadern" befördern (können Ergebnisse eintragen)
-- **Hauptteam + Sub-Teams**: Sub-Teams für einzelne Ligen/Spiele (z.B. "Alpha CoD", "Alpha FIFA")
-- **Profil-Vererbung**: Sub-Teams übernehmen standardmäßig Banner, Logo, Tag und Social-Links vom Hauptteam
-- **Turnierregistrierung**:
-  - Team-Modus: Registrierung über Sub-Teams
-  - Solo-Modus: Registrierung über den Benutzer (ohne Team)
-- **Öffentliche Teamliste**: Gast- und Spieleransicht mit Team-Finder, Sub-Team-Übersicht und Social-Links (Discord/Website/X/Instagram/Twitch/YouTube)
-- **Verwaltung**: Owner sieht Team-ID und Code, kann Code erneuern und Profil zentral pflegen
-
----
-
-## API-Endpunkte
-
-<details>
-<summary>Vollständige API-Referenz</summary>
-
-### Authentifizierung
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| POST | `/api/auth/register` | Benutzer registrieren |
-| POST | `/api/auth/login` | Einloggen → JWT Token |
-| GET | `/api/auth/me` | Aktuellen Benutzer abrufen |
-
-### Turniere (Admin)
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| GET | `/api/tournaments` | Alle Turniere auflisten |
-| POST | `/api/tournaments` | Turnier erstellen (Admin) |
-| GET | `/api/tournaments/:id` | Turnier-Details |
-| PUT | `/api/tournaments/:id` | Turnier bearbeiten (Admin) |
-| DELETE | `/api/tournaments/:id` | Turnier löschen (Admin) |
-| POST | `/api/tournaments/:id/generate-bracket` | Bracket generieren (Admin) |
-
-### Registrierung & Check-in
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| POST | `/api/tournaments/:id/register` | Für Turnier registrieren |
-| GET | `/api/tournaments/:id/registrations` | Teilnehmer auflisten |
-| POST | `/api/tournaments/:id/checkin/:regId` | Check-in |
-
-### Ergebnisse
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| POST | `/api/tournaments/:id/matches/:matchId/submit-score` | Ergebnis einreichen (Team) |
-| GET | `/api/tournaments/:id/matches/:matchId/submissions` | Eingereichte Ergebnisse |
-| PUT | `/api/tournaments/:id/matches/:matchId/resolve` | Streit lösen (Admin) |
-| PUT | `/api/tournaments/:id/matches/:matchId/score` | Ergebnis direkt setzen (Admin) |
-| POST | `/api/tournaments/:id/matches/:matchId/submit-battle-royale` | BR-Platzierungen einreichen |
-| GET | `/api/tournaments/:id/matches/:matchId/battle-royale-submissions` | BR-Einreichungen ansehen |
-| PUT | `/api/tournaments/:id/matches/:matchId/battle-royale-resolve` | BR-Ergebnis freigeben (Admin) |
-
-### Teams
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| GET | `/api/teams` | Eigene Teams auflisten |
-| GET | `/api/teams/public` | Öffentliche Teamliste (inkl. Sub-Teams) |
-| GET | `/api/teams/registerable-sub-teams` | Eigene registrierbare Sub-Teams |
-| POST | `/api/teams` | Team erstellen |
-| POST | `/api/teams/join` | Team beitreten (ID + Code) |
-| DELETE | `/api/teams/:id` | Team löschen (Owner) |
-| POST | `/api/teams/:id/members` | Mitglied hinzufügen (E-Mail) |
-| DELETE | `/api/teams/:id/members/:userId` | Mitglied entfernen |
-| PUT | `/api/teams/:id/leaders/:userId` | Zum Leader befördern |
-| DELETE | `/api/teams/:id/leaders/:userId` | Leader-Rechte entziehen |
-| GET | `/api/teams/:id/sub-teams` | Sub-Teams auflisten |
-| PUT | `/api/teams/:id/regenerate-code` | Beitrittscode erneuern |
-
-### Spiele (Admin)
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| GET | `/api/games` | Alle Spiele auflisten |
-| POST | `/api/games` | Spiel hinzufügen (Admin) |
-| PUT | `/api/games/:id` | Spiel bearbeiten (Admin) |
-| DELETE | `/api/games/:id` | Spiel löschen (Admin) |
-
-### Kommentare
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| GET | `/api/tournaments/:id/comments` | Turnier-Kommentare |
-| POST | `/api/tournaments/:id/comments` | Kommentar schreiben |
-| GET | `/api/matches/:id/comments` | Match-Kommentare |
-| POST | `/api/matches/:id/comments` | Match-Kommentar schreiben |
-
-### Benachrichtigungen
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| GET | `/api/notifications` | Benachrichtigungen auflisten |
-| GET | `/api/notifications/unread-count` | Ungelesene Anzahl |
-| PUT | `/api/notifications/:id/read` | Als gelesen markieren |
-| PUT | `/api/notifications/read-all` | Alle gelesen markieren |
-
-### Payments
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| POST | `/api/payments/create-checkout` | Payment-Checkout erzeugen (Stripe oder PayPal) |
-| GET | `/api/payments/status/:sessionId` | Payment-Status prüfen und Registrierung auf paid setzen |
-
-### Admin
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| GET | `/api/admin/dashboard` | Dashboard-Statistiken |
-| GET | `/api/admin/users` | Benutzer-Verwaltung |
-| PUT | `/api/admin/users/:id/role` | Benutzerrolle (admin/user) ändern |
-| DELETE | `/api/admin/users/:id` | Benutzer inkl. zugehöriger Daten löschen |
-| GET | `/api/admin/teams` | Team-Verwaltung (alle Teams) |
-| DELETE | `/api/admin/teams/:id` | Beliebiges Team löschen |
-| GET | `/api/admin/settings` | Einstellungen abrufen |
-| PUT | `/api/admin/settings` | Einstellung speichern |
-
-### Widget & Profil
-
-| Methode | Endpunkt | Beschreibung |
-|---------|----------|-------------|
-| GET | `/api/widget/tournament/:id` | Widget-Daten |
-| GET | `/api/users/:id/profile` | Benutzerprofil |
-| GET | `/api/stats` | Öffentliche Statistiken |
-
-</details>
+- `/api/*` auf `http://127.0.0.1:8001` proxyt
+- alle anderen Routen auf `frontend/build/index.html` fallen
 
 ---
 
@@ -374,112 +176,367 @@ Bei Unstimmigkeiten:
 
 ### Backend `.env`
 
-| Variable | Beschreibung | Pflicht |
-|----------|-------------|:-------:|
-| `MONGO_URL` | MongoDB Verbindungs-URL | ✅ |
-| `DB_NAME` | Datenbankname | ✅ |
-| `JWT_SECRET` | Geheimer Schlüssel für Token-Signierung | ✅ |
-| `CORS_ORIGINS` | Erlaubte Origins (kommagetrennt) | ✅ |
-| `STRIPE_API_KEY` | Stripe Secret Key für Zahlungen | Optional |
-| `PAYPAL_CLIENT_ID` | PayPal Client ID | Optional |
-| `PAYPAL_SECRET` | PayPal Secret | Optional |
-| `PAYPAL_MODE` | `sandbox` oder `live` | Optional |
-| `ADMIN_EMAIL` | Seed/Admin-Reset Default E-Mail | Optional |
-| `ADMIN_USERNAME` | Seed/Admin-Reset Default Username | Optional |
+| Variable | Pflicht | Beschreibung |
+|---|:---:|---|
+| `MONGO_URL` | ✅ | MongoDB URI |
+| `DB_NAME` | ✅ | Datenbankname |
+| `JWT_SECRET` | ✅ | JWT Secret |
+| `CORS_ORIGINS` | ✅ | Kommaseparierte Origins |
+| `STRIPE_API_KEY` | Optional | Stripe Secret Key |
+| `STRIPE_WEBHOOK_SECRET` | Optional | Stripe Webhook Secret |
+| `PAYPAL_CLIENT_ID` | Optional | PayPal Client ID |
+| `PAYPAL_SECRET` | Optional | PayPal Secret |
+| `PAYPAL_MODE` | Optional | `sandbox` oder `live` |
+| `ADMIN_EMAIL` | Optional | Seed/Admin-Ensure E-Mail (Default `admin@arena.gg`) |
+| `ADMIN_PASSWORD` | Optional | Seed/Admin-Ensure Passwort (Default `admin123`) |
+| `ADMIN_USERNAME` | Optional | Seed/Admin-Ensure Username |
+| `ADMIN_FORCE_PASSWORD_RESET` | Optional | `true` setzt Admin-Passwort beim Startup neu |
+| `DEMO_USER_PASSWORD` | Optional | Passwort für Demo-User in `seed_demo_data.py` |
 
 ### Frontend `.env`
 
-| Variable | Beschreibung | Pflicht |
-|----------|-------------|:-------:|
-| `REACT_APP_BACKEND_URL` | URL zum Backend (z.B. `https://arena.example.com`) | ✅ |
-
-### Admin-Panel Einstellungen
-
-Folgende Einstellungen können im Admin-Panel konfiguriert werden:
-
-- **Payment Provider** – `stripe`, `paypal` oder leer/auto
-- **Stripe** – Public Key, Secret Key, Webhook Secret
-- **PayPal** – Client ID, Secret, Mode (`sandbox`/`live`)
-- **SMTP** – Host, Port, Benutzer, Passwort (für E-Mail-Benachrichtigungen)
+| Variable | Pflicht | Beschreibung |
+|---|:---:|---|
+| `REACT_APP_BACKEND_URL` | Optional | Backend-Base-URL. Leer = same-origin (`/api`) |
 
 ---
 
-## Updates (Production)
+## Admin Settings (`/api/admin/settings`)
 
-Standard-Update:
+Diese Keys werden im Admin-Bereich gepflegt:
+
+- `payment_provider` (`stripe`, `paypal`, leer/`auto`)
+- `stripe_public_key`
+- `stripe_secret_key`
+- `stripe_webhook_secret`
+- `paypal_client_id`
+- `paypal_secret`
+- `paypal_mode` (`sandbox`/`live`)
+- `smtp_host`
+- `smtp_port`
+- `smtp_user`
+- `smtp_password`
+- `smtp_from_name`
+- `smtp_from_email`
+- `smtp_reply_to`
+- `smtp_use_starttls`
+- `smtp_use_ssl`
+
+Payment-Provider-Auswahl in der API:
+
+1. explizit über Request (`provider`)
+2. sonst `admin_settings.payment_provider`
+3. sonst Auto-Fallback: PayPal wenn Client-ID+Secret vorhanden, sonst Stripe
+
+---
+
+## Team-System (Main/Sub)
+
+- Main-Teams sind organisatorische Stammteams.
+- Sub-Teams sind Turnier-aktive Teams.
+- Team-Registrierung (`participant_mode=team`) funktioniert nur mit Sub-Team.
+- Profilfelder (Bio, Logo, Banner, Socials, Tag) werden für Sub-Teams vom Main-Team geerbt, wenn das Sub-Team den Wert nicht gesetzt hat.
+- Änderungen an Main-Team-Logo/Banner/Tag werden als Fallback in leere Sub-Team-Felder propagiert.
+- Öffentliche Teamliste (`GET /api/teams/public`) zeigt Main-Teams inkl. Sub-Teams ohne sensible Felder.
+
+Rechte im Team:
+
+- Owner: Vollzugriff + Join-Code regenerieren + Leader verwalten
+- Leader: Teamprofil bearbeiten, Mitglieder verwalten
+- Member: Teilnahme/Registrierung je nach Endpoint
+
+---
+
+## Ergebnis- und Match-Workflow
+
+### Standard-Score (`submit-score`)
+
+- Team A und Team B reichen separat ein.
+- Bei identischen Scores:
+  - direkt bestätigt, oder
+  - bei `require_admin_score_approval=true`: Status `pending_admin_approval` bis Admin bestätigt.
+- Bei abweichenden Scores: `disputed` + Admin-Benachrichtigung.
+- Admin kann final mit `/resolve` entscheiden oder `/score` direkt setzen.
+
+### Battle Royale
+
+- Heats mit Teilnehmerliste, Placements und Points-Map.
+- Teams/Spieler reichen Placements ein (`submit-battle-royale`).
+- Optional Admin-Freigabe (`battle-royale-resolve`).
+- Bei komplettem Round-Abschluss werden nächste Heats automatisch erzeugt.
+
+### Match Scheduling
+
+- Zeitvorschläge pro Match (`/matches/{id}/schedule`).
+- Annahme eines Vorschlags setzt alle anderen auf `rejected`.
+
+---
+
+## Zahlungsprozess
+
+### Checkout
+
+- Endpoint: `POST /api/payments/create-checkout`
+- Erzeugt Stripe Checkout Session oder PayPal Order.
+- Rückgabe enthält Redirect-URL.
+
+### Status
+
+- Endpoint: `GET /api/payments/status/{session_id}`
+- Auth erforderlich.
+- Setzt bei Erfolg `registrations.payment_status = paid`.
+
+### Stripe Webhook
+
+- Endpoint: `POST /api/webhook/stripe`
+- Verarbeitet `checkout.session.completed` und setzt Zahlung auf `paid`.
+
+Hinweis:
+
+- PayPal wird im aktuellen Stand über Status-Polling/Order-Capture verarbeitet.
+
+---
+
+## Vollständige API-Referenz
+
+### Auth
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| POST | `/api/auth/register` | ❌ | Benutzer registrieren |
+| POST | `/api/auth/login` | ❌ | Login |
+| GET | `/api/auth/me` | ✅ | Aktueller Benutzer |
+
+### Teams
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| GET | `/api/teams` | ✅ | Eigene Main-Teams |
+| GET | `/api/teams/registerable-sub-teams` | ✅ | Eigene registrierbare Sub-Teams |
+| GET | `/api/teams/public` | ❌ | Öffentliche Teamliste |
+| POST | `/api/teams` | ✅ | Team/Sub-Team erstellen |
+| GET | `/api/teams/{team_id}` | Optional | Team abrufen |
+| PUT | `/api/teams/{team_id}` | ✅ | Team bearbeiten |
+| DELETE | `/api/teams/{team_id}` | ✅ | Team als Owner löschen |
+| POST | `/api/teams/join` | ✅ | Team via Join-Code beitreten |
+| PUT | `/api/teams/{team_id}/regenerate-code` | ✅ | Join-Code regenerieren (Owner) |
+| POST | `/api/teams/{team_id}/members` | ✅ | Mitglied per E-Mail hinzufügen |
+| DELETE | `/api/teams/{team_id}/members/{member_id}` | ✅ | Mitglied entfernen |
+| PUT | `/api/teams/{team_id}/leaders/{user_id}` | ✅ | Mitglied zum Leader machen (Owner) |
+| DELETE | `/api/teams/{team_id}/leaders/{user_id}` | ✅ | Leader zurückstufen (Owner) |
+| GET | `/api/teams/{team_id}/sub-teams` | ✅ | Sub-Teams eines Main-Teams |
+
+### Games
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| GET | `/api/games` | ❌ | Spieleliste |
+| POST | `/api/games` | Admin | Spiel erstellen |
+| GET | `/api/games/{game_id}` | ❌ | Spieldetails |
+| PUT | `/api/games/{game_id}` | Admin | Spiel bearbeiten |
+| DELETE | `/api/games/{game_id}` | Admin | Spiel löschen |
+
+### Tournaments
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| GET | `/api/tournaments` | ❌ | Turnierliste (`status`, `game_id` optional) |
+| POST | `/api/tournaments` | Admin | Turnier erstellen |
+| GET | `/api/tournaments/{tournament_id}` | ❌ | Turnierdetails |
+| PUT | `/api/tournaments/{tournament_id}` | Admin | Turnier bearbeiten |
+| DELETE | `/api/tournaments/{tournament_id}` | Admin | Turnier löschen |
+| GET | `/api/tournaments/{tournament_id}/registrations` | Optional | Teilnehmerliste |
+| POST | `/api/tournaments/{tournament_id}/register` | ✅ | Registrierung |
+| GET | `/api/tournaments/{tournament_id}/standings` | ❌ | Tabelle/Standings |
+| POST | `/api/tournaments/{tournament_id}/checkin/{registration_id}` | ✅ | Check-in |
+| POST | `/api/tournaments/{tournament_id}/generate-bracket` | Admin | Bracket generieren |
+
+### Match Scoring / BR
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| POST | `/api/tournaments/{tournament_id}/matches/{match_id}/submit-score` | ✅ | Score einreichen |
+| GET | `/api/tournaments/{tournament_id}/matches/{match_id}/submissions` | ✅ | Score-Submissions abrufen |
+| PUT | `/api/tournaments/{tournament_id}/matches/{match_id}/resolve` | Admin | Dispute auflösen |
+| PUT | `/api/tournaments/{tournament_id}/matches/{match_id}/score` | Admin | Score direkt setzen |
+| POST | `/api/tournaments/{tournament_id}/matches/{match_id}/submit-battle-royale` | ✅ | BR-Placements einreichen |
+| GET | `/api/tournaments/{tournament_id}/matches/{match_id}/battle-royale-submissions` | ✅ | BR-Submissions |
+| PUT | `/api/tournaments/{tournament_id}/matches/{match_id}/battle-royale-resolve` | Admin | BR final freigeben |
+
+### Payments
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| POST | `/api/payments/create-checkout` | ✅ | Stripe/PayPal Checkout erzeugen |
+| GET | `/api/payments/status/{session_id}` | ✅ | Zahlungsstatus prüfen |
+| POST | `/api/webhook/stripe` | ❌ | Stripe Webhook |
+
+### Profile / Users
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| PUT | `/api/users/me/account` | ✅ | Eigenes Konto bearbeiten |
+| PUT | `/api/users/me/password` | ✅ | Eigenes Passwort ändern |
+| GET | `/api/users/{user_id}/profile` | ❌ | Profil + Teams + Turniere + Stats |
+
+### Comments
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| GET | `/api/tournaments/{tournament_id}/comments` | ❌ | Turnier-Kommentare |
+| POST | `/api/tournaments/{tournament_id}/comments` | ✅ | Turnier-Kommentar |
+| GET | `/api/matches/{match_id}/comments` | ❌ | Match-Kommentare |
+| POST | `/api/matches/{match_id}/comments` | ✅ | Match-Kommentar |
+
+### Notifications
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| GET | `/api/notifications` | ✅ | Eigene Notifications |
+| GET | `/api/notifications/unread-count` | ✅ | Unread-Count |
+| PUT | `/api/notifications/{notification_id}/read` | ✅ | Notification als gelesen |
+| PUT | `/api/notifications/read-all` | ✅ | Alle als gelesen |
+
+### Match Scheduling
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| GET | `/api/matches/{match_id}/schedule` | ✅ | Zeitvorschläge abrufen |
+| POST | `/api/matches/{match_id}/schedule` | ✅ | Zeitvorschlag einreichen |
+| PUT | `/api/matches/{match_id}/schedule/{proposal_id}/accept` | ✅ | Vorschlag akzeptieren |
+
+### Widget / Public Stats
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| GET | `/api/widget/tournament/{tournament_id}` | ❌ | Widget-Daten |
+| GET | `/api/stats` | ❌ | Öffentliche Zahlen |
+
+### Admin
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| GET | `/api/admin/dashboard` | Admin | Dashboard |
+| GET | `/api/admin/users` | Admin | Userliste inkl. Team-/Turnierzuordnung |
+| PUT | `/api/admin/users/{user_id}/role` | Admin | Rolle ändern |
+| DELETE | `/api/admin/users/{user_id}` | Admin | User löschen inkl. Cleanup |
+| GET | `/api/admin/teams` | Admin | Teamliste |
+| DELETE | `/api/admin/teams/{team_id}` | Admin | Team inkl. Hierarchie löschen |
+| GET | `/api/admin/settings` | Admin | Settings lesen |
+| PUT | `/api/admin/settings` | Admin | Setting schreiben |
+| POST | `/api/admin/email/test` | Admin | SMTP-Testmail |
+| POST | `/api/admin/reminders/checkin/{tournament_id}` | Admin | Check-in-Reminder versenden |
+
+---
+
+## Operations
+
+### Update im Betrieb
 
 ```bash
 ./update.sh
 ```
 
-Nützliche Optionen:
+Wichtige Optionen:
 
 ```bash
-# Update trotz lokaler Änderungen
 ./update.sh --force
-
-# Admin-Konto direkt zurücksetzen/erstellen
+./update.sh --branch main
 ./update.sh --admin-reset --admin-email admin@arena.gg --admin-password 'NeuesPasswort'
-
-# Demo-Daten importieren
 ./update.sh --seed-demo
-
-# Demo-Daten vorher zurücksetzen und neu importieren
 ./update.sh --seed-demo-reset
 ```
 
----
-
-## Widget einbetten
-
-Kopiere den folgenden Code in deine Webseite:
-
-```html
-<iframe
-  src="https://deine-domain.de/widget/TURNIER_ID"
-  width="100%"
-  height="400"
-  frameborder="0"
-  style="border-radius: 12px; overflow: hidden;">
-</iframe>
-```
-
-Den Embed-Code findest du auch auf der Turnier-Detailseite unter dem Tab **"Info & Regeln"**.
-
----
-
-## Verwaltung
+### Services / Logs
 
 ```bash
-# Service-Status prüfen
-sudo systemctl status arena-backend
-
-# Logs anzeigen
+sudo systemctl status arena-backend --no-pager -l
 sudo journalctl -u arena-backend -f
-
-# Backend neustarten
 sudo systemctl restart arena-backend
-
-# Nginx neustarten
 sudo systemctl reload nginx
-
-# MongoDB Shell
-mongosh arena_esports
 ```
 
 ---
 
-## Entwicklung
+## Demo-Daten
+
+Seed-Script:
 
 ```bash
-# Backend (mit Hot-Reload)
 cd backend
 source venv/bin/activate
-uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+python seed_demo_data.py
+python seed_demo_data.py --reset
+```
 
-# Frontend (Dev-Server)
-cd frontend
-yarn start
+Default-Demo-Login:
+
+- `demo.admin@arena.gg`
+- Passwort: `demo123` (oder Wert aus `DEMO_USER_PASSWORD`)
+
+Weitere Demo-User verwenden dasselbe Passwort.
+
+---
+
+## Tests
+
+### API-Tests (pytest)
+
+```bash
+cd backend
+source venv/bin/activate
+pytest tests -v
+```
+
+### Erweiterter API-Schnelltest
+
+```bash
+python backend_test.py
+```
+
+Optional via Env:
+
+- `BACKEND_URL` / `REACT_APP_BACKEND_URL`
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
+
+---
+
+## Troubleshooting (wichtig)
+
+### Admin-Login schlägt fehl
+
+1. Prüfe Backend-Env:
+
+```bash
+cat backend/.env | grep -E 'ADMIN_EMAIL|ADMIN_PASSWORD|ADMIN_FORCE_PASSWORD_RESET'
+```
+
+2. Admin-Konto explizit zurücksetzen:
+
+```bash
+./update.sh --admin-reset --admin-email admin@arena.gg --admin-password 'NeuesPasswort'
+```
+
+3. Alternativ erzwungen beim Startup:
+
+```env
+ADMIN_FORCE_PASSWORD_RESET=true
+```
+
+4. Logs prüfen:
+
+```bash
+journalctl -u arena-backend -n 120 --no-pager
+```
+
+### Nginx wurde nicht neu geladen
+
+- `update.sh` erkennt gängige Nginx-Service-Namen automatisch.
+- Falls dein Service abweicht:
+
+```bash
+NGINX_SERVICE_NAME=nginx ./update.sh
 ```
 
 ---
