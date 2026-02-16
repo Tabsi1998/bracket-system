@@ -167,6 +167,45 @@ async def require_admin(request: Request):
         raise HTTPException(403, "Admin-Rechte erforderlich")
     return user
 
+def generate_join_code():
+    return ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+
+async def send_email_notification(to_email: str, subject: str, body_text: str):
+    """Send email if SMTP is configured in admin settings."""
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        smtp_host = await db.admin_settings.find_one({"key": "smtp_host"}, {"_id": 0})
+        smtp_port = await db.admin_settings.find_one({"key": "smtp_port"}, {"_id": 0})
+        smtp_user = await db.admin_settings.find_one({"key": "smtp_user"}, {"_id": 0})
+        smtp_pass = await db.admin_settings.find_one({"key": "smtp_password"}, {"_id": 0})
+        if not all([smtp_host, smtp_port, smtp_user, smtp_pass]):
+            return
+        msg = MIMEText(body_text, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"] = smtp_user["value"]
+        msg["To"] = to_email
+        with smtplib.SMTP(smtp_host["value"], int(smtp_port["value"]), timeout=10) as server:
+            server.starttls()
+            server.login(smtp_user["value"], smtp_pass["value"])
+            server.send_message(msg)
+        logger.info(f"Email sent to {to_email}")
+    except Exception as e:
+        logger.warning(f"Email send failed: {e}")
+
+async def get_user_team_role(user_id: str, team_id: str):
+    """Returns 'owner', 'leader', 'member', or None."""
+    team = await db.teams.find_one({"id": team_id}, {"_id": 0})
+    if not team:
+        return None
+    if team.get("owner_id") == user_id:
+        return "owner"
+    if user_id in team.get("leader_ids", []):
+        return "leader"
+    if user_id in team.get("member_ids", []):
+        return "member"
+    return None
+
 # ─── Seed Data ───
 
 SEED_GAMES = [
