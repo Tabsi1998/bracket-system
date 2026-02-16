@@ -12,6 +12,39 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 step() { echo -e "\n${CYAN}── $1 ──${NC}"; }
 
+resolve_backend_service() {
+  local configured="${BACKEND_SERVICE_NAME:-}"
+  local name=""
+  local unit_files=""
+
+  if [ -n "$configured" ]; then
+    echo "$configured"
+    return 0
+  fi
+
+  # Fast path for default install service name.
+  if $SUDO systemctl cat arena-backend >/dev/null 2>&1 || $SUDO systemctl cat arena-backend.service >/dev/null 2>&1; then
+    echo "arena-backend"
+    return 0
+  fi
+
+  unit_files="$($SUDO systemctl list-unit-files --type=service --no-pager --no-legend 2>/dev/null | awk '{print $1}')"
+  for name in arena-backend.service arena_backend.service bracket-backend.service bracket-system-backend.service; do
+    if printf '%s\n' "$unit_files" | grep -qx "$name"; then
+      echo "$name"
+      return 0
+    fi
+  done
+
+  name="$(printf '%s\n' "$unit_files" | grep -E 'arena.*backend|backend.*arena|bracket.*backend|backend.*bracket' | head -n1 || true)"
+  if [ -n "$name" ]; then
+    echo "$name"
+    return 0
+  fi
+
+  return 1
+}
+
 usage() {
   cat << 'EOF'
 Usage: ./update.sh [options]
@@ -102,12 +135,14 @@ deactivate
 cd "$SCRIPT_DIR"
 log "Backend-Abhängigkeiten aktualisiert"
 
-if systemctl list-unit-files 2>/dev/null | grep -q '^arena-backend\.service'; then
-  $SUDO systemctl restart arena-backend
-  $SUDO systemctl is-active --quiet arena-backend || err "arena-backend konnte nicht gestartet werden"
-  log "Service arena-backend neu gestartet"
+BACKEND_SERVICE_UNIT="$(resolve_backend_service || true)"
+if [ -n "$BACKEND_SERVICE_UNIT" ]; then
+  $SUDO systemctl restart "$BACKEND_SERVICE_UNIT"
+  $SUDO systemctl is-active --quiet "$BACKEND_SERVICE_UNIT" || err "Service $BACKEND_SERVICE_UNIT konnte nicht gestartet werden"
+  log "Service $BACKEND_SERVICE_UNIT neu gestartet"
 else
-  warn "Service arena-backend nicht gefunden, Restart übersprungen"
+  warn "Kein passender Backend-Service gefunden."
+  warn "Setze optional BACKEND_SERVICE_NAME, z. B.: BACKEND_SERVICE_NAME=arena-backend ./update.sh"
 fi
 
 step "Frontend aktualisieren"
@@ -140,6 +175,10 @@ fi
 echo ""
 log "Update erfolgreich abgeschlossen"
 echo -e "${BOLD}Nützliche Checks:${NC}"
-echo "  $SUDO systemctl status arena-backend --no-pager -l"
-echo "  $SUDO journalctl -u arena-backend -n 80 --no-pager"
-
+if [ -n "${BACKEND_SERVICE_UNIT:-}" ]; then
+  echo "  $SUDO systemctl status $BACKEND_SERVICE_UNIT --no-pager -l"
+  echo "  $SUDO journalctl -u $BACKEND_SERVICE_UNIT -n 80 --no-pager"
+else
+  echo "  $SUDO systemctl status <backend-service> --no-pager -l"
+  echo "  $SUDO journalctl -u <backend-service> -n 80 --no-pager"
+fi
