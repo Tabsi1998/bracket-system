@@ -113,11 +113,13 @@ export default function Navbar() {
                   </Button>
                 </Link>
               ))}
-              <Link to="/tournaments/create" onClick={() => setMobileOpen(false)}>
-                <Button className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-semibold gap-2 mt-2">
-                  <Plus className="w-4 h-4" />Turnier erstellen
-                </Button>
-              </Link>
+              {isAdmin && (
+                <Link to="/tournaments/create" onClick={() => setMobileOpen(false)}>
+                  <Button className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-semibold gap-2 mt-2">
+                    <Plus className="w-4 h-4" />Turnier erstellen
+                  </Button>
+                </Link>
+              )}
               {user ? (
                 <div className="flex items-center justify-between pt-3 mt-3 border-t border-white/5">
                   <div className="flex items-center gap-2">
