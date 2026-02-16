@@ -54,12 +54,14 @@ export default function Navbar() {
 
           <div className="hidden md:flex items-center gap-2">
             {user && <NotificationBell />}
-            <Link to="/tournaments/create" data-testid="nav-create-tournament">
-              <Button className="bg-yellow-500 text-black hover:bg-yellow-400 font-semibold gap-2 active:scale-95 transition-transform">
-                <Plus className="w-4 h-4" />
-                Turnier erstellen
-              </Button>
-            </Link>
+            {isAdmin && (
+              <Link to="/tournaments/create" data-testid="nav-create-tournament">
+                <Button className="bg-yellow-500 text-black hover:bg-yellow-400 font-semibold gap-2 active:scale-95 transition-transform">
+                  <Plus className="w-4 h-4" />
+                  Turnier erstellen
+                </Button>
+              </Link>
+            )}
             {user ? (
               <div className="flex items-center gap-2 ml-1">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/50 border border-white/5">
