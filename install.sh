@@ -29,8 +29,27 @@ fi
 
 banner
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+normalize_domain() {
+  local value="$1"
+  value="${value#http://}"
+  value="${value#https://}"
+  value="${value%%/*}"
+  value="${value%%[[:space:]]*}"
+  echo "$value"
+}
+
+dotenv_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
 # ── Konfiguration einlesen ──
-INSTALL_DIR="/opt/arena"
+INSTALL_DIR_DEFAULT="$SCRIPT_DIR"
+INSTALL_DIR="$INSTALL_DIR_DEFAULT"
 DOMAIN=""
 ADMIN_EMAIL="admin@arena.gg"
 ADMIN_PASSWORD="admin123"
@@ -41,7 +60,9 @@ FRONTEND_PORT=3000
 
 step "Konfiguration"
 read -rp "Domain oder IP-Adresse (z.B. arena.example.com oder 192.168.1.100): " DOMAIN
+DOMAIN="$(normalize_domain "$DOMAIN")"
 if [ -z "$DOMAIN" ]; then err "Domain/IP ist erforderlich"; fi
+read -rp "Installationsverzeichnis [$INSTALL_DIR_DEFAULT]: " input && INSTALL_DIR="${input:-$INSTALL_DIR_DEFAULT}"
 
 read -rp "Admin E-Mail [$ADMIN_EMAIL]: " input && ADMIN_EMAIL="${input:-$ADMIN_EMAIL}"
 read -rsp "Admin Passwort [$ADMIN_PASSWORD]: " input && ADMIN_PASSWORD="${input:-$ADMIN_PASSWORD}"
@@ -51,6 +72,7 @@ read -rp "Stripe Secret Key (optional, Enter zum Überspringen): " STRIPE_KEY
 
 echo ""
 log "Domain:         $DOMAIN"
+log "Installationspfad: $INSTALL_DIR"
 log "Admin E-Mail:   $ADMIN_EMAIL"
 log "Datenbank:      $MONGO_DB_NAME"
 echo ""
@@ -120,8 +142,7 @@ fi
 # ═══════════════════════════════════════════════════
 step "2/8 – Anwendung einrichten"
 
-# Kopiere Dateien wenn wir aus dem Repo-Verzeichnis ausführen
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Kopiere Dateien wenn wir in ein anderes Ziel installieren
 if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ]; then
   mkdir -p "$INSTALL_DIR"
   cp -r "$SCRIPT_DIR/backend" "$INSTALL_DIR/"
@@ -145,15 +166,15 @@ deactivate
 log "Python-Abhängigkeiten installiert"
 
 # Backend .env
-cat > "$INSTALL_DIR/backend/.env" << EOF
-MONGO_URL=mongodb://localhost:27017
-DB_NAME=${MONGO_DB_NAME}
-JWT_SECRET=${JWT_SECRET}
-CORS_ORIGINS=http://${DOMAIN},https://${DOMAIN},http://localhost:${FRONTEND_PORT}
-STRIPE_API_KEY=${STRIPE_KEY:-sk_test_placeholder}
-ADMIN_EMAIL=${ADMIN_EMAIL}
-ADMIN_PASSWORD=${ADMIN_PASSWORD}
-EOF
+{
+  printf 'MONGO_URL=%s\n' "mongodb://localhost:27017"
+  printf 'DB_NAME=%s\n' "$(dotenv_quote "$MONGO_DB_NAME")"
+  printf 'JWT_SECRET=%s\n' "$(dotenv_quote "$JWT_SECRET")"
+  printf 'CORS_ORIGINS=%s\n' "$(dotenv_quote "http://${DOMAIN},https://${DOMAIN},http://localhost:${FRONTEND_PORT}")"
+  printf 'STRIPE_API_KEY=%s\n' "$(dotenv_quote "$STRIPE_KEY")"
+  printf 'ADMIN_EMAIL=%s\n' "$(dotenv_quote "$ADMIN_EMAIL")"
+  printf 'ADMIN_PASSWORD=%s\n' "$(dotenv_quote "$ADMIN_PASSWORD")"
+} > "$INSTALL_DIR/backend/.env"
 log "Backend .env erstellt"
 
 # ═══════════════════════════════════════════════════
@@ -163,7 +184,7 @@ step "4/8 – Frontend bauen"
 
 cd "$INSTALL_DIR/frontend"
 cat > .env << EOF
-REACT_APP_BACKEND_URL=http://${DOMAIN}
+REACT_APP_BACKEND_URL=
 EOF
 
 yarn install --frozen-lockfile --silent 2>/dev/null || yarn install --silent

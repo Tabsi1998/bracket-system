@@ -1,19 +1,39 @@
 import requests
 import sys
 import json
+import os
 from datetime import datetime
 
 class eSportsTournamentAPITester:
-    def __init__(self, base_url="https://gaming-hub-348.preview.emergentagent.com/api"):
-        self.base_url = base_url
+    def __init__(self, base_url=None):
+        resolved_base = base_url or os.environ.get("BACKEND_API_URL") or os.environ.get("BACKEND_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "http://127.0.0.1:8001"
+        self.base_url = resolved_base.rstrip("/")
+        if self.base_url.endswith("/api"):
+            self.base_url = self.base_url[:-4]
         self.tests_run = 0
         self.tests_passed = 0
         self.failed_tests = []
         self.session = requests.Session()
+        self.admin_email = os.environ.get("ADMIN_EMAIL", "admin@arena.gg").strip().lower()
+        self.admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+        self._admin_headers = None
+
+    def get_admin_headers(self):
+        if self._admin_headers:
+            return self._admin_headers
+        response = self.session.post(f"{self.base_url}/api/auth/login", json={
+            "email": self.admin_email,
+            "password": self.admin_password
+        }, headers={"Content-Type": "application/json"})
+        if response.status_code != 200:
+            raise RuntimeError(f"Admin login failed ({response.status_code}): {response.text[:200]}")
+        token = response.json().get("token")
+        self._admin_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+        return self._admin_headers
 
     def run_test(self, name, method, endpoint, expected_status, data=None, headers=None):
         """Run a single API test"""
-        url = f"{self.base_url}/{endpoint}"
+        url = f"{self.base_url}/api/{endpoint}"
         if not headers:
             headers = {'Content-Type': 'application/json'}
 
@@ -101,7 +121,7 @@ class eSportsTournamentAPITester:
             ],
             "platforms": ["PC", "PS5"]
         }
-        success, created_game = self.run_test("POST /api/games", "POST", "games", 200, custom_game_data)
+        success, created_game = self.run_test("POST /api/games", "POST", "games", 200, custom_game_data, headers=self.get_admin_headers())
         
         if success and created_game:
             game_id = created_game.get('id')
@@ -110,10 +130,10 @@ class eSportsTournamentAPITester:
             
             # Test update game
             updated_data = {"name": "Updated Test Game", "short_name": "UTG", "category": "sports", "modes": [], "platforms": []}
-            self.run_test(f"PUT /api/games/{game_id}", "PUT", f"games/{game_id}", 200, updated_data)
+            self.run_test(f"PUT /api/games/{game_id}", "PUT", f"games/{game_id}", 200, updated_data, headers=self.get_admin_headers())
             
             # Test delete game
-            self.run_test(f"DELETE /api/games/{game_id}", "DELETE", f"games/{game_id}", 200)
+            self.run_test(f"DELETE /api/games/{game_id}", "DELETE", f"games/{game_id}", 200, headers=self.get_admin_headers())
         
         return games if success else []
 
@@ -169,7 +189,7 @@ class eSportsTournamentAPITester:
             "start_date": "2024-12-31T12:00:00"
         }
         
-        success, tournament = self.run_test("POST /api/tournaments", "POST", "tournaments", 200, tournament_data)
+        success, tournament = self.run_test("POST /api/tournaments", "POST", "tournaments", 200, tournament_data, headers=self.get_admin_headers())
         
         if success and tournament:
             tournament_id = tournament['id']
@@ -180,7 +200,7 @@ class eSportsTournamentAPITester:
             
             # Test update tournament
             update_data = {"name": "Updated Test Tournament", "description": "Updated description"}
-            self.run_test(f"PUT /api/tournaments/{tournament_id}", "PUT", f"tournaments/{tournament_id}", 200, update_data)
+            self.run_test(f"PUT /api/tournaments/{tournament_id}", "PUT", f"tournaments/{tournament_id}", 200, update_data, headers=self.get_admin_headers())
             
             return tournament
         
@@ -217,14 +237,14 @@ class eSportsTournamentAPITester:
                         "email": f"player{i+1}-{j+1}@test.com"
                     })
             
-            success, registration = self.run_test(f"POST /api/tournaments/{tournament_id}/register", "POST", f"tournaments/{tournament_id}/register", 200, reg_data)
+            success, registration = self.run_test(f"POST /api/tournaments/{tournament_id}/register", "POST", f"tournaments/{tournament_id}/register", 200, reg_data, headers=self.get_admin_headers())
             
             if success and registration:
                 registrations.append(registration)
                 reg_id = registration['id']
                 
                 # Test check-in
-                self.run_test(f"POST /api/tournaments/{tournament_id}/checkin/{reg_id}", "POST", f"tournaments/{tournament_id}/checkin/{reg_id}", 200)
+                self.run_test(f"POST /api/tournaments/{tournament_id}/checkin/{reg_id}", "POST", f"tournaments/{tournament_id}/checkin/{reg_id}", 200, headers=self.get_admin_headers())
         
         return registrations
 
@@ -241,7 +261,7 @@ class eSportsTournamentAPITester:
         tournament_id = tournament['id']
         
         # Test generate bracket
-        success, updated_tournament = self.run_test(f"POST /api/tournaments/{tournament_id}/generate-bracket", "POST", f"tournaments/{tournament_id}/generate-bracket", 200)
+        success, updated_tournament = self.run_test(f"POST /api/tournaments/{tournament_id}/generate-bracket", "POST", f"tournaments/{tournament_id}/generate-bracket", 200, headers=self.get_admin_headers())
         
         if success and updated_tournament:
             bracket = updated_tournament.get('bracket')
@@ -256,7 +276,7 @@ class eSportsTournamentAPITester:
                     
                     # Update match score
                     score_data = {"score1": 2, "score2": 1}
-                    self.run_test(f"PUT /api/tournaments/{tournament_id}/matches/{match_id}/score", "PUT", f"tournaments/{tournament_id}/matches/{match_id}/score", 200, score_data)
+                    self.run_test(f"PUT /api/tournaments/{tournament_id}/matches/{match_id}/score", "PUT", f"tournaments/{tournament_id}/matches/{match_id}/score", 200, score_data, headers=self.get_admin_headers())
                     
                 return True
             else:
@@ -296,7 +316,7 @@ class eSportsTournamentAPITester:
         
         if tournament:
             tournament_id = tournament['id']
-            self.run_test(f"DELETE /api/tournaments/{tournament_id}", "DELETE", f"tournaments/{tournament_id}", 200)
+            self.run_test(f"DELETE /api/tournaments/{tournament_id}", "DELETE", f"tournaments/{tournament_id}", 200, headers=self.get_admin_headers())
             print(f"✅ Cleaned up tournament: {tournament_id}")
 
     def run_all_tests(self):

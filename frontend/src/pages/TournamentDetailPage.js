@@ -14,7 +14,7 @@ import CommentSection from "@/components/CommentSection";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 const statusColors = {
   registration: "bg-blue-500/10 text-blue-400 border-blue-500/20",
@@ -121,6 +121,7 @@ export default function TournamentDetailPage() {
   };
 
   const handleRegister = async () => {
+    if (!user) { toast.error("Bitte zuerst einloggen"); return; }
     if (!teamName.trim()) { toast.error("Team-Name ist erforderlich"); return; }
     if (players.length !== tournament.team_size) { toast.error(`Genau ${tournament.team_size} Spieler erforderlich`); return; }
     if (players.some(p => !p.name.trim() || !p.email.trim())) { toast.error("Alle Spieler-Daten ausfüllen"); return; }

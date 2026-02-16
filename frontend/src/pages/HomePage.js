@@ -7,7 +7,7 @@ import { Trophy, Users, Gamepad2, Zap, ArrowRight, ChevronRight } from "lucide-r
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 const statusColors = {
   registration: "bg-blue-500/10 text-blue-400 border-blue-500/20",
@@ -177,7 +177,7 @@ export default function HomePage() {
         <div className="grid md:grid-cols-3 gap-8">
           {[
             { step: "01", title: "Turnier erstellen", desc: "Wähle ein Spiel, konfiguriere die Parameter und starte dein Turnier in Sekunden." },
-            { step: "02", title: "Spieler registrieren", desc: "Teile den Link. Spieler registrieren sich mit Name und E-Mail. Kein Account nötig." },
+            { step: "02", title: "Spieler registrieren", desc: "Teile den Link. Spieler registrieren sich mit Name und E-Mail (Login erforderlich)." },
             { step: "03", title: "Bracket generieren", desc: "Generiere den Bracket automatisch. Live-Updates und Animationen inklusive." },
           ].map((item, i) => (
             <motion.div

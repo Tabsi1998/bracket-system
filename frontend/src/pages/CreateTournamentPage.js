@@ -11,7 +11,7 @@ import { ArrowLeft, Trophy, Gamepad2, Shield } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 const bracketTypes = [
   { value: "single_elimination", label: "Single Elimination" },

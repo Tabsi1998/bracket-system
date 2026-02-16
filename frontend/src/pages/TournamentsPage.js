@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import { Search, Users, Trophy, Plus, Calendar } from "lucide-react";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 const statusColors = {
   registration: "bg-blue-500/10 text-blue-400 border-blue-500/20",

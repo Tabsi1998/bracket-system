@@ -6,7 +6,7 @@ import { Bell, Check, MessageSquare, Clock, Trophy } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 const typeIcons = {
   comment: MessageSquare,

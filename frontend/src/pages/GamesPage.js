@@ -11,7 +11,7 @@ import { Plus, Gamepad2, Trash2, Monitor, X as XIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 const categories = [
   { value: "fps", label: "FPS" },

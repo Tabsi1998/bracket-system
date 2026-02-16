@@ -7,7 +7,7 @@ import { MessageSquare, Send } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 export default function CommentSection({ targetType, targetId }) {
   const { user } = useAuth();

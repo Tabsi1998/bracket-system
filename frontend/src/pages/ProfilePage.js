@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { User, Trophy, Users, Swords, TrendingUp, Calendar } from "lucide-react";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 export default function ProfilePage() {
   const { userId } = useParams();

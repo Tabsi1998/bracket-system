@@ -49,15 +49,15 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <Label className="text-zinc-400 text-sm">E-Mail</Label>
+              <Label className="text-zinc-400 text-sm">E-Mail oder Benutzername</Label>
               <div className="relative mt-1">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
                 <Input
                   data-testid="login-email"
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="deine@email.de"
+                  placeholder="deine@email.de oder deinname"
                   className="pl-10 bg-zinc-900 border-white/10 text-white"
                 />
               </div>

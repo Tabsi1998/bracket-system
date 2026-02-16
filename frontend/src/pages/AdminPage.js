@@ -11,7 +11,7 @@ import { Shield, Users, Trophy, Gamepad2, Settings, CreditCard, Trash2, Eye } fr
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 export default function AdminPage() {
   const { user, isAdmin } = useAuth();

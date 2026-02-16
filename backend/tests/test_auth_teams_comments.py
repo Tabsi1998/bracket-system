@@ -12,7 +12,9 @@ import os
 import uuid
 from datetime import datetime
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
+BASE_URL = (os.environ.get("BACKEND_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "http://127.0.0.1:8001").rstrip("/")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@arena.gg").strip().lower()
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 
 class TestAuthEndpoints:
     """Authentication endpoint tests - /api/auth/*"""
@@ -20,16 +22,15 @@ class TestAuthEndpoints:
     def test_login_admin_success(self):
         """Test admin login with valid credentials"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@arena.gg",
-            "password": "admin123"
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
         assert response.status_code == 200
         data = response.json()
         assert "token" in data
         assert "user" in data
-        assert data["user"]["email"] == "admin@arena.gg"
+        assert data["user"]["email"] == ADMIN_EMAIL
         assert data["user"]["role"] == "admin"
-        assert data["user"]["username"] == "admin"
 
     def test_login_invalid_credentials(self):
         """Test login with wrong credentials"""
@@ -60,7 +61,7 @@ class TestAuthEndpoints:
         """Test registration with already registered email"""
         response = requests.post(f"{BASE_URL}/api/auth/register", json={
             "username": "newadmin",
-            "email": "admin@arena.gg",
+            "email": ADMIN_EMAIL,
             "password": "test123"
         })
         assert response.status_code == 400
@@ -70,8 +71,8 @@ class TestAuthEndpoints:
         """Test /api/auth/me with valid token"""
         # First login to get token
         login_res = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@arena.gg",
-            "password": "admin123"
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
         token = login_res.json()["token"]
         
@@ -81,7 +82,7 @@ class TestAuthEndpoints:
         })
         assert response.status_code == 200
         data = response.json()
-        assert data["email"] == "admin@arena.gg"
+        assert data["email"] == ADMIN_EMAIL
         assert "password_hash" not in data
 
     def test_auth_me_without_token(self):
@@ -97,8 +98,8 @@ class TestTeamEndpoints:
     def auth_headers(self):
         """Get auth headers with admin token"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@arena.gg",
-            "password": "admin123"
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
         token = response.json()["token"]
         return {"Authorization": f"Bearer {token}"}
@@ -183,8 +184,8 @@ class TestCommentEndpoints:
     def auth_headers(self):
         """Get auth headers with admin token"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@arena.gg",
-            "password": "admin123"
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
         token = response.json()["token"]
         return {"Authorization": f"Bearer {token}"}
@@ -202,7 +203,7 @@ class TestCommentEndpoints:
             "name": f"TEST_CommentTournament_{unique_id}",
             "game_id": game_id,
             "max_participants": 8
-        })
+        }, headers=auth_headers)
         return create_res.json()["id"]
 
     def test_list_comments_empty(self, tournament_id):
@@ -252,8 +253,8 @@ class TestNotificationEndpoints:
     def auth_headers(self):
         """Get auth headers with admin token"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@arena.gg",
-            "password": "admin123"
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
         token = response.json()["token"]
         return {"Authorization": f"Bearer {token}"}
@@ -290,8 +291,8 @@ class TestAdminEndpoints:
     def admin_headers(self):
         """Get auth headers with admin token"""
         response = requests.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@arena.gg",
-            "password": "admin123"
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
         token = response.json()["token"]
         return {"Authorization": f"Bearer {token}"}
@@ -338,7 +339,7 @@ class TestAdminEndpoints:
         assert isinstance(data, list)
         # Verify admin user is in list
         emails = [u["email"] for u in data]
-        assert "admin@arena.gg" in emails
+        assert ADMIN_EMAIL in [e.strip().lower() for e in emails]
         # Verify password_hash is NOT exposed
         for user in data:
             assert "password_hash" not in user

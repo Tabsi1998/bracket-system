@@ -10,7 +10,7 @@ import { Users, Plus, Trash2, UserPlus, Crown, X, Key, Copy, RefreshCw, ChevronD
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 export default function TeamsPage() {
   const { user } = useAuth();

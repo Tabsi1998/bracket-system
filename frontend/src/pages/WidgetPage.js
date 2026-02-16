@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Trophy, Users, Zap } from "lucide-react";
 import axios from "axios";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 const statusLabels = { registration: "Registrierung", checkin: "Check-in", live: "LIVE", completed: "Abgeschlossen" };
 

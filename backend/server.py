@@ -5,6 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import math
+import re
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict
@@ -138,7 +139,13 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    if not password or not hashed:
+        return False
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except (ValueError, TypeError):
+        logger.warning("Invalid password hash format encountered during login")
+        return False
 
 def create_token(user_id: str, email: str, role: str = "user") -> str:
     payload = {"user_id": user_id, "email": email, "role": role, "exp": datetime.now(timezone.utc).timestamp() + 86400 * 7}
@@ -209,11 +216,40 @@ async def get_user_team_role(user_id: str, team_id: str):
 async def get_stripe_api_key() -> Optional[str]:
     """Resolve Stripe key from env first, then admin settings."""
     env_key = os.environ.get("STRIPE_API_KEY", "").strip()
-    if env_key:
+    if env_key and env_key.lower() not in {"sk_test_placeholder", "placeholder", "changeme"}:
         return env_key
     setting = await db.admin_settings.find_one({"key": "stripe_secret_key"}, {"_id": 0})
     value = (setting or {}).get("value", "").strip()
     return value or None
+
+def sanitize_registration(reg: Dict, include_private: bool = False, include_player_emails: bool = False) -> Dict:
+    players = []
+    for p in reg.get("players", []):
+        if isinstance(p, dict):
+            item = {"name": str(p.get("name", "")).strip()}
+            if include_player_emails and p.get("email"):
+                item["email"] = str(p.get("email", "")).strip().lower()
+            players.append(item)
+        else:
+            players.append({"name": str(p).strip()})
+
+    doc = {
+        "id": reg.get("id"),
+        "tournament_id": reg.get("tournament_id"),
+        "team_name": reg.get("team_name"),
+        "players": players,
+        "checked_in": bool(reg.get("checked_in", False)),
+        "payment_status": reg.get("payment_status", "free"),
+        "seed": reg.get("seed"),
+        "created_at": reg.get("created_at"),
+    }
+
+    if include_private:
+        doc["user_id"] = reg.get("user_id")
+        doc["team_id"] = reg.get("team_id")
+        doc["payment_session_id"] = reg.get("payment_session_id")
+
+    return doc
 
 # ─── Seed Data ───
 
@@ -394,9 +430,9 @@ async def register_user(body: UserRegister):
         raise HTTPException(400, "Benutzername erforderlich")
     if not email:
         raise HTTPException(400, "E-Mail erforderlich")
-    if await db.users.find_one({"email": email}):
+    if await db.users.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}):
         raise HTTPException(400, "E-Mail bereits registriert")
-    if await db.users.find_one({"username": username}):
+    if await db.users.find_one({"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}}):
         raise HTTPException(400, "Benutzername bereits vergeben")
     user_doc = {
         "id": str(uuid.uuid4()), "username": username, "email": email,
@@ -410,12 +446,49 @@ async def register_user(body: UserRegister):
 
 @api_router.post("/auth/login")
 async def login_user(body: UserLogin):
-    email = body.email.strip().lower()
-    user = await db.users.find_one({"email": email}, {"_id": 0})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    identifier = body.email.strip()
+    if not identifier:
+        raise HTTPException(400, "E-Mail oder Benutzername erforderlich")
+
+    exact_ci = {"$regex": f"^{re.escape(identifier)}$", "$options": "i"}
+    user = None
+    if "@" in identifier:
+        user = await db.users.find_one({"email": exact_ci})
+        if not user:
+            user = await db.users.find_one({"username": exact_ci})
+    else:
+        user = await db.users.find_one({"username": exact_ci})
+        if not user:
+            user = await db.users.find_one({"email": exact_ci})
+    if not user:
         raise HTTPException(401, "Ungültige Anmeldedaten")
-    token = create_token(user["id"], user["email"], user.get("role", "user"))
-    return {"token": token, "user": {"id": user["id"], "username": user["username"], "email": user["email"], "role": user.get("role", "user"), "avatar_url": user.get("avatar_url", "")}}
+
+    password_hash = user.get("password_hash", "")
+    if not password_hash and user.get("password"):
+        # One-time migration from old plaintext schema.
+        if str(user.get("password")) != body.password:
+            raise HTTPException(401, "Ungültige Anmeldedaten")
+        password_hash = hash_password(body.password)
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"password_hash": password_hash}, "$unset": {"password": ""}},
+        )
+
+    if not verify_password(body.password, password_hash):
+        raise HTTPException(401, "Ungültige Anmeldedaten")
+
+    user_id = user.get("id")
+    if not user_id:
+        user_id = str(uuid.uuid4())
+        await db.users.update_one({"_id": user["_id"]}, {"$set": {"id": user_id}})
+
+    email = str(user.get("email", "")).strip().lower()
+    username = str(user.get("username", ""))
+    role = user.get("role", "user")
+    avatar_url = user.get("avatar_url") or f"https://api.dicebear.com/7.x/avataaars/svg?seed={username or user_id}"
+
+    token = create_token(user_id, email, role)
+    return {"token": token, "user": {"id": user_id, "username": username, "email": email, "role": role, "avatar_url": avatar_url}}
 
 @api_router.get("/auth/me")
 async def get_me(request: Request):
@@ -424,21 +497,32 @@ async def get_me(request: Request):
 
 async def seed_admin():
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@arena.gg").strip().lower()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123").strip()
     default_username = os.environ.get("ADMIN_USERNAME", admin_email.split("@")[0] or "admin").strip()
     username = default_username or "admin"
 
-    existing_with_email = await db.users.find_one({"email": admin_email}, {"_id": 0})
+    existing_with_email = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(admin_email)}$", "$options": "i"}},
+        {"_id": 0},
+    )
     if existing_with_email:
         update_doc = {
             "role": "admin",
+            "email": admin_email,
             "password_hash": hash_password(admin_password),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        if not existing_with_email.get("id"):
+            update_doc["id"] = str(uuid.uuid4())
         if not existing_with_email.get("username"):
             update_doc["username"] = username
+        if not existing_with_email.get("avatar_url"):
+            update_doc["avatar_url"] = f"https://api.dicebear.com/7.x/avataaars/svg?seed={update_doc.get('username', existing_with_email.get('username', username))}"
+        update_filter = {"email": {"$regex": f"^{re.escape(admin_email)}$", "$options": "i"}}
+        if existing_with_email.get("id"):
+            update_filter = {"id": existing_with_email["id"]}
         await db.users.update_one(
-            {"id": existing_with_email["id"]},
+            update_filter,
             {
                 "$set": update_doc
             },
@@ -446,12 +530,7 @@ async def seed_admin():
         logger.info(f"Promoted existing user to admin: {admin_email}")
         return
 
-    existing_admin = await db.users.find_one({"role": "admin"}, {"_id": 0})
-    if existing_admin:
-        logger.info(f"Admin already exists ({existing_admin.get('email', 'unknown')}); configured admin user not created")
-        return
-
-    if await db.users.find_one({"username": username}, {"_id": 0}):
+    if await db.users.find_one({"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}}, {"_id": 0}):
         username = f"{username}_{uuid.uuid4().hex[:6]}"
 
     admin_doc = {
@@ -461,7 +540,7 @@ async def seed_admin():
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(admin_doc)
-    logger.info(f"Admin user seeded: {admin_email}")
+    logger.info(f"Admin user seeded/ensured: {admin_email}")
 
 # ─── Team Endpoints ───
 
@@ -659,9 +738,16 @@ async def list_tournaments(status: Optional[str] = None, game_id: Optional[str] 
     if game_id:
         query["game_id"] = game_id
     tournaments = await db.tournaments.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    tournament_ids = [t["id"] for t in tournaments]
+    reg_counts = {}
+    if tournament_ids:
+        grouped = await db.registrations.aggregate([
+            {"$match": {"tournament_id": {"$in": tournament_ids}}},
+            {"$group": {"_id": "$tournament_id", "count": {"$sum": 1}}},
+        ]).to_list(200)
+        reg_counts = {g["_id"]: g["count"] for g in grouped}
     for t in tournaments:
-        reg_count = await db.registrations.count_documents({"tournament_id": t["id"]})
-        t["registered_count"] = reg_count
+        t["registered_count"] = reg_counts.get(t["id"], 0)
     return tournaments
 
 @api_router.post("/tournaments")
@@ -713,12 +799,15 @@ async def delete_tournament(request: Request, tournament_id: str):
 # ─── Registration Endpoints ───
 
 @api_router.get("/tournaments/{tournament_id}/registrations")
-async def list_registrations(tournament_id: str):
+async def list_registrations(request: Request, tournament_id: str):
+    user = await get_current_user(request)
     regs = await db.registrations.find({"tournament_id": tournament_id}, {"_id": 0}).to_list(200)
-    return regs
+    is_admin = bool(user and user.get("role") == "admin")
+    return [sanitize_registration(r, include_private=is_admin, include_player_emails=is_admin) for r in regs]
 
 @api_router.post("/tournaments/{tournament_id}/register")
 async def register_for_tournament(request: Request, tournament_id: str, body: RegistrationCreate):
+    user = await require_auth(request)
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Tournament not found")
@@ -747,21 +836,18 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
         seen_emails.add(email)
         normalized_players.append({"name": name, "email": email})
 
-    user = await get_current_user(request)
     team_id = body.team_id.strip() if isinstance(body.team_id, str) and body.team_id.strip() else None
     if team_id:
         team = await db.teams.find_one({"id": team_id}, {"_id": 0})
         if not team:
             raise HTTPException(404, "Team nicht gefunden")
-        if not user:
-            raise HTTPException(401, "Ein Login ist für Team-Registrierungen erforderlich")
         team_role = await get_user_team_role(user["id"], team_id)
         if team_role not in ("owner", "leader", "member"):
             raise HTTPException(403, "Du bist kein Mitglied dieses Teams")
         if await db.registrations.find_one({"tournament_id": tournament_id, "team_id": team_id}, {"_id": 0}):
             raise HTTPException(400, "Dieses Team ist bereits registriert")
 
-    if user and not team_id and await db.registrations.find_one({"tournament_id": tournament_id, "user_id": user["id"]}, {"_id": 0}):
+    if not team_id and await db.registrations.find_one({"tournament_id": tournament_id, "user_id": user["id"]}, {"_id": 0}):
         raise HTTPException(400, "Du bist bereits für dieses Turnier registriert")
 
     payment_status = "free" if t["entry_fee"] <= 0 else "pending"
@@ -771,7 +857,7 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
         "team_name": team_name,
         "players": normalized_players,
         "team_id": team_id,
-        "user_id": user["id"] if user else None,
+        "user_id": user["id"],
         "checked_in": False,
         "payment_status": payment_status,
         "payment_session_id": None,
@@ -977,6 +1063,56 @@ def generate_round_robin(registrations):
             round_num += 1
     return {"type": "round_robin", "rounds": rounds, "total_rounds": len(rounds)}
 
+def find_match_in_bracket(bracket: Dict, match_id: str):
+    if not bracket:
+        return None
+    bracket_type = bracket.get("type")
+    all_rounds = []
+    if bracket_type in ("single_elimination", "round_robin"):
+        all_rounds = bracket.get("rounds", [])
+    elif bracket_type == "double_elimination":
+        all_rounds = bracket.get("winners_bracket", {}).get("rounds", []) + bracket.get("losers_bracket", {}).get("rounds", [])
+
+    for rd in all_rounds:
+        for m in rd.get("matches", []):
+            if m.get("id") == match_id:
+                return m
+
+    if bracket_type == "double_elimination":
+        gf = bracket.get("grand_final")
+        if gf and gf.get("id") == match_id:
+            return gf
+    return None
+
+async def find_tournament_and_match_by_match_id(match_id: str):
+    tournaments = await db.tournaments.find({"bracket": {"$ne": None}}, {"_id": 0, "id": 1, "bracket": 1}).to_list(300)
+    for t in tournaments:
+        match = find_match_in_bracket(t.get("bracket"), match_id)
+        if match:
+            return t, match
+    return None, None
+
+async def can_user_manage_match(user: Dict, match_data: Dict) -> bool:
+    if not user or not match_data:
+        return False
+    if user.get("role") == "admin":
+        return True
+
+    reg_ids = [rid for rid in [match_data.get("team1_id"), match_data.get("team2_id")] if rid]
+    if not reg_ids:
+        return False
+
+    regs = await db.registrations.find({"id": {"$in": reg_ids}}, {"_id": 0}).to_list(2)
+    for reg in regs:
+        if reg.get("user_id") == user["id"]:
+            return True
+        team_id = reg.get("team_id")
+        if team_id:
+            role = await get_user_team_role(user["id"], team_id)
+            if role in ("owner", "leader"):
+                return True
+    return False
+
 @api_router.post("/tournaments/{tournament_id}/generate-bracket")
 async def generate_bracket(request: Request, tournament_id: str):
     await require_admin(request)
@@ -1013,25 +1149,8 @@ async def submit_match_score(request: Request, tournament_id: str, match_id: str
         raise HTTPException(404, "Turnier oder Bracket nicht gefunden")
 
     # Find the match in bracket to get team IDs
-    match_data = None
     bracket = t["bracket"]
-    all_rounds = []
-    if bracket["type"] in ("single_elimination", "round_robin"):
-        all_rounds = bracket.get("rounds", [])
-    elif bracket["type"] == "double_elimination":
-        all_rounds = bracket.get("winners_bracket", {}).get("rounds", [])
-        all_rounds += bracket.get("losers_bracket", {}).get("rounds", [])
-    for rd in all_rounds:
-        for m in rd["matches"]:
-            if m["id"] == match_id:
-                match_data = m
-                break
-        if match_data:
-            break
-    if not match_data and bracket["type"] == "double_elimination":
-        gf = bracket.get("grand_final")
-        if gf and gf["id"] == match_id:
-            match_data = gf
+    match_data = find_match_in_bracket(bracket, match_id)
     if not match_data:
         raise HTTPException(404, "Match nicht gefunden")
     if match_data.get("status") == "completed":
@@ -1097,12 +1216,23 @@ async def submit_match_score(request: Request, tournament_id: str, match_id: str
                     "link": f"/tournaments/{tournament_id}", "read": False,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 })
+                if admin.get("email"):
+                    await send_email_notification(
+                        admin["email"],
+                        "ARENA: Ergebnis-Streitfall",
+                        f"Es gibt einen Streitfall im Match {match_data.get('team1_name')} vs {match_data.get('team2_name')}."
+                    )
             return {"status": "disputed", "message": "Ergebnisse stimmen nicht überein - Admin muss prüfen!"}
 
     return {"status": "submitted", "message": f"Ergebnis von {submitting_for} eingereicht. Warte auf die andere Seite."}
 
 @api_router.get("/tournaments/{tournament_id}/matches/{match_id}/submissions")
-async def get_score_submissions(tournament_id: str, match_id: str):
+async def get_score_submissions(request: Request, tournament_id: str, match_id: str):
+    user = await require_auth(request)
+    t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0, "bracket": 1})
+    match = find_match_in_bracket((t or {}).get("bracket"), match_id)
+    if user.get("role") != "admin" and not await can_user_manage_match(user, match):
+        raise HTTPException(403, "Keine Berechtigung")
     subs = await db.score_submissions.find({"tournament_id": tournament_id, "match_id": match_id}, {"_id": 0}).to_list(10)
     return subs
 
@@ -1315,16 +1445,16 @@ async def get_user_profile(user_id: str):
         raise HTTPException(404, "Benutzer nicht gefunden")
     teams = await db.teams.find({"member_ids": user_id, "parent_team_id": {"$in": [None, ""]}}, {"_id": 0, "join_code": 0}).to_list(50)
     regs = await db.registrations.find({"user_id": user_id}, {"_id": 0}).to_list(100)
-    tournament_ids = list(set(r["tournament_id"] for r in regs))
-    tournaments = []
-    for tid in tournament_ids[:20]:
-        t = await db.tournaments.find_one({"id": tid}, {"_id": 0, "bracket": 0})
-        if t:
-            tournaments.append(t)
+    tournament_ids = list(dict.fromkeys(r["tournament_id"] for r in regs if r.get("tournament_id")))
+    tournament_docs = []
+    if tournament_ids:
+        tournament_docs = await db.tournaments.find({"id": {"$in": tournament_ids}}, {"_id": 0}).to_list(300)
+    tournament_map = {t["id"]: t for t in tournament_docs}
+    tournaments = [{k: v for k, v in tournament_map[tid].items() if k != "bracket"} for tid in tournament_ids[:20] if tid in tournament_map]
     wins = 0
     losses = 0
     for reg in regs:
-        t = await db.tournaments.find_one({"id": reg["tournament_id"]}, {"_id": 0})
+        t = tournament_map.get(reg.get("tournament_id"))
         if t and t.get("bracket"):
             all_matches = []
             b = t["bracket"]
@@ -1356,7 +1486,7 @@ async def get_widget_data(tournament_id: str):
     if not t:
         raise HTTPException(404, "Tournament not found")
     regs = await db.registrations.find({"tournament_id": tournament_id}, {"_id": 0}).to_list(200)
-    return {"tournament": t, "registrations": regs, "embed_version": "1.0"}
+    return {"tournament": t, "registrations": [sanitize_registration(r) for r in regs], "embed_version": "1.0"}
 
 # ─── Comment Endpoints ───
 
@@ -1447,15 +1577,33 @@ async def mark_all_read(request: Request):
 # ─── Match Scheduling ───
 
 @api_router.get("/matches/{match_id}/schedule")
-async def get_match_schedule(match_id: str):
-    proposals = await db.schedule_proposals.find({"match_id": match_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+async def get_match_schedule(request: Request, match_id: str):
+    user = await require_auth(request)
+    tournament, match = await find_tournament_and_match_by_match_id(match_id)
+    if not tournament or not match:
+        raise HTTPException(404, "Match nicht gefunden")
+    if not await can_user_manage_match(user, match):
+        raise HTTPException(403, "Keine Berechtigung")
+
+    q = {
+        "match_id": match_id,
+        "$or": [{"tournament_id": tournament["id"]}, {"tournament_id": {"$exists": False}}],
+    }
+    proposals = await db.schedule_proposals.find(q, {"_id": 0}).sort("created_at", -1).to_list(50)
     return proposals
 
 @api_router.post("/matches/{match_id}/schedule")
 async def propose_match_time(request: Request, match_id: str, body: TimeProposal):
     user = await require_auth(request)
+    tournament, match = await find_tournament_and_match_by_match_id(match_id)
+    if not tournament or not match:
+        raise HTTPException(404, "Match nicht gefunden")
+    if not await can_user_manage_match(user, match):
+        raise HTTPException(403, "Keine Berechtigung")
+
     doc = {
         "id": str(uuid.uuid4()),
+        "tournament_id": tournament["id"],
         "match_id": match_id,
         "proposed_by": user["id"],
         "proposed_by_name": user["username"],
@@ -1470,9 +1618,27 @@ async def propose_match_time(request: Request, match_id: str, body: TimeProposal
 @api_router.put("/matches/{match_id}/schedule/{proposal_id}/accept")
 async def accept_schedule(request: Request, match_id: str, proposal_id: str):
     user = await require_auth(request)
-    await db.schedule_proposals.update_many({"match_id": match_id}, {"$set": {"status": "rejected"}})
-    await db.schedule_proposals.update_one({"id": proposal_id}, {"$set": {"status": "accepted"}})
-    proposal = await db.schedule_proposals.find_one({"id": proposal_id}, {"_id": 0})
+    tournament, match = await find_tournament_and_match_by_match_id(match_id)
+    if not tournament or not match:
+        raise HTTPException(404, "Match nicht gefunden")
+    if not await can_user_manage_match(user, match):
+        raise HTTPException(403, "Keine Berechtigung")
+
+    proposal_query = {
+        "id": proposal_id,
+        "match_id": match_id,
+        "$or": [{"tournament_id": tournament["id"]}, {"tournament_id": {"$exists": False}}],
+    }
+    proposal = await db.schedule_proposals.find_one(proposal_query, {"_id": 0})
+    if not proposal:
+        raise HTTPException(404, "Zeitvorschlag nicht gefunden")
+
+    match_query = {
+        "match_id": match_id,
+        "$or": [{"tournament_id": tournament["id"]}, {"tournament_id": {"$exists": False}}],
+    }
+    await db.schedule_proposals.update_many(match_query, {"$set": {"status": "rejected"}})
+    await db.schedule_proposals.update_one(proposal_query, {"$set": {"status": "accepted", "accepted_by": user["id"], "accepted_at": datetime.now(timezone.utc).isoformat(), "tournament_id": tournament["id"]}})
     if proposal and proposal.get("proposed_by") != user["id"]:
         notif = {
             "id": str(uuid.uuid4()),
@@ -1547,10 +1713,16 @@ async def get_stats():
 
 app.include_router(api_router)
 
+cors_origins_raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+cors_origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
+if not cors_origins:
+    cors_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+cors_allow_credentials = "*" not in cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=cors_allow_credentials,
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

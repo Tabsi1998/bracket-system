@@ -15,11 +15,11 @@ import requests
 import os
 import uuid
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
+BASE_URL = (os.environ.get("BACKEND_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "http://127.0.0.1:8001").rstrip("/")
 
 # Test credentials
-ADMIN_EMAIL = "admin@arena.gg"
-ADMIN_PASSWORD = "admin123"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@arena.gg").strip().lower()
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 TEST_USER_EMAIL = f"TEST_user_{uuid.uuid4().hex[:6]}@test.de"
 TEST_USER_PASSWORD = "test123"
 TEST_USER_NAME = f"TEST_User_{uuid.uuid4().hex[:6]}"
