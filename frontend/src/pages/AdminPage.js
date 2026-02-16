@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,19 +18,36 @@ export default function AdminPage() {
   const navigate = useNavigate();
   const [dashboard, setDashboard] = useState({});
   const [users, setUsers] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [tournaments, setTournaments] = useState([]);
   const [games, setGames] = useState([]);
   const [settings, setSettings] = useState([]);
-  const [settingForm, setSettingForm] = useState({ key: "", value: "" });
+
+  const fetchAdminData = useCallback(async () => {
+    try {
+      const [dashboardRes, usersRes, teamsRes, tournamentsRes, gamesRes, settingsRes] = await Promise.all([
+        axios.get(`${API}/admin/dashboard`),
+        axios.get(`${API}/admin/users`),
+        axios.get(`${API}/admin/teams`),
+        axios.get(`${API}/tournaments`),
+        axios.get(`${API}/games`),
+        axios.get(`${API}/admin/settings`),
+      ]);
+      setDashboard(dashboardRes.data || {});
+      setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
+      setTeams(Array.isArray(teamsRes.data) ? teamsRes.data : []);
+      setTournaments(Array.isArray(tournamentsRes.data) ? tournamentsRes.data : []);
+      setGames(Array.isArray(gamesRes.data) ? gamesRes.data : []);
+      setSettings(Array.isArray(settingsRes.data) ? settingsRes.data : []);
+    } catch {
+      toast.error("Admin-Daten konnten nicht geladen werden");
+    }
+  }, []);
 
   useEffect(() => {
     if (!isAdmin) return;
-    axios.get(`${API}/admin/dashboard`).then(r => setDashboard(r.data)).catch(() => {});
-    axios.get(`${API}/admin/users`).then(r => setUsers(r.data)).catch(() => {});
-    axios.get(`${API}/tournaments`).then(r => setTournaments(r.data)).catch(() => {});
-    axios.get(`${API}/games`).then(r => setGames(r.data)).catch(() => {});
-    axios.get(`${API}/admin/settings`).then(r => setSettings(r.data)).catch(() => {});
-  }, [isAdmin]);
+    fetchAdminData();
+  }, [isAdmin, fetchAdminData]);
 
   if (!user || !isAdmin) return (
     <div className="pt-20 min-h-screen flex items-center justify-center">
@@ -41,23 +58,13 @@ export default function AdminPage() {
     </div>
   );
 
-  const handleSaveSetting = async () => {
-    if (!settingForm.key.trim()) return;
-    try {
-      await axios.put(`${API}/admin/settings`, settingForm);
-      toast.success("Einstellung gespeichert");
-      const res = await axios.get(`${API}/admin/settings`);
-      setSettings(res.data);
-      setSettingForm({ key: "", value: "" });
-    } catch (e) { toast.error("Fehler beim Speichern"); }
-  };
-
   const handleDeleteTournament = async (id) => {
     if (!window.confirm("Turnier wirklich löschen?")) return;
     try {
       await axios.delete(`${API}/tournaments/${id}`);
       toast.success("Turnier gelöscht");
-      setTournaments(tournaments.filter(t => t.id !== id));
+      setTournaments((prev) => prev.filter((t) => t.id !== id));
+      fetchAdminData();
     } catch { toast.error("Fehler"); }
   };
 
@@ -66,11 +73,61 @@ export default function AdminPage() {
     try {
       await axios.delete(`${API}/games/${id}`);
       toast.success("Spiel gelöscht");
-      setGames(games.filter(g => g.id !== id));
+      setGames((prev) => prev.filter((g) => g.id !== id));
+      fetchAdminData();
     } catch { toast.error("Fehler"); }
   };
 
+  const handleSetUserRole = async (targetUser) => {
+    if (!targetUser?.id) return;
+    const nextRole = targetUser.role === "admin" ? "user" : "admin";
+    if (!window.confirm(`Rolle von ${targetUser.username} auf "${nextRole}" ändern?`)) return;
+    try {
+      await axios.put(`${API}/admin/users/${targetUser.id}/role`, { role: nextRole });
+      toast.success("Rolle aktualisiert");
+      fetchAdminData();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Rolle konnte nicht geändert werden");
+    }
+  };
+
+  const handleDeleteUser = async (targetUser) => {
+    if (!targetUser?.id) return;
+    if (!window.confirm(`Benutzer ${targetUser.username} wirklich löschen?`)) return;
+    try {
+      await axios.delete(`${API}/admin/users/${targetUser.id}`);
+      toast.success("Benutzer gelöscht");
+      setUsers((prev) => prev.filter((u) => u.id !== targetUser.id));
+      fetchAdminData();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Benutzer konnte nicht gelöscht werden");
+    }
+  };
+
+  const handleDeleteTeam = async (team) => {
+    if (!team?.id) return;
+    if (!window.confirm(`Team "${team.name}" wirklich löschen?`)) return;
+    try {
+      await axios.delete(`${API}/admin/teams/${team.id}`);
+      toast.success("Team gelöscht");
+      setTeams((prev) => prev.filter((t) => t.id !== team.id));
+      fetchAdminData();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Team konnte nicht gelöscht werden");
+    }
+  };
+
   const getSetting = (key) => settings.find(s => s.key === key)?.value || "";
+  const adminCount = users.filter((u) => u.role === "admin").length;
+  const userNameById = Object.fromEntries(users.map((u) => [u.id, u.username]));
+  const formatDate = (value) => {
+    if (!value) return "nie";
+    try {
+      return new Date(value).toLocaleString("de-DE");
+    } catch {
+      return "nie";
+    }
+  };
 
   const settingKeys = [
     { key: "stripe_public_key", label: "Stripe Public Key", placeholder: "pk_test_..." },
@@ -118,6 +175,9 @@ export default function AdminPage() {
             <TabsTrigger data-testid="admin-tab-tournaments" value="tournaments" className="data-[state=active]:bg-yellow-500/10 data-[state=active]:text-yellow-500">
               <Trophy className="w-4 h-4 mr-2" />Turniere
             </TabsTrigger>
+            <TabsTrigger data-testid="admin-tab-teams" value="teams" className="data-[state=active]:bg-yellow-500/10 data-[state=active]:text-yellow-500">
+              <Users className="w-4 h-4 mr-2" />Teams
+            </TabsTrigger>
             <TabsTrigger data-testid="admin-tab-games" value="games" className="data-[state=active]:bg-yellow-500/10 data-[state=active]:text-yellow-500">
               <Gamepad2 className="w-4 h-4 mr-2" />Spiele
             </TabsTrigger>
@@ -149,6 +209,43 @@ export default function AdminPage() {
                             <Button variant="ghost" size="sm" onClick={() => navigate(`/tournaments/${t.id}`)} className="text-zinc-400 hover:text-white"><Eye className="w-4 h-4" /></Button>
                             <Button data-testid={`admin-delete-tournament-${t.id}`} variant="ghost" size="sm" onClick={() => handleDeleteTournament(t.id)} className="text-red-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></Button>
                           </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Teams Tab */}
+          <TabsContent value="teams" className="mt-6">
+            <div className="glass rounded-xl border border-white/5 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-white/5 text-zinc-500 text-left">
+                    <th className="px-4 py-3">Team</th><th className="px-4 py-3">Typ</th><th className="px-4 py-3">Parent</th><th className="px-4 py-3">Owner</th><th className="px-4 py-3">Mitglieder</th><th className="px-4 py-3">Anmeldungen</th><th className="px-4 py-3">Aktionen</th>
+                  </tr></thead>
+                  <tbody>
+                    {teams.map((team) => (
+                      <tr key={team.id} className="border-b border-white/5 hover:bg-white/2">
+                        <td className="px-4 py-3">
+                          <div className="text-white font-semibold">{team.name}</div>
+                          {team.tag && <div className="text-xs text-zinc-500 font-mono">[{team.tag}]</div>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge className={`text-xs ${team.is_sub_team ? "bg-cyan-500/10 text-cyan-400" : "bg-zinc-800 text-zinc-400"}`}>
+                            {team.is_sub_team ? "Sub-Team" : "Main-Team"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">{team.parent_team_name || "-"}</td>
+                        <td className="px-4 py-3 text-zinc-400">{userNameById[team.owner_id] || team.owner_name || "-"}</td>
+                        <td className="px-4 py-3 text-zinc-400">{team.member_count || 0}</td>
+                        <td className="px-4 py-3 text-zinc-400">{team.registration_count || 0}</td>
+                        <td className="px-4 py-3">
+                          <Button variant="ghost" size="sm" onClick={() => handleDeleteTeam(team)} className="text-red-500 hover:text-red-400">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -190,7 +287,7 @@ export default function AdminPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b border-white/5 text-zinc-500 text-left">
-                    <th className="px-4 py-3">Benutzer</th><th className="px-4 py-3">E-Mail</th><th className="px-4 py-3">Rolle</th><th className="px-4 py-3">Erstellt</th>
+                    <th className="px-4 py-3">Benutzer</th><th className="px-4 py-3">E-Mail</th><th className="px-4 py-3">Rolle</th><th className="px-4 py-3">Last Login</th><th className="px-4 py-3">Teams</th><th className="px-4 py-3">Turniere</th><th className="px-4 py-3">Aktionen</th>
                   </tr></thead>
                   <tbody>
                     {users.map(u => (
@@ -203,7 +300,47 @@ export default function AdminPage() {
                         </td>
                         <td className="px-4 py-3 text-zinc-400">{u.email}</td>
                         <td className="px-4 py-3"><Badge className={`text-xs ${u.role === "admin" ? "bg-yellow-500/10 text-yellow-500" : "bg-zinc-800 text-zinc-400"}`}>{u.role}</Badge></td>
-                        <td className="px-4 py-3 text-zinc-500 text-xs font-mono">{new Date(u.created_at).toLocaleDateString("de-DE")}</td>
+                        <td className="px-4 py-3 text-zinc-500 text-xs">{formatDate(u.last_login_at)}</td>
+                        <td className="px-4 py-3 text-zinc-400 text-xs">
+                          <div className="space-y-1">
+                            <div>{u.team_count || 0}</div>
+                            {(u.teams || []).slice(0, 2).map((team) => (
+                              <div key={`${u.id}-team-${team.id}`} className="text-zinc-500">{team.name}</div>
+                            ))}
+                            {(u.team_count || 0) > 2 && <div className="text-zinc-600">+{u.team_count - 2}</div>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400 text-xs">
+                          <div className="space-y-1">
+                            <div>{u.tournament_count || 0}</div>
+                            {(u.tournaments || []).slice(0, 2).map((t) => (
+                              <div key={`${u.id}-tournament-${t.id}`} className="text-zinc-500">{t.name}</div>
+                            ))}
+                            {(u.tournament_count || 0) > 2 && <div className="text-zinc-600">+{u.tournament_count - 2}</div>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-yellow-500/30 text-yellow-500 hover:bg-yellow-500/10"
+                              onClick={() => handleSetUserRole(u)}
+                              disabled={u.id === user.id && u.role === "admin" && adminCount <= 1}
+                            >
+                              {u.role === "admin" ? "Zu User" : "Zu Admin"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:text-red-400"
+                              onClick={() => handleDeleteUser(u)}
+                              disabled={u.id === user.id}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

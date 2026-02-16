@@ -18,7 +18,7 @@ Vollständiges eSports-Turniersystem mit dynamischen Brackets, Team-Management, 
 | **Zahlungen** | Stripe-Integration für Startgebühren (PayPal vorbereitet) |
 | **Kommentare** | Kommentare auf Turnier- und Match-Ebene |
 | **Benachrichtigungen** | In-App Benachrichtigungsglocke mit Unread-Counter |
-| **Admin-Panel** | Dashboard, Benutzer-/Turnier-/Spiel-Verwaltung, Zahlungs- & SMTP-Einstellungen |
+| **Admin-Panel** | Dashboard, Benutzer-/Team-/Turnier-/Spiel-Verwaltung, Rollenwechsel, Last-Login, Zahlungs- & SMTP-Einstellungen |
 | **Profil-Seiten** | Spieler-Statistiken, Wins/Losses, Team-Zugehörigkeiten |
 | **Widget** | Einbettbares iFrame für externe Webseiten |
 | **Regelwerk** | Markdown-Rendering für Turnierregeln |
@@ -39,6 +39,7 @@ Das Skript installiert automatisch:
 - Nginx als Reverse Proxy
 - Systemd Service für den Backend-Server
 - Production Build des Frontends
+- optional Demo-Daten (Testnutzer, Teams, Turniere in verschiedenen Stati)
 
 Nach der Installation ist die Anwendung unter `http://deine-domain` erreichbar.
 
@@ -233,6 +234,7 @@ Bei Unstimmigkeiten:
 - **Beitreten**: Spieler treten mit Team-ID + Beitrittscode bei
 - **Leader**: Owner kann Mitglieder zu "Leadern" befördern (können Ergebnisse eintragen)
 - **Sub-Teams**: Unterteams für verschiedene Spiele/Saisons (z.B. "Alpha CoD", "Alpha FIFA")
+- **Turnierregistrierung**: erfolgt nur über Sub-Teams (Main-Team ist organisatorisch)
 - **Verwaltung**: Owner sieht Team-ID und Code, kann Code erneuern
 
 ---
@@ -283,6 +285,7 @@ Bei Unstimmigkeiten:
 | Methode | Endpunkt | Beschreibung |
 |---------|----------|-------------|
 | GET | `/api/teams` | Eigene Teams auflisten |
+| GET | `/api/teams/registerable-sub-teams` | Eigene registrierbare Sub-Teams |
 | POST | `/api/teams` | Team erstellen |
 | POST | `/api/teams/join` | Team beitreten (ID + Code) |
 | DELETE | `/api/teams/:id` | Team löschen (Owner) |
@@ -326,6 +329,10 @@ Bei Unstimmigkeiten:
 |---------|----------|-------------|
 | GET | `/api/admin/dashboard` | Dashboard-Statistiken |
 | GET | `/api/admin/users` | Benutzer-Verwaltung |
+| PUT | `/api/admin/users/:id/role` | Benutzerrolle (admin/user) ändern |
+| DELETE | `/api/admin/users/:id` | Benutzer inkl. zugehöriger Daten löschen |
+| GET | `/api/admin/teams` | Team-Verwaltung (alle Teams) |
+| DELETE | `/api/admin/teams/:id` | Beliebiges Team löschen |
 | GET | `/api/admin/settings` | Einstellungen abrufen |
 | PUT | `/api/admin/settings` | Einstellung speichern |
 

@@ -102,7 +102,7 @@ export default function TournamentDetailPage() {
       setSelectedTeamId("");
       return;
     }
-    axios.get(`${API}/teams`)
+    axios.get(`${API}/teams/registerable-sub-teams`)
       .then((r) => setUserTeams(Array.isArray(r.data) ? r.data : []))
       .catch(() => setUserTeams([]));
   }, [user]);
@@ -138,7 +138,8 @@ export default function TournamentDetailPage() {
     const alreadyRegisteredTeamIds = new Set(registrations.map((r) => r.team_id).filter(Boolean));
     const selectableTeams = userTeams.filter((t) => !alreadyRegisteredTeamIds.has(t.id));
     const selectedTeam = selectedTeamId ? selectableTeams.find((t) => t.id === selectedTeamId) : null;
-    const effectiveTeamName = selectedTeam ? selectedTeam.name : teamName.trim();
+    if (!selectedTeam) { toast.error("Bitte ein Sub-Team auswählen"); return; }
+    const effectiveTeamName = selectedTeam.name;
 
     if (!effectiveTeamName) { toast.error("Team-Name ist erforderlich"); return; }
     if (players.length !== tournament.team_size) { toast.error(`Genau ${tournament.team_size} Spieler erforderlich`); return; }
@@ -147,7 +148,7 @@ export default function TournamentDetailPage() {
       const payload = {
         team_name: effectiveTeamName,
         players,
-        ...(selectedTeam ? { team_id: selectedTeam.id } : {}),
+        team_id: selectedTeam.id,
       };
       const res = await axios.post(`${API}/tournaments/${id}/register`, payload);
       toast.success("Registrierung erfolgreich!");
@@ -244,7 +245,11 @@ export default function TournamentDetailPage() {
   };
   const handleSelectTeam = (teamId) => {
     setSelectedTeamId(teamId);
-    if (!teamId) return;
+    if (!teamId) {
+      setTeamName("");
+      setPlayers([{ name: "", email: "" }]);
+      return;
+    }
     const team = userTeams.find((t) => t.id === teamId);
     if (!team) return;
     setTeamName(team.name || "");
@@ -347,22 +352,22 @@ export default function TournamentDetailPage() {
                 <div className="space-y-4 mt-4">
                   {user && (
                     <div>
-                      <Label className="text-zinc-400 text-sm">Eigenes Team wählen (optional)</Label>
+                      <Label className="text-zinc-400 text-sm">Sub-Team wählen (Pflicht)</Label>
                       <select
                         data-testid="reg-team-select"
                         value={selectedTeamId}
                         onChange={(e) => handleSelectTeam(e.target.value)}
                         className="mt-1 w-full h-10 rounded-md bg-zinc-900 border border-white/10 text-white px-3"
                       >
-                        <option value="">Kein Team auswählen</option>
+                        <option value="">Sub-Team auswählen</option>
                         {selectableTeams.map((t) => (
                           <option key={t.id} value={t.id}>
-                            {t.name}{t.tag ? ` [${t.tag}]` : ""}
+                            {t.parent_team_name ? `${t.parent_team_name} -> ` : ""}{t.name}{t.tag ? ` [${t.tag}]` : ""}
                           </option>
                         ))}
                       </select>
-                      {userTeams.length > 0 && selectableTeams.length === 0 && (
-                        <p className="text-xs text-zinc-600 mt-1">Alle deine Teams sind bereits registriert.</p>
+                      {selectableTeams.length === 0 && (
+                        <p className="text-xs text-zinc-600 mt-1">Keine registrierbaren Sub-Teams gefunden. Erstelle unter Teams zuerst ein Sub-Team.</p>
                       )}
                     </div>
                   )}
@@ -372,8 +377,8 @@ export default function TournamentDetailPage() {
                       data-testid="reg-team-name"
                       value={teamName}
                       onChange={e => setTeamName(e.target.value)}
-                      placeholder="Team-Name eingeben"
-                      disabled={Boolean(selectedTeamId)}
+                      placeholder="Wird automatisch vom Sub-Team übernommen"
+                      disabled
                       className="bg-zinc-900 border-white/10 text-white mt-1"
                     />
                   </div>
@@ -399,7 +404,7 @@ export default function TournamentDetailPage() {
                       </p>
                     </div>
                   )}
-                  <Button data-testid="submit-registration-btn" onClick={handleRegister} className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-semibold">
+                  <Button data-testid="submit-registration-btn" onClick={handleRegister} disabled={!selectedTeamId} className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-semibold disabled:opacity-50">
                     {tournament.entry_fee > 0 ? "Registrieren & Bezahlen" : "Jetzt registrieren"}
                   </Button>
                 </div>

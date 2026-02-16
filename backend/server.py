@@ -130,6 +130,9 @@ class AdminSettingUpdate(BaseModel):
     key: str
     value: str
 
+class AdminUserRoleUpdate(BaseModel):
+    role: str
+
 class UserAccountUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
@@ -232,6 +235,79 @@ async def get_user_team_role(user_id: str, team_id: str):
     if user_id in team.get("member_ids", []):
         return "member"
     return None
+
+def get_request_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return str(request.client.host).strip()
+    return ""
+
+def is_sub_team(team_doc: Dict) -> bool:
+    return bool(str((team_doc or {}).get("parent_team_id") or "").strip())
+
+async def collect_team_hierarchy_ids(root_team_id: str) -> List[str]:
+    seen = set()
+    ordered = []
+    queue = [str(root_team_id or "").strip()]
+
+    while queue:
+        current_id = queue.pop(0)
+        if not current_id or current_id in seen:
+            continue
+        seen.add(current_id)
+        ordered.append(current_id)
+        children = await db.teams.find({"parent_team_id": current_id}, {"_id": 0, "id": 1}).to_list(500)
+        for child in children:
+            child_id = str(child.get("id", "")).strip()
+            if child_id and child_id not in seen:
+                queue.append(child_id)
+
+    return ordered
+
+async def delete_teams_and_related(team_ids: List[str]) -> Dict[str, int]:
+    valid_ids = [str(tid).strip() for tid in team_ids if str(tid).strip()]
+    if not valid_ids:
+        return {"deleted_teams": 0, "deleted_registrations": 0}
+
+    reg_result = await db.registrations.delete_many({"team_id": {"$in": valid_ids}})
+    team_result = await db.teams.delete_many({"id": {"$in": valid_ids}})
+    return {
+        "deleted_teams": int(team_result.deleted_count or 0),
+        "deleted_registrations": int(reg_result.deleted_count or 0),
+    }
+
+async def delete_user_and_related_data(user_id: str) -> Dict[str, int]:
+    user_id = str(user_id or "").strip()
+    if not user_id:
+        return {"deleted_users": 0, "deleted_teams": 0, "deleted_registrations": 0}
+
+    owned = await db.teams.find({"owner_id": user_id}, {"_id": 0, "id": 1}).to_list(500)
+    all_team_ids = []
+    for team in owned:
+        all_team_ids.extend(await collect_team_hierarchy_ids(team.get("id")))
+    all_team_ids = list(dict.fromkeys(tid for tid in all_team_ids if tid))
+
+    team_cleanup = await delete_teams_and_related(all_team_ids)
+
+    await db.teams.update_many(
+        {"member_ids": user_id},
+        {"$pull": {"member_ids": user_id, "leader_ids": user_id, "members": {"id": user_id}}},
+    )
+    reg_result = await db.registrations.delete_many({"user_id": user_id})
+    await db.notifications.delete_many({"user_id": user_id})
+    await db.score_submissions.delete_many({"user_id": user_id})
+    await db.comments.delete_many({"user_id": user_id})
+    await db.payment_transactions.delete_many({"user_id": user_id})
+    await db.schedule_proposals.delete_many({"$or": [{"proposed_by": user_id}, {"accepted_by": user_id}]})
+    user_result = await db.users.delete_one({"id": user_id})
+
+    return {
+        "deleted_users": int(user_result.deleted_count or 0),
+        "deleted_teams": int(team_cleanup.get("deleted_teams", 0)),
+        "deleted_registrations": int((reg_result.deleted_count or 0) + team_cleanup.get("deleted_registrations", 0)),
+    }
 
 async def get_stripe_api_key() -> Optional[str]:
     """Resolve Stripe key from env first, then admin settings."""
@@ -470,7 +546,7 @@ async def register_user(body: UserRegister):
     return {"token": token, "user": {"id": user_doc["id"], "username": user_doc["username"], "email": user_doc["email"], "role": user_doc["role"], "avatar_url": user_doc["avatar_url"]}}
 
 @api_router.post("/auth/login")
-async def login_user(body: UserLogin):
+async def login_user(request: Request, body: UserLogin):
     email = normalize_email(body.email)
     if not email:
         raise HTTPException(400, "E-Mail erforderlich")
@@ -520,8 +596,11 @@ async def login_user(body: UserLogin):
     if username != username.strip():
         normalize_updates["username"] = username.strip()
         username = username.strip()
-    if normalize_updates:
-        await db.users.update_one({"_id": user["_id"]}, {"$set": normalize_updates})
+    normalize_updates["last_login_at"] = datetime.now(timezone.utc).isoformat()
+    client_ip = get_request_client_ip(request)
+    if client_ip:
+        normalize_updates["last_login_ip"] = client_ip
+    await db.users.update_one({"_id": user["_id"]}, {"$set": normalize_updates})
 
     token = create_token(user_id, email, role)
     return {"token": token, "user": {"id": user_id, "username": username, "email": email, "role": role, "avatar_url": avatar_url}}
@@ -598,6 +677,32 @@ async def list_teams(request: Request):
         result.append(t)
     return result
 
+@api_router.get("/teams/registerable-sub-teams")
+async def list_registerable_sub_teams(request: Request):
+    user = await require_auth(request)
+    query = {
+        "$or": [{"owner_id": user["id"]}, {"member_ids": user["id"]}],
+        "parent_team_id": {"$nin": [None, ""]},
+    }
+    sub_teams = await db.teams.find(query, {"_id": 0}).to_list(300)
+
+    parent_ids = list(dict.fromkeys(str(t.get("parent_team_id", "")).strip() for t in sub_teams if str(t.get("parent_team_id", "")).strip()))
+    parent_docs = []
+    if parent_ids:
+        parent_docs = await db.teams.find({"id": {"$in": parent_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(300)
+    parent_map = {p["id"]: p.get("name", "") for p in parent_docs}
+
+    result = []
+    for t in sub_teams:
+        if t.get("owner_id") != user["id"]:
+            t.pop("join_code", None)
+        parent_id = str(t.get("parent_team_id", "")).strip()
+        t["parent_team_name"] = parent_map.get(parent_id, "")
+        t["is_sub_team"] = True
+        result.append(t)
+    result.sort(key=lambda item: (str(item.get("parent_team_name", "")).lower(), str(item.get("name", "")).lower()))
+    return result
+
 @api_router.post("/teams")
 async def create_team(request: Request, body: TeamCreate):
     user = await require_auth(request)
@@ -629,12 +734,12 @@ async def get_team(request: Request, team_id: str):
 @api_router.delete("/teams/{team_id}")
 async def delete_team(request: Request, team_id: str):
     user = await require_auth(request)
-    result = await db.teams.delete_one({"id": team_id, "owner_id": user["id"]})
-    if result.deleted_count == 0:
+    team = await db.teams.find_one({"id": team_id}, {"_id": 0, "id": 1, "owner_id": 1})
+    if not team or team.get("owner_id") != user["id"]:
         raise HTTPException(404, "Team nicht gefunden")
-    # Also delete sub-teams
-    await db.teams.delete_many({"parent_team_id": team_id})
-    return {"status": "deleted"}
+    hierarchy_ids = await collect_team_hierarchy_ids(team_id)
+    cleanup = await delete_teams_and_related(hierarchy_ids)
+    return {"status": "deleted", **cleanup}
 
 @api_router.post("/teams/join")
 async def join_team(request: Request, body: TeamJoinRequest):
@@ -725,9 +830,15 @@ async def demote_leader(request: Request, team_id: str, user_id: str):
 @api_router.get("/teams/{team_id}/sub-teams")
 async def list_sub_teams(request: Request, team_id: str):
     user = await require_auth(request)
+    parent = await db.teams.find_one({"id": team_id}, {"_id": 0, "owner_id": 1, "member_ids": 1})
+    if not parent:
+        raise HTTPException(404, "Team nicht gefunden")
+    can_view = user.get("role") == "admin" or parent.get("owner_id") == user["id"] or user["id"] in parent.get("member_ids", [])
+    if not can_view:
+        raise HTTPException(403, "Keine Berechtigung")
     subs = await db.teams.find({"parent_team_id": team_id}, {"_id": 0}).to_list(50)
     for s in subs:
-        if s.get("owner_id") != user["id"]:
+        if user.get("role") != "admin" and s.get("owner_id") != user["id"]:
             s.pop("join_code", None)
     return subs
 
@@ -888,21 +999,21 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
         normalized_players.append({"name": name, "email": email})
 
     team_id = body.team_id.strip() if isinstance(body.team_id, str) and body.team_id.strip() else None
-    if team_id:
-        team = await db.teams.find_one({"id": team_id}, {"_id": 0})
-        if not team:
-            raise HTTPException(404, "Team nicht gefunden")
-        team_role = await get_user_team_role(user["id"], team_id)
-        if team_role not in ("owner", "leader", "member"):
-            raise HTTPException(403, "Du bist kein Mitglied dieses Teams")
-        if await db.registrations.find_one({"tournament_id": tournament_id, "team_id": team_id}, {"_id": 0}):
-            raise HTTPException(400, "Dieses Team ist bereits registriert")
-        canonical_team_name = str(team.get("name", "")).strip()
-        if canonical_team_name:
-            team_name = canonical_team_name
-
-    if await db.registrations.find_one({"tournament_id": tournament_id, "user_id": user["id"]}, {"_id": 0}):
-        raise HTTPException(400, "Du bist bereits für dieses Turnier registriert")
+    if not team_id:
+        raise HTTPException(400, "Registrierung ist nur mit einem Sub-Team möglich")
+    team = await db.teams.find_one({"id": team_id}, {"_id": 0})
+    if not team:
+        raise HTTPException(404, "Team nicht gefunden")
+    if not is_sub_team(team):
+        raise HTTPException(400, "Nur Sub-Teams können für Turniere registriert werden")
+    team_role = await get_user_team_role(user["id"], team_id)
+    if team_role not in ("owner", "leader", "member"):
+        raise HTTPException(403, "Du bist kein Mitglied dieses Teams")
+    if await db.registrations.find_one({"tournament_id": tournament_id, "team_id": team_id}, {"_id": 0}):
+        raise HTTPException(400, "Dieses Team ist bereits registriert")
+    canonical_team_name = str(team.get("name", "")).strip()
+    if canonical_team_name:
+        team_name = canonical_team_name
 
     payment_status = "free" if t["entry_fee"] <= 0 else "pending"
     doc = {
@@ -1835,8 +1946,148 @@ async def update_admin_setting(request: Request, body: AdminSettingUpdate):
 @api_router.get("/admin/users")
 async def list_admin_users(request: Request):
     await require_admin(request)
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0, "password": 0}).to_list(200)
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0, "password": 0}).sort("created_at", -1).to_list(500)
+    user_ids = [str(u.get("id", "")).strip() for u in users if str(u.get("id", "")).strip()]
+    if not user_ids:
+        return users
+
+    user_id_set = set(user_ids)
+    teams = await db.teams.find(
+        {"member_ids": {"$in": user_ids}},
+        {"_id": 0, "id": 1, "name": 1, "tag": 1, "owner_id": 1, "parent_team_id": 1, "member_ids": 1},
+    ).to_list(3000)
+    teams_by_user = {uid: [] for uid in user_ids}
+    for team in teams:
+        summary = {
+            "id": team.get("id"),
+            "name": team.get("name", ""),
+            "tag": team.get("tag", ""),
+            "owner_id": team.get("owner_id"),
+            "parent_team_id": team.get("parent_team_id"),
+            "is_sub_team": is_sub_team(team),
+        }
+        for member_id in team.get("member_ids", []):
+            if member_id in user_id_set:
+                teams_by_user[member_id].append(summary)
+
+    regs = await db.registrations.find(
+        {"user_id": {"$in": user_ids}},
+        {"_id": 0, "user_id": 1, "tournament_id": 1, "team_id": 1, "team_name": 1, "created_at": 1},
+    ).to_list(6000)
+    tournament_ids = list(dict.fromkeys(str(r.get("tournament_id", "")).strip() for r in regs if str(r.get("tournament_id", "")).strip()))
+    tournament_docs = []
+    if tournament_ids:
+        tournament_docs = await db.tournaments.find(
+            {"id": {"$in": tournament_ids}},
+            {"_id": 0, "id": 1, "name": 1, "status": 1},
+        ).to_list(1200)
+    tournament_map = {t["id"]: t for t in tournament_docs}
+    tournaments_by_user = {uid: [] for uid in user_ids}
+    seen_user_tournaments = {uid: set() for uid in user_ids}
+    for reg in regs:
+        uid = reg.get("user_id")
+        tid = str(reg.get("tournament_id", "")).strip()
+        if uid not in tournaments_by_user or not tid or tid in seen_user_tournaments[uid]:
+            continue
+        seen_user_tournaments[uid].add(tid)
+        t_doc = tournament_map.get(tid, {})
+        tournaments_by_user[uid].append(
+            {
+                "id": tid,
+                "name": t_doc.get("name", ""),
+                "status": t_doc.get("status", ""),
+                "team_id": reg.get("team_id"),
+                "team_name": reg.get("team_name", ""),
+                "registered_at": reg.get("created_at"),
+            }
+        )
+
+    for user in users:
+        uid = str(user.get("id", "")).strip()
+        team_list = teams_by_user.get(uid, [])
+        tournament_list = tournaments_by_user.get(uid, [])
+        user["teams"] = team_list[:50]
+        user["team_count"] = len(team_list)
+        user["tournaments"] = tournament_list[:50]
+        user["tournament_count"] = len(tournament_list)
     return users
+
+@api_router.put("/admin/users/{user_id}/role")
+async def admin_set_user_role(request: Request, user_id: str, body: AdminUserRoleUpdate):
+    admin_user = await require_admin(request)
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Benutzer nicht gefunden")
+
+    new_role = str(body.role or "").strip().lower()
+    if new_role not in {"user", "admin"}:
+        raise HTTPException(400, "Ungültige Rolle")
+
+    current_role = str(target.get("role", "user")).strip().lower()
+    if current_role == new_role:
+        return {"status": "ok", "user_id": user_id, "role": new_role}
+
+    if target.get("id") == admin_user.get("id") and new_role != "admin":
+        admin_count = await db.users.count_documents({"role": "admin"})
+        if admin_count <= 1:
+            raise HTTPException(400, "Der letzte Admin kann nicht degradiert werden")
+
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"role": new_role, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"status": "ok", "user_id": user_id, "role": new_role}
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(request: Request, user_id: str):
+    admin_user = await require_admin(request)
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "role": 1})
+    if not target:
+        raise HTTPException(404, "Benutzer nicht gefunden")
+    if target.get("id") == admin_user.get("id"):
+        raise HTTPException(400, "Du kannst deinen eigenen Admin-Account nicht löschen")
+    if target.get("role") == "admin":
+        admin_count = await db.users.count_documents({"role": "admin"})
+        if admin_count <= 1:
+            raise HTTPException(400, "Der letzte Admin kann nicht gelöscht werden")
+
+    cleanup = await delete_user_and_related_data(user_id)
+    return {"status": "deleted", **cleanup}
+
+@api_router.get("/admin/teams")
+async def admin_list_teams(request: Request):
+    await require_admin(request)
+    teams = await db.teams.find({}, {"_id": 0}).sort("created_at", -1).to_list(3000)
+    team_ids = [str(t.get("id", "")).strip() for t in teams if str(t.get("id", "")).strip()]
+    reg_counts = {}
+    if team_ids:
+        grouped = await db.registrations.aggregate(
+            [
+                {"$match": {"team_id": {"$in": team_ids}}},
+                {"$group": {"_id": "$team_id", "count": {"$sum": 1}}},
+            ]
+        ).to_list(4000)
+        reg_counts = {g["_id"]: int(g.get("count", 0)) for g in grouped}
+
+    team_map = {t.get("id"): t for t in teams}
+    for team in teams:
+        team.pop("join_code", None)
+        parent_id = str(team.get("parent_team_id") or "").strip()
+        team["is_sub_team"] = bool(parent_id)
+        team["parent_team_name"] = (team_map.get(parent_id) or {}).get("name", "")
+        team["member_count"] = len(team.get("member_ids", []))
+        team["registration_count"] = reg_counts.get(team.get("id"), 0)
+    return teams
+
+@api_router.delete("/admin/teams/{team_id}")
+async def admin_delete_team(request: Request, team_id: str):
+    await require_admin(request)
+    existing = await db.teams.find_one({"id": team_id}, {"_id": 0, "id": 1})
+    if not existing:
+        raise HTTPException(404, "Team nicht gefunden")
+    hierarchy_ids = await collect_team_hierarchy_ids(team_id)
+    cleanup = await delete_teams_and_related(hierarchy_ids)
+    return {"status": "deleted", **cleanup}
 
 @api_router.get("/admin/dashboard")
 async def admin_dashboard(request: Request):

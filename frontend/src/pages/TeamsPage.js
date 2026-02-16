@@ -155,6 +155,7 @@ export default function TeamsPage() {
           <div>
             <h1 className="font-['Barlow_Condensed'] text-3xl sm:text-4xl font-bold text-white uppercase tracking-tight">Meine Teams</h1>
             <p className="text-sm text-zinc-500 mt-1">{teams.length} Teams</p>
+            <p className="text-xs text-zinc-600 mt-1">Turnier-Anmeldungen sind nur mit Sub-Teams möglich.</p>
           </div>
           <div className="flex gap-2">
             {/* Join Team */}

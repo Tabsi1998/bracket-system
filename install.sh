@@ -54,6 +54,29 @@ dotenv_quote() {
   printf '"%s"' "$value"
 }
 
+run_demo_seed_install() {
+  local install_dir="$1"
+  local reset_flag="${2:-0}"
+  local seed_script="$install_dir/backend/seed_demo_data.py"
+
+  if [ ! -f "$seed_script" ]; then
+    warn "Demo-Seed Script nicht gefunden: $seed_script"
+    return 1
+  fi
+
+  cd "$install_dir/backend"
+  # shellcheck disable=SC1091
+  source venv/bin/activate
+  if [ "$reset_flag" -eq 1 ]; then
+    python seed_demo_data.py --reset
+  else
+    python seed_demo_data.py
+  fi
+  deactivate
+  cd "$install_dir"
+  return 0
+}
+
 # ── Konfiguration einlesen ──
 INSTALL_DIR_DEFAULT="$SCRIPT_DIR"
 INSTALL_DIR="$INSTALL_DIR_DEFAULT"
@@ -64,6 +87,8 @@ MONGO_DB_NAME="arena_esports"
 JWT_SECRET=$(openssl rand -hex 32)
 BACKEND_PORT=8001
 FRONTEND_PORT=3000
+IMPORT_DEMO_DATA="n"
+RESET_DEMO_DATA="n"
 
 step "Konfiguration"
 read -rp "Domain oder IP-Adresse (z.B. arena.example.com oder 192.168.1.100): " DOMAIN
@@ -84,12 +109,17 @@ if [ -z "$ADMIN_PASSWORD" ]; then
 fi
 read -rp "MongoDB Datenbankname [$MONGO_DB_NAME]: " input && MONGO_DB_NAME="${input:-$MONGO_DB_NAME}"
 read -rp "Stripe Secret Key (optional, Enter zum Überspringen): " STRIPE_KEY
+read -rp "Demo-Daten importieren (Testnutzer/Teams/Turniere)? [y/N]: " input && IMPORT_DEMO_DATA="${input:-n}"
+if [[ "${IMPORT_DEMO_DATA,,}" == "y" ]]; then
+  read -rp "Vorher vorhandene Demo-Daten löschen? [y/N]: " input && RESET_DEMO_DATA="${input:-n}"
+fi
 
 echo ""
 log "Domain:         $DOMAIN"
 log "Installationspfad: $INSTALL_DIR"
 log "Admin E-Mail:   $ADMIN_EMAIL"
 log "Datenbank:      $MONGO_DB_NAME"
+log "Demo-Daten:     ${IMPORT_DEMO_DATA}"
 echo ""
 read -rp "Alles korrekt? Installation starten? [J/n] " confirm
 if [[ "${confirm,,}" == "n" ]]; then exit 0; fi
@@ -311,9 +341,24 @@ else
 fi
 
 # ═══════════════════════════════════════════════════
-# 8. Abschluss
+# 8. Demo-Daten (optional)
 # ═══════════════════════════════════════════════════
-step "8/8 – Abschluss"
+step "8/9 – Demo-Daten (optional)"
+
+if [[ "${IMPORT_DEMO_DATA,,}" == "y" ]]; then
+  if [[ "${RESET_DEMO_DATA,,}" == "y" ]]; then
+    run_demo_seed_install "$INSTALL_DIR" 1 && log "Demo-Daten importiert (mit Reset)" || warn "Demo-Daten konnten nicht importiert werden"
+  else
+    run_demo_seed_install "$INSTALL_DIR" 0 && log "Demo-Daten importiert" || warn "Demo-Daten konnten nicht importiert werden"
+  fi
+else
+  log "Demo-Daten Import übersprungen"
+fi
+
+# ═══════════════════════════════════════════════════
+# 9. Abschluss
+# ═══════════════════════════════════════════════════
+step "9/9 – Abschluss"
 
 # Warte auf Backend-Start
 sleep 3

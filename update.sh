@@ -111,6 +111,8 @@ Options:
   --admin-email     E-Mail für Admin-Reset
   --admin-password  Passwort für Admin-Reset
   --admin-username  Benutzername für Admin-Reset (optional)
+  --seed-demo       Demo-Daten importieren
+  --seed-demo-reset Vorhandene Demo-Daten vor Import löschen
   -h, --help        Hilfe anzeigen
 EOF
 }
@@ -127,6 +129,8 @@ ADMIN_RESET=0
 ADMIN_EMAIL_OVERRIDE=""
 ADMIN_PASSWORD_OVERRIDE=""
 ADMIN_USERNAME_OVERRIDE=""
+DEMO_SEED=0
+DEMO_RESET=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force)
@@ -156,6 +160,15 @@ while [[ $# -gt 0 ]]; do
       [ $# -ge 2 ] || err "--admin-username benötigt einen Wert"
       ADMIN_USERNAME_OVERRIDE="$2"
       shift 2
+      ;;
+    --seed-demo)
+      DEMO_SEED=1
+      shift
+      ;;
+    --seed-demo-reset)
+      DEMO_SEED=1
+      DEMO_RESET=1
+      shift
       ;;
     -h|--help)
       usage
@@ -271,6 +284,32 @@ PY
   deactivate
   cd "$SCRIPT_DIR"
   log "Admin-Konto per CLI gesetzt: $admin_email"
+}
+
+run_demo_seed() {
+  local reset_flag="${1:-0}"
+  local backend_env_file="$SCRIPT_DIR/backend/.env"
+  local seed_script="$SCRIPT_DIR/backend/seed_demo_data.py"
+
+  [ -f "$backend_env_file" ] || err "Demo-Seed: backend/.env nicht gefunden"
+  [ -f "$seed_script" ] || err "Demo-Seed: backend/seed_demo_data.py nicht gefunden"
+
+  cd "$SCRIPT_DIR/backend"
+  if [ ! -d venv ]; then
+    python3 -m venv venv
+  fi
+  # shellcheck disable=SC1091
+  source venv/bin/activate
+
+  if [ "$reset_flag" -eq 1 ]; then
+    python seed_demo_data.py --reset
+  else
+    python seed_demo_data.py
+  fi
+
+  deactivate
+  cd "$SCRIPT_DIR"
+  log "Demo-Daten importiert"
 }
 
 read_env_default() {
@@ -404,6 +443,29 @@ if [ "$ADMIN_RESET" -eq 1 ]; then
   run_admin_reset "$admin_email" "$admin_password" "$admin_username"
 else
   log "Admin-Reset übersprungen"
+fi
+
+step "Demo-Daten (optional)"
+if [ "$DEMO_SEED" -ne 1 ] && [ -t 0 ]; then
+  read -rp "Demo-Daten importieren? [j/N] " demo_choice
+  case "$demo_choice" in
+    j|J|y|Y) DEMO_SEED=1 ;;
+    *) DEMO_SEED=0 ;;
+  esac
+fi
+
+if [ "$DEMO_SEED" -eq 1 ] && [ "$DEMO_RESET" -ne 1 ] && [ -t 0 ]; then
+  read -rp "Vorhandene Demo-Daten vorher löschen? [j/N] " demo_reset_choice
+  case "$demo_reset_choice" in
+    j|J|y|Y) DEMO_RESET=1 ;;
+    *) DEMO_RESET=0 ;;
+  esac
+fi
+
+if [ "$DEMO_SEED" -eq 1 ]; then
+  run_demo_seed "$DEMO_RESET"
+else
+  log "Demo-Seed übersprungen"
 fi
 
 step "Frontend aktualisieren"
