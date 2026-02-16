@@ -253,7 +253,7 @@ export default function CreateTournamentPage() {
                 data-testid="rules-input"
                 value={form.rules}
                 onChange={e => setForm({ ...form, rules: e.target.value })}
-                placeholder="Turnierregeln eingeben..."
+                placeholder="Turnierregeln eingeben... (Markdown unterstützt: # Überschrift, - Liste, **fett**)"
                 className="bg-zinc-900 border-white/10 text-white min-h-[120px]"
               />
             </div>
@@ -269,6 +269,7 @@ export default function CreateTournamentPage() {
           </div>
         </motion.div>
       </div>
+      )}
     </div>
   );
 }
