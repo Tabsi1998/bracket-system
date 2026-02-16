@@ -900,41 +900,136 @@ async def generate_bracket(request: Request, tournament_id: str):
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     return t
 
-# ─── Match Score Updates ───
+# ─── Score Submission System ───
 
-@api_router.put("/tournaments/{tournament_id}/matches/{match_id}/score")
-async def update_match_score(tournament_id: str, match_id: str, body: ScoreUpdate):
+@api_router.post("/tournaments/{tournament_id}/matches/{match_id}/submit-score")
+async def submit_match_score(request: Request, tournament_id: str, match_id: str, body: ScoreSubmission):
+    """Teams/leaders submit their score. If both agree, auto-confirm."""
+    user = await require_auth(request)
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t or not t.get("bracket"):
-        raise HTTPException(404, "Tournament or bracket not found")
+        raise HTTPException(404, "Turnier oder Bracket nicht gefunden")
+
+    # Find the match in bracket to get team IDs
+    match_data = None
+    bracket = t["bracket"]
+    all_rounds = []
+    if bracket["type"] in ("single_elimination", "round_robin"):
+        all_rounds = bracket.get("rounds", [])
+    elif bracket["type"] == "double_elimination":
+        all_rounds = bracket.get("winners_bracket", {}).get("rounds", [])
+        all_rounds += bracket.get("losers_bracket", {}).get("rounds", [])
+    for rd in all_rounds:
+        for m in rd["matches"]:
+            if m["id"] == match_id:
+                match_data = m
+                break
+        if match_data:
+            break
+    if not match_data and bracket["type"] == "double_elimination":
+        gf = bracket.get("grand_final")
+        if gf and gf["id"] == match_id:
+            match_data = gf
+    if not match_data:
+        raise HTTPException(404, "Match nicht gefunden")
+    if match_data.get("status") == "completed":
+        raise HTTPException(400, "Match ist bereits abgeschlossen")
+
+    # Determine which team the user belongs to
+    team1_reg = await db.registrations.find_one({"id": match_data["team1_id"]}, {"_id": 0})
+    team2_reg = await db.registrations.find_one({"id": match_data["team2_id"]}, {"_id": 0})
+    submitting_for = None
+    if team1_reg:
+        tid = team1_reg.get("team_id")
+        if tid:
+            role = await get_user_team_role(user["id"], tid)
+            if role in ("owner", "leader"):
+                submitting_for = "team1"
+        if not submitting_for and team1_reg.get("user_id") == user["id"]:
+            submitting_for = "team1"
+    if not submitting_for and team2_reg:
+        tid = team2_reg.get("team_id")
+        if tid:
+            role = await get_user_team_role(user["id"], tid)
+            if role in ("owner", "leader"):
+                submitting_for = "team2"
+        if not submitting_for and team2_reg.get("user_id") == user["id"]:
+            submitting_for = "team2"
+    if not submitting_for:
+        raise HTTPException(403, "Du bist kein Leader/Owner eines beteiligten Teams")
+
+    # Store submission
+    existing = await db.score_submissions.find_one({"match_id": match_id, "side": submitting_for}, {"_id": 0})
+    if existing:
+        await db.score_submissions.update_one({"match_id": match_id, "side": submitting_for}, {
+            "$set": {"score1": body.score1, "score2": body.score2, "submitted_by": user["id"], "submitted_by_name": user["username"], "updated_at": datetime.now(timezone.utc).isoformat()}
+        })
+    else:
+        await db.score_submissions.insert_one({
+            "id": str(uuid.uuid4()), "tournament_id": tournament_id, "match_id": match_id,
+            "side": submitting_for, "score1": body.score1, "score2": body.score2,
+            "submitted_by": user["id"], "submitted_by_name": user["username"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    # Check if both sides submitted
+    subs = await db.score_submissions.find({"match_id": match_id}, {"_id": 0}).to_list(2)
+    sides = {s["side"]: s for s in subs}
+    if "team1" in sides and "team2" in sides:
+        s1, s2 = sides["team1"], sides["team2"]
+        if s1["score1"] == s2["score1"] and s1["score2"] == s2["score2"]:
+            # Scores agree → auto-confirm
+            await _apply_score_to_bracket(tournament_id, match_id, s1["score1"], s1["score2"])
+            await db.score_submissions.update_many({"match_id": match_id}, {"$set": {"status": "confirmed"}})
+            return {"status": "confirmed", "message": "Ergebnisse stimmen überein - automatisch bestätigt!"}
+        else:
+            # Scores differ → disputed
+            await db.score_submissions.update_many({"match_id": match_id}, {"$set": {"status": "disputed"}})
+            # Notify admins
+            admins = await db.users.find({"role": "admin"}, {"_id": 0}).to_list(10)
+            for admin in admins:
+                await db.notifications.insert_one({
+                    "id": str(uuid.uuid4()), "user_id": admin["id"], "type": "dispute",
+                    "message": f"Ergebnis-Streit im Match: {match_data.get('team1_name')} vs {match_data.get('team2_name')}",
+                    "link": f"/tournaments/{tournament_id}", "read": False,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+            return {"status": "disputed", "message": "Ergebnisse stimmen nicht überein - Admin muss prüfen!"}
+
+    return {"status": "submitted", "message": f"Ergebnis von {submitting_for} eingereicht. Warte auf die andere Seite."}
+
+@api_router.get("/tournaments/{tournament_id}/matches/{match_id}/submissions")
+async def get_score_submissions(tournament_id: str, match_id: str):
+    subs = await db.score_submissions.find({"match_id": match_id}, {"_id": 0}).to_list(10)
+    return subs
+
+async def _apply_score_to_bracket(tournament_id: str, match_id: str, score1: int, score2: int, winner_id: str = None, disqualify_id: str = None):
+    """Internal: apply finalized score to bracket and propagate."""
+    t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     bracket = t["bracket"]
     bracket_type = bracket.get("type", "single_elimination")
-
-    if bracket_type == "single_elimination":
+    rounds = []
+    if bracket_type in ("single_elimination", "round_robin"):
         rounds = bracket["rounds"]
     elif bracket_type == "double_elimination":
-        # Check all sub-brackets
         rounds = bracket.get("winners_bracket", {}).get("rounds", [])
-        # Also check losers bracket and grand final
-    elif bracket_type == "round_robin":
-        rounds = bracket["rounds"]
-    else:
-        rounds = bracket.get("rounds", [])
 
     match_found = False
     match_round_idx = -1
     match_pos = -1
-
     for r_idx, rd in enumerate(rounds):
         for m_idx, m in enumerate(rd["matches"]):
             if m["id"] == match_id:
-                m["score1"] = body.score1
-                m["score2"] = body.score2
-                if body.winner_id:
-                    m["winner_id"] = body.winner_id
-                elif body.score1 > body.score2:
+                m["score1"] = score1
+                m["score2"] = score2
+                if disqualify_id:
+                    m["winner_id"] = m["team2_id"] if m["team1_id"] == disqualify_id else m["team1_id"]
+                    m["disqualified"] = disqualify_id
+                elif winner_id:
+                    m["winner_id"] = winner_id
+                elif score1 > score2:
                     m["winner_id"] = m["team1_id"]
-                elif body.score2 > body.score1:
+                elif score2 > score1:
                     m["winner_id"] = m["team2_id"]
                 m["status"] = "completed"
                 match_found = True
@@ -944,46 +1039,52 @@ async def update_match_score(tournament_id: str, match_id: str, body: ScoreUpdat
         if match_found:
             break
 
-    if not match_found:
-        # Check double elimination sub-brackets
-        if bracket_type == "double_elimination":
-            gf = bracket.get("grand_final")
-            if gf and gf["id"] == match_id:
-                gf["score1"] = body.score1
-                gf["score2"] = body.score2
-                if body.winner_id:
-                    gf["winner_id"] = body.winner_id
-                elif body.score1 > body.score2:
-                    gf["winner_id"] = gf["team1_id"]
-                else:
-                    gf["winner_id"] = gf["team2_id"]
-                gf["status"] = "completed"
-                match_found = True
-        if not match_found:
-            raise HTTPException(404, "Match not found")
+    if not match_found and bracket_type == "double_elimination":
+        gf = bracket.get("grand_final")
+        if gf and gf["id"] == match_id:
+            gf["score1"] = score1
+            gf["score2"] = score2
+            if winner_id:
+                gf["winner_id"] = winner_id
+            elif score1 > score2:
+                gf["winner_id"] = gf["team1_id"]
+            else:
+                gf["winner_id"] = gf["team2_id"]
+            gf["status"] = "completed"
+            match_found = True
 
-    # Propagate winner to next round (single elimination)
+    # Propagate winner (single elimination)
     if bracket_type == "single_elimination" and match_round_idx >= 0 and match_round_idx < len(rounds) - 1:
-        current_match = rounds[match_round_idx]["matches"][match_pos]
-        if current_match["winner_id"]:
-            next_match = rounds[match_round_idx + 1]["matches"][match_pos // 2]
+        cm = rounds[match_round_idx]["matches"][match_pos]
+        if cm["winner_id"]:
+            nm = rounds[match_round_idx + 1]["matches"][match_pos // 2]
             slot = "team1" if match_pos % 2 == 0 else "team2"
-            winner_name = current_match["team1_name"] if current_match["winner_id"] == current_match["team1_id"] else current_match["team2_name"]
-            next_match[f"{slot}_id"] = current_match["winner_id"]
-            next_match[f"{slot}_name"] = winner_name
+            wn = cm["team1_name"] if cm["winner_id"] == cm["team1_id"] else cm["team2_name"]
+            nm[f"{slot}_id"] = cm["winner_id"]
+            nm[f"{slot}_name"] = wn
 
-    # Check if tournament is completed
-    if bracket_type == "single_elimination":
-        final_match = rounds[-1]["matches"][0]
-        if final_match.get("winner_id"):
+    # Check completion
+    if bracket_type == "single_elimination" and rounds:
+        final = rounds[-1]["matches"][0]
+        if final.get("winner_id"):
             await db.tournaments.update_one({"id": tournament_id}, {"$set": {"status": "completed"}})
 
-    await db.tournaments.update_one(
-        {"id": tournament_id},
-        {"$set": {"bracket": bracket, "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    updated = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
-    return updated
+    await db.tournaments.update_one({"id": tournament_id}, {"$set": {"bracket": bracket, "updated_at": datetime.now(timezone.utc).isoformat()}})
+
+# Admin-only: resolve disputed scores or force-set scores
+@api_router.put("/tournaments/{tournament_id}/matches/{match_id}/resolve")
+async def admin_resolve_score(request: Request, tournament_id: str, match_id: str, body: AdminScoreResolve):
+    await require_admin(request)
+    await _apply_score_to_bracket(tournament_id, match_id, body.score1, body.score2, body.winner_id, body.disqualify_team_id)
+    await db.score_submissions.update_many({"match_id": match_id}, {"$set": {"status": "resolved_by_admin"}})
+    return await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
+
+# Keep legacy admin score update for backwards compat
+@api_router.put("/tournaments/{tournament_id}/matches/{match_id}/score")
+async def update_match_score(request: Request, tournament_id: str, match_id: str, body: ScoreUpdate):
+    await require_admin(request)
+    await _apply_score_to_bracket(tournament_id, match_id, body.score1, body.score2, body.winner_id)
+    return await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
 
 # ─── Payment Endpoints (Stripe) ───
 
