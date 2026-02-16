@@ -95,15 +95,33 @@ class UserLogin(BaseModel):
 class TeamCreate(BaseModel):
     name: str
     tag: str = ""
+    parent_team_id: Optional[str] = None
 
 class TeamAddMember(BaseModel):
     email: str
+
+class TeamJoinRequest(BaseModel):
+    team_id: str
+    join_code: str
+
+class PromoteMember(BaseModel):
+    user_id: str
 
 class CommentCreate(BaseModel):
     message: str
 
 class TimeProposal(BaseModel):
     proposed_time: str
+
+class ScoreSubmission(BaseModel):
+    score1: int
+    score2: int
+
+class AdminScoreResolve(BaseModel):
+    score1: int
+    score2: int
+    winner_id: Optional[str] = None
+    disqualify_team_id: Optional[str] = None
 
 class AdminSettingUpdate(BaseModel):
     key: str
