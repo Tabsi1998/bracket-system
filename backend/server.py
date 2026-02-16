@@ -388,14 +388,20 @@ async def seed_games():
 
 @api_router.post("/auth/register")
 async def register_user(body: UserRegister):
-    if await db.users.find_one({"email": body.email}):
+    email = body.email.strip().lower()
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(400, "Benutzername erforderlich")
+    if not email:
+        raise HTTPException(400, "E-Mail erforderlich")
+    if await db.users.find_one({"email": email}):
         raise HTTPException(400, "E-Mail bereits registriert")
-    if await db.users.find_one({"username": body.username}):
+    if await db.users.find_one({"username": username}):
         raise HTTPException(400, "Benutzername bereits vergeben")
     user_doc = {
-        "id": str(uuid.uuid4()), "username": body.username, "email": body.email,
+        "id": str(uuid.uuid4()), "username": username, "email": email,
         "password_hash": hash_password(body.password), "role": "user",
-        "avatar_url": f"https://api.dicebear.com/7.x/avataaars/svg?seed={body.username}",
+        "avatar_url": f"https://api.dicebear.com/7.x/avataaars/svg?seed={username}",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user_doc)
@@ -404,7 +410,8 @@ async def register_user(body: UserRegister):
 
 @api_router.post("/auth/login")
 async def login_user(body: UserLogin):
-    user = await db.users.find_one({"email": body.email}, {"_id": 0})
+    email = body.email.strip().lower()
+    user = await db.users.find_one({"email": email}, {"_id": 0})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(401, "Ungültige Anmeldedaten")
     token = create_token(user["id"], user["email"], user.get("role", "user"))
@@ -416,9 +423,6 @@ async def get_me(request: Request):
     return user
 
 async def seed_admin():
-    if await db.users.find_one({"role": "admin"}):
-        return
-
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@arena.gg").strip().lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     default_username = os.environ.get("ADMIN_USERNAME", admin_email.split("@")[0] or "admin").strip()
@@ -426,17 +430,25 @@ async def seed_admin():
 
     existing_with_email = await db.users.find_one({"email": admin_email}, {"_id": 0})
     if existing_with_email:
+        update_doc = {
+            "role": "admin",
+            "password_hash": hash_password(admin_password),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if not existing_with_email.get("username"):
+            update_doc["username"] = username
         await db.users.update_one(
             {"id": existing_with_email["id"]},
             {
-                "$set": {
-                    "role": "admin",
-                    "password_hash": hash_password(admin_password),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
+                "$set": update_doc
             },
         )
         logger.info(f"Promoted existing user to admin: {admin_email}")
+        return
+
+    existing_admin = await db.users.find_one({"role": "admin"}, {"_id": 0})
+    if existing_admin:
+        logger.info(f"Admin already exists ({existing_admin.get('email', 'unknown')}); configured admin user not created")
         return
 
     if await db.users.find_one({"username": username}, {"_id": 0}):
