@@ -35,7 +35,7 @@ export default function ProfilePage() {
       username: profile.username || "",
       email: profile.email || "",
     });
-  }, [profile?.id]);
+  }, [profile]);
 
   if (loading) return (
     <div className="pt-20 min-h-screen flex items-center justify-center">
@@ -60,8 +60,8 @@ export default function ProfilePage() {
     setSavingAccount(true);
     try {
       const res = await axios.put(`${API}/users/me/account`, {
-        username: accountForm.username,
-        email: accountForm.email,
+        username: accountForm.username.trim(),
+        email: accountForm.email.trim(),
       });
       setProfile(prev => ({ ...(prev || {}), ...res.data }));
       await refreshUser();
