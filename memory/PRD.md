@@ -1,7 +1,7 @@
 # eSports Tournament Bracket System - PRD
 
 ## Problem Statement
-Complete eSports Tournament Bracket System with full access control (admin/player roles), dynamic animated brackets with Bezier curve connectors, payment integration (Stripe + PayPal prepared), pre-built game database, user accounts, team management with join codes/leaders/sub-teams, score submission by teams with auto-confirm/dispute resolution, comments, notifications, admin panel, profile pages, embeddable widget, and markdown-rendered rules.
+Complete eSports Tournament Bracket System with full access control (admin/player roles), dynamic animated brackets with Bezier curve connectors, payment integration (Stripe + PayPal prepared), pre-built game database, user accounts, team management with join codes/leaders/sub-teams, score submission by teams with auto-confirm/dispute resolution, comments, notifications, admin panel, profile pages, embeddable widget, markdown-rendered rules, and one-command installer for Ubuntu.
 
 ## Architecture
 - **Backend**: FastAPI + MongoDB (server.py)
@@ -10,67 +10,44 @@ Complete eSports Tournament Bracket System with full access control (admin/playe
 - **Payment**: Stripe (integrated), PayPal (prepared in admin settings)
 - **Auth**: JWT (python-jose + bcrypt)
 - **Email**: SMTP (prepared in admin settings)
+- **Deployment**: Nginx reverse proxy + systemd service + one-command installer
 
 ## User Roles
-- **Admin** (role: "admin"): Full access — create/edit/delete tournaments & games, generate brackets, resolve score disputes, manage users/settings
-- **Spieler** (role: "user"): Register for tournaments, create/manage teams, submit scores, comment, receive notifications
-
-## Core Requirements (All Implemented)
-- Tournament CRUD (admin-only)
-- 14+ pre-built games with modes and platforms
-- Single/Double Elimination, Round Robin bracket types with Bezier curve SVG connectors
-- Player/Team registration
-- Check-in system
-- Score submission system (both teams submit, auto-confirm if matching, admin resolves disputes)
-- Disqualification support
-- Stripe payment integration
-- JWT authentication with admin seed
-- Team management (join codes, leaders, sub-teams)
-- Comments on tournaments and matches
-- In-app notifications (bell icon with unread count)
-- Match scheduling (time proposals)
-- Admin panel with dashboard, user/tournament/game management, payment & SMTP settings
-- Profile pages with stats, teams, tournament history
-- Embeddable widget (iframe) for external sites
-- Markdown-rendered tournament rules
-- German UI
+- **Admin** (role: "admin"): Full access
+- **Spieler** (role: "user"): Participate, create teams, submit scores, comment
 
 ## What's Implemented
 
-### Phase 0 - MVP (Completed 2026-02-16)
-- Full backend API, 14 pre-seeded games, tournament CRUD, anonymous registration
-- Bracket visualization, Stripe payment, dark gaming UI
+### Phase 0 - MVP (2026-02-16)
+- Full backend API, 14 pre-seeded games, tournament CRUD, brackets, Stripe
 
-### Phase 1 - User System & Community (Completed 2026-02-17)
-- JWT Auth, Admin seed, Team management, Comments, Notifications, Match scheduling
-- Admin Panel, Auth-aware UI, Protected routes
+### Phase 1 - User System (2026-02-17)
+- JWT Auth, Teams, Comments, Notifications, Match scheduling, Admin Panel
 
-### Phase 1.5 - Access Control & Advanced Features (Completed 2026-02-17)
-- **Admin-only access control**: Tournaments, games, brackets, status changes → admin only
-- **Score submission system**: Both teams submit scores, auto-confirm if matching, admin resolves disputes with disqualification option
-- **Team enhancements**: Join codes (6-char), leaders, sub-teams, owner-only code visibility
-- **Profile page**: User stats (wins/losses/winrate), teams, tournament history
-- **Widget**: Standalone iframe-embeddable tournament view
-- **Bracket improvements**: Bezier curve SVG connecting lines between rounds
-- **Markdown rules**: Rich text rendering for tournament rules
-- **PayPal prepared**: Admin settings fields for PayPal Client ID & Secret
-- **SMTP prepared**: Admin settings fields for SMTP host/port/user/password
-- **Email sending**: Backend function sends email when SMTP configured
+### Phase 1.5 - Access Control & Advanced (2026-02-17)
+- Admin-only access, Score submission/dispute system, Team join codes/leaders/sub-teams
+- Profile page, Widget, Bezier brackets, Markdown rules, PayPal/SMTP prepared
+
+### Phase 2 - Deployment & Polish (2026-02-17)
+- One-command Ubuntu installer (install.sh)
+- Clean requirements.prod.txt with minimal dependencies
+- Professional README.md with full API docs, architecture, role matrix
+- Nginx config, systemd service, SSL instructions
+- Full system smoke test (13/13 passed)
 
 ## Prioritized Backlog
 
 ### P1 (High)
-- PayPal actual checkout flow (needs user to provide PayPal sandbox keys)
-- E-Mail notifications triggering (needs SMTP credentials configured)
+- PayPal actual checkout (needs PayPal sandbox keys)
+- E-Mail notifications (needs SMTP credentials in Admin Panel)
 
 ### P2 (Medium)
-- Real-time updates (WebSocket for live bracket changes)
+- WebSocket real-time updates
 - Swiss bracket type
-- Tournament seeding control
-- Participant management (kick, reorder seeds)
+- Tournament seeding & participant management
 
 ### P3 (Low)
 - Export bracket as image/PDF
-- Tournament templates & recurring tournaments
-- Player statistics history & leaderboards
+- Tournament templates, recurring tournaments
+- Leaderboards, player statistics history
 - Multiple languages
