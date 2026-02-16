@@ -1,0 +1,138 @@
+{
+  "identity": {
+    "name": "E1",
+    "tone": "Competitive, High-Voltage, Precision, Dark",
+    "archetype": "The Performance Pro + Electric Neon"
+  },
+  "typography": {
+    "headings": {
+      "fontFamily": "Barlow Condensed, sans-serif",
+      "weights": ["600", "700", "800"],
+      "letterSpacing": "tracking-tight",
+      "usage": "All section titles, hero text, tournament names, scores"
+    },
+    "body": {
+      "fontFamily": "Inter, sans-serif",
+      "weights": ["400", "500"],
+      "usage": "UI labels, descriptions, player names, stats"
+    },
+    "mono": {
+      "fontFamily": "JetBrains Mono, monospace",
+      "usage": "Timers, countdowns, server IPs, match IDs"
+    }
+  },
+  "colors": {
+    "background": {
+      "default": "#050505",
+      "surface": "#09090b",
+      "surface_highlight": "#18181b"
+    },
+    "primary": {
+      "default": "#EAB308",
+      "glow": "0 0 20px rgba(234, 179, 8, 0.5)",
+      "text_contrast": "#000000"
+    },
+    "accents": {
+      "win": "#22C55E",
+      "loss": "#EF4444",
+      "live": "#EF4444",
+      "neon_blue": "#06B6D4",
+      "neon_purple": "#A855F7"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A1A1AA",
+      "muted": "#52525B"
+    },
+    "borders": {
+      "default": "#27272A",
+      "active": "#EAB308"
+    }
+  },
+  "visual_enhancers": {
+    "glassmorphism": "bg-zinc-950/70 backdrop-blur-xl border border-white/10 shadow-2xl",
+    "neon_border": "border border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.3)]",
+    "scanlines": "background-image: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); background-size: 100% 2px, 3px 100%;",
+    "gradients": {
+      "hero_overlay": "bg-gradient-to-t from-[#050505] via-[#050505]/80 to-transparent"
+    }
+  },
+  "component_strategies": {
+    "BracketNode": {
+      "description": "The atomic unit of the tournament view. Must look like a HUD element.",
+      "style": "bg-zinc-900 border-l-4 border-l-zinc-700 hover:border-l-yellow-500 transition-all duration-300",
+      "active_style": "border-l-yellow-500 bg-zinc-800",
+      "winner_style": "text-green-400 font-bold"
+    },
+    "GameCard": {
+      "description": "Vertical poster style for game selection.",
+      "style": "relative aspect-[3/4] overflow-hidden rounded-xl border border-white/10 group cursor-pointer",
+      "hover": "group-hover:scale-105 transition-transform duration-500",
+      "overlay": "absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent opacity-80 group-hover:opacity-60 transition-opacity"
+    },
+    "StatusBadge": {
+      "live": "bg-red-500/10 text-red-500 border border-red-500/20 animate-pulse",
+      "upcoming": "bg-blue-500/10 text-blue-500 border border-blue-500/20",
+      "completed": "bg-zinc-500/10 text-zinc-500 border border-zinc-500/20"
+    }
+  },
+  "layout_strategies": {
+    "landing_hero": {
+      "type": "Immersive Video/Image Background",
+      "content_alignment": "Bottom-Left or Center",
+      "typography": "Massive (text-7xl+) uppercase headings with 'stroke' text effect options."
+    },
+    "dashboard_grid": {
+      "type": "Bento Grid",
+      "gap": "gap-4 or gap-6",
+      "density": "High density, minimize whitespace in data panels."
+    }
+  },
+  "motion": {
+    "library": "framer-motion",
+    "transitions": {
+      "default": { "type": "spring", "stiffness": 300, "damping": 30 },
+      "bracket_connect": { "duration": 0.5, "ease": "easeInOut" }
+    },
+    "page_transition": {
+      "initial": { "opacity": 0, "y": 20 },
+      "animate": { "opacity": 1, "y": 0 },
+      "exit": { "opacity": 0, "y": -20 }
+    }
+  },
+  "image_urls": {
+    "hero": {
+      "main_bg": "https://images.unsplash.com/photo-1542751371-adc38448a05e?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85",
+      "controller": "https://images.unsplash.com/photo-1543328011-1c0d628fae09?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85",
+      "gamer_playing": "https://images.unsplash.com/photo-1558008258-ec20a83db196?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85"
+    },
+    "games": {
+      "fps_generic": "https://images.unsplash.com/photo-1759872138846-8aa46f8196a2?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85",
+      "sports_generic": "https://images.unsplash.com/photo-1770698693897-ee89c1f7aea2?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85",
+      "racing_generic": "https://images.unsplash.com/photo-1712522134057-174c7358ca01?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85",
+      "fantasy_generic": "https://images.unsplash.com/photo-1751815821662-2d26b7b9e038?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85"
+    },
+    "placeholders": {
+      "team_logo": "https://api.dicebear.com/7.x/identicon/svg?seed=",
+      "user_avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed="
+    }
+  },
+  "instructions_to_main_agent": [
+    "1. INSTALL FONTS: Add 'Barlow Condensed' (400,600,700) and 'Inter' and 'JetBrains Mono' via Google Fonts in index.html.",
+    "2. THEME SETUP: Force dark mode by default. Update tailwind.config.js to use the 'Obsidian' palette defined above.",
+    "3. BRACKET LOGIC: Build a recursive 'BracketRound' component. Use SVG for connecting lines (Bezier curves preferred over straight lines).",
+    "4. GAME CARDS: Use the 'GameCard' style for the Tournament creation selection and Game Listing.",
+    "5. DATA-TESTID: Every button, input, and interactive element MUST have a data-testid attribute.",
+    "6. PAYMENT: Mock the Stripe/PayPal buttons visually but ensure the flow (Registration -> Payment -> Confirmation) exists.",
+    "7. NO AUTH: Ensure the 'Register' flow asks for Name/Email only and stores it in localStorage or backend (if available) without password.",
+    "8. ANIMATIONS: Use <AnimatePresence> for route transitions and layoutId for smooth bracket updates."
+  ],
+  "UNIVERSAL_GUIDELINES": {
+    "rules": [
+      "Avoid 'AI Slop': Do not use generic 2-column layouts. Overlap elements. Use negative margins.",
+      "Spacing: Use p-8 or p-12 for section padding. Don't cram content.",
+      "Z-Index: Use layers. Background video -> Overlay gradient -> Content.",
+      "Micro-Interactions: Buttons should scale down slightly on click (active:scale-95)."
+    ]
+  }
+}
