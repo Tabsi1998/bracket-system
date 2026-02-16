@@ -946,6 +946,176 @@ async def stripe_webhook(request: Request):
         logger.error(f"Webhook error: {e}")
         return {"status": "error"}
 
+# ─── Comment Endpoints ───
+
+@api_router.get("/tournaments/{tournament_id}/comments")
+async def list_tournament_comments(tournament_id: str):
+    comments = await db.comments.find({"target_type": "tournament", "target_id": tournament_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return comments
+
+@api_router.post("/tournaments/{tournament_id}/comments")
+async def create_tournament_comment(request: Request, tournament_id: str, body: CommentCreate):
+    user = await require_auth(request)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "target_type": "tournament",
+        "target_id": tournament_id,
+        "author_id": user["id"],
+        "author_name": user["username"],
+        "author_avatar": user.get("avatar_url", ""),
+        "message": body.message,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.comments.insert_one(doc)
+    doc.pop("_id", None)
+    # Create notifications for tournament participants
+    regs = await db.registrations.find({"tournament_id": tournament_id, "user_id": {"$ne": None, "$ne": user["id"]}}, {"_id": 0}).to_list(200)
+    for reg in regs:
+        if reg.get("user_id") and reg["user_id"] != user["id"]:
+            notif = {
+                "id": str(uuid.uuid4()),
+                "user_id": reg["user_id"],
+                "type": "comment",
+                "message": f"{user['username']} hat einen Kommentar im Turnier geschrieben",
+                "link": f"/tournaments/{tournament_id}",
+                "read": False,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await db.notifications.insert_one(notif)
+    return doc
+
+@api_router.get("/matches/{match_id}/comments")
+async def list_match_comments(match_id: str):
+    comments = await db.comments.find({"target_type": "match", "target_id": match_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return comments
+
+@api_router.post("/matches/{match_id}/comments")
+async def create_match_comment(request: Request, match_id: str, body: CommentCreate):
+    user = await require_auth(request)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "target_type": "match",
+        "target_id": match_id,
+        "author_id": user["id"],
+        "author_name": user["username"],
+        "author_avatar": user.get("avatar_url", ""),
+        "message": body.message,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.comments.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+# ─── Notification Endpoints ───
+
+@api_router.get("/notifications")
+async def list_notifications(request: Request):
+    user = await require_auth(request)
+    notifications = await db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return notifications
+
+@api_router.get("/notifications/unread-count")
+async def unread_count(request: Request):
+    user = await require_auth(request)
+    count = await db.notifications.count_documents({"user_id": user["id"], "read": False})
+    return {"count": count}
+
+@api_router.put("/notifications/{notification_id}/read")
+async def mark_notification_read(request: Request, notification_id: str):
+    user = await require_auth(request)
+    await db.notifications.update_one({"id": notification_id, "user_id": user["id"]}, {"$set": {"read": True}})
+    return {"status": "ok"}
+
+@api_router.put("/notifications/read-all")
+async def mark_all_read(request: Request):
+    user = await require_auth(request)
+    await db.notifications.update_many({"user_id": user["id"], "read": False}, {"$set": {"read": True}})
+    return {"status": "ok"}
+
+# ─── Match Scheduling ───
+
+@api_router.get("/matches/{match_id}/schedule")
+async def get_match_schedule(match_id: str):
+    proposals = await db.schedule_proposals.find({"match_id": match_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return proposals
+
+@api_router.post("/matches/{match_id}/schedule")
+async def propose_match_time(request: Request, match_id: str, body: TimeProposal):
+    user = await require_auth(request)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "match_id": match_id,
+        "proposed_by": user["id"],
+        "proposed_by_name": user["username"],
+        "proposed_time": body.proposed_time,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.schedule_proposals.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/matches/{match_id}/schedule/{proposal_id}/accept")
+async def accept_schedule(request: Request, match_id: str, proposal_id: str):
+    user = await require_auth(request)
+    await db.schedule_proposals.update_many({"match_id": match_id}, {"$set": {"status": "rejected"}})
+    await db.schedule_proposals.update_one({"id": proposal_id}, {"$set": {"status": "accepted"}})
+    proposal = await db.schedule_proposals.find_one({"id": proposal_id}, {"_id": 0})
+    if proposal and proposal.get("proposed_by") != user["id"]:
+        notif = {
+            "id": str(uuid.uuid4()),
+            "user_id": proposal["proposed_by"],
+            "type": "schedule",
+            "message": f"{user['username']} hat deinen Zeitvorschlag akzeptiert",
+            "link": "",
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.notifications.insert_one(notif)
+    return {"status": "accepted"}
+
+# ─── Admin Endpoints ───
+
+@api_router.get("/admin/settings")
+async def get_admin_settings(request: Request):
+    await require_admin(request)
+    settings = await db.admin_settings.find({}, {"_id": 0}).to_list(50)
+    return settings
+
+@api_router.put("/admin/settings")
+async def update_admin_setting(request: Request, body: AdminSettingUpdate):
+    await require_admin(request)
+    await db.admin_settings.update_one(
+        {"key": body.key},
+        {"$set": {"key": body.key, "value": body.value, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
+    )
+    return {"status": "ok"}
+
+@api_router.get("/admin/users")
+async def list_admin_users(request: Request):
+    await require_admin(request)
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(200)
+    return users
+
+@api_router.get("/admin/dashboard")
+async def admin_dashboard(request: Request):
+    await require_admin(request)
+    total_users = await db.users.count_documents({})
+    total_teams = await db.teams.count_documents({})
+    total_tournaments = await db.tournaments.count_documents({})
+    total_registrations = await db.registrations.count_documents({})
+    live_tournaments = await db.tournaments.count_documents({"status": "live"})
+    total_payments = await db.payment_transactions.count_documents({"payment_status": "paid"})
+    return {
+        "total_users": total_users,
+        "total_teams": total_teams,
+        "total_tournaments": total_tournaments,
+        "total_registrations": total_registrations,
+        "live_tournaments": live_tournaments,
+        "total_payments": total_payments,
+    }
+
 # ─── Stats ───
 
 @api_router.get("/stats")
