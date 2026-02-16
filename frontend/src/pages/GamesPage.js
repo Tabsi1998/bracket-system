@@ -199,6 +199,7 @@ export default function GamesPage() {
               </div>
             </DialogContent>
           </Dialog>
+          )}
         </div>
 
         {/* Category filter */}
