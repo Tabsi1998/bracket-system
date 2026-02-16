@@ -107,6 +107,10 @@ Usage: ./update.sh [options]
 Options:
   --force           update auch bei lokalen Änderungen an getrackten Dateien
   --branch <name>   expliziter Git-Branch (Standard: aktueller Branch)
+  --admin-reset     Admin-Konto zurücksetzen/neu anlegen (CLI)
+  --admin-email     E-Mail für Admin-Reset
+  --admin-password  Passwort für Admin-Reset
+  --admin-username  Benutzername für Admin-Reset (optional)
   -h, --help        Hilfe anzeigen
 EOF
 }
@@ -119,6 +123,10 @@ fi
 
 FORCE=0
 BRANCH=""
+ADMIN_RESET=0
+ADMIN_EMAIL_OVERRIDE=""
+ADMIN_PASSWORD_OVERRIDE=""
+ADMIN_USERNAME_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force)
@@ -130,6 +138,25 @@ while [[ $# -gt 0 ]]; do
       BRANCH="$2"
       shift 2
       ;;
+    --admin-reset)
+      ADMIN_RESET=1
+      shift
+      ;;
+    --admin-email)
+      [ $# -ge 2 ] || err "--admin-email benötigt einen Wert"
+      ADMIN_EMAIL_OVERRIDE="$2"
+      shift 2
+      ;;
+    --admin-password)
+      [ $# -ge 2 ] || err "--admin-password benötigt einen Wert"
+      ADMIN_PASSWORD_OVERRIDE="$2"
+      shift 2
+      ;;
+    --admin-username)
+      [ $# -ge 2 ] || err "--admin-username benötigt einen Wert"
+      ADMIN_USERNAME_OVERRIDE="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -139,6 +166,123 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+normalize_email() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e "s/^[[:space:]\"']*//" -e "s/[[:space:]\"']*$//"
+}
+
+run_admin_reset() {
+  local admin_email="$1"
+  local admin_password="$2"
+  local admin_username="$3"
+  local backend_env_file="$SCRIPT_DIR/backend/.env"
+
+  [ -n "$admin_email" ] || err "Admin-Reset: E-Mail fehlt"
+  [ -n "$admin_password" ] || err "Admin-Reset: Passwort fehlt"
+
+  admin_email="$(normalize_email "$admin_email")"
+  if [[ -z "$admin_email" || ! "$admin_email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+    err "Admin-Reset: ungültige E-Mail"
+  fi
+  admin_username="$(printf '%s' "$admin_username" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
+  [ -f "$backend_env_file" ] || err "Admin-Reset: backend/.env nicht gefunden"
+
+  cd "$SCRIPT_DIR/backend"
+  if [ ! -d venv ]; then
+    python3 -m venv venv
+  fi
+  # shellcheck disable=SC1091
+  source venv/bin/activate
+
+  ADMIN_RESET_EMAIL="$admin_email" \
+  ADMIN_RESET_PASSWORD="$admin_password" \
+  ADMIN_RESET_USERNAME="$admin_username" \
+  python - << 'PY'
+import os
+import re
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+import bcrypt
+from dotenv import load_dotenv
+from pymongo import MongoClient
+
+root = Path.cwd()
+load_dotenv(root / ".env")
+
+mongo_url = os.environ.get("MONGO_URL", "").strip()
+db_name = os.environ.get("DB_NAME", "").strip()
+if not mongo_url or not db_name:
+    raise SystemExit("Admin-Reset: MONGO_URL oder DB_NAME fehlt in backend/.env")
+
+admin_email = os.environ["ADMIN_RESET_EMAIL"].strip().lower()
+admin_password = os.environ["ADMIN_RESET_PASSWORD"]
+admin_username = os.environ.get("ADMIN_RESET_USERNAME", "").strip() or (admin_email.split("@")[0] if "@" in admin_email else "admin")
+
+client = MongoClient(mongo_url)
+db = client[db_name]
+
+email_re = {"$regex": r"^\s*" + re.escape(admin_email) + r"\s*$", "$options": "i"}
+username_re = {"$regex": r"^\s*" + re.escape(admin_username) + r"\s*$", "$options": "i"}
+
+now = datetime.now(timezone.utc).isoformat()
+password_hash = bcrypt.hashpw(admin_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+existing = db.users.find_one({"email": email_re})
+if existing:
+    update_doc = {
+        "role": "admin",
+        "email": admin_email,
+        "password_hash": password_hash,
+        "updated_at": now,
+    }
+    if not existing.get("id"):
+        update_doc["id"] = str(uuid.uuid4())
+    if not existing.get("username"):
+        update_doc["username"] = admin_username
+    if not existing.get("avatar_url"):
+        seed = update_doc.get("username", existing.get("username", admin_username))
+        update_doc["avatar_url"] = f"https://api.dicebear.com/7.x/avataaars/svg?seed={seed}"
+
+    db.users.update_one(
+        {"_id": existing["_id"]},
+        {"$set": update_doc, "$unset": {"password": ""}},
+    )
+    print(f"Admin-Reset: bestehender User aktualisiert ({admin_email})")
+else:
+    if db.users.find_one({"username": username_re}):
+        admin_username = f"{admin_username}_{uuid.uuid4().hex[:6]}"
+
+    admin_doc = {
+        "id": str(uuid.uuid4()),
+        "username": admin_username,
+        "email": admin_email,
+        "password_hash": password_hash,
+        "role": "admin",
+        "avatar_url": f"https://api.dicebear.com/7.x/avataaars/svg?seed={admin_username}",
+        "created_at": now,
+    }
+    db.users.insert_one(admin_doc)
+    print(f"Admin-Reset: neuer Admin erstellt ({admin_email})")
+PY
+
+  deactivate
+  cd "$SCRIPT_DIR"
+  log "Admin-Konto per CLI gesetzt: $admin_email"
+}
+
+read_env_default() {
+  local key="$1"
+  local file="$2"
+  local value=""
+  if [ -f "$file" ]; then
+    value="$(grep -E "^${key}=" "$file" | tail -n1 | cut -d'=' -f2- || true)"
+    value="$(printf '%s' "$value" | sed -e "s/^[[:space:]\"']*//" -e "s/[[:space:]\"']*$//")"
+  fi
+  printf '%s' "$value"
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -153,6 +297,10 @@ if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "HEAD" ]; then
   CURRENT_BRANCH="main"
 fi
 log "Branch: $CURRENT_BRANCH"
+
+if [ -n "$ADMIN_EMAIL_OVERRIDE" ] || [ -n "$ADMIN_PASSWORD_OVERRIDE" ] || [ -n "$ADMIN_USERNAME_OVERRIDE" ]; then
+  ADMIN_RESET=1
+fi
 
 TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
 UNTRACKED_CHANGES="$(collect_untracked_changes || true)"
@@ -210,6 +358,54 @@ else
   warn "Setze optional BACKEND_SERVICE_NAME, z. B.: BACKEND_SERVICE_NAME=arena-backend ./update.sh"
 fi
 
+step "Admin Konto (optional)"
+if [ "$ADMIN_RESET" -ne 1 ] && [ -t 0 ]; then
+  read -rp "Admin-Konto zurücksetzen/neu anlegen? [j/N] " admin_choice
+  case "$admin_choice" in
+    j|J|y|Y) ADMIN_RESET=1 ;;
+    *) ADMIN_RESET=0 ;;
+  esac
+fi
+
+if [ "$ADMIN_RESET" -eq 1 ]; then
+  BACKEND_ENV_FILE="$SCRIPT_DIR/backend/.env"
+  default_admin_email="$(read_env_default "ADMIN_EMAIL" "$BACKEND_ENV_FILE")"
+  default_admin_username="$(read_env_default "ADMIN_USERNAME" "$BACKEND_ENV_FILE")"
+
+  [ -n "$default_admin_email" ] || default_admin_email="admin@arena.gg"
+  [ -n "$default_admin_username" ] || default_admin_username="${default_admin_email%%@*}"
+  [ -n "$default_admin_username" ] || default_admin_username="admin"
+
+  admin_email="$ADMIN_EMAIL_OVERRIDE"
+  admin_password="$ADMIN_PASSWORD_OVERRIDE"
+  admin_username="$ADMIN_USERNAME_OVERRIDE"
+
+  if [ -t 0 ]; then
+    read -rp "Admin E-Mail [$default_admin_email]: " input_email
+    if [ -z "$admin_email" ]; then
+      admin_email="${input_email:-$default_admin_email}"
+    fi
+
+    if [ -z "$admin_password" ]; then
+      read -rsp "Admin Passwort (Pflichtfeld): " admin_password
+      echo ""
+    fi
+
+    read -rp "Admin Benutzername [$default_admin_username]: " input_username
+    if [ -z "$admin_username" ]; then
+      admin_username="${input_username:-$default_admin_username}"
+    fi
+  fi
+
+  [ -n "$admin_email" ] || admin_email="$default_admin_email"
+  [ -n "$admin_username" ] || admin_username="$default_admin_username"
+  [ -n "$admin_password" ] || err "Admin-Reset gewählt, aber kein Passwort angegeben"
+
+  run_admin_reset "$admin_email" "$admin_password" "$admin_username"
+else
+  log "Admin-Reset übersprungen"
+fi
+
 step "Frontend aktualisieren"
 [ -d frontend ] || err "frontend/ nicht gefunden"
 cd frontend
@@ -231,16 +427,16 @@ log "Frontend Build aktualisiert"
 step "Nginx reload"
 NGINX_BIN="$(resolve_nginx_binary || true)"
 NGINX_SERVICE_UNIT="$(resolve_nginx_service || true)"
-if [ -n "$NGINX_BIN" ] && [ -n "$NGINX_SERVICE_UNIT" ]; then
-  $SUDO "$NGINX_BIN" -t >/dev/null
+if [ -n "$NGINX_SERVICE_UNIT" ]; then
+  if [ -n "$NGINX_BIN" ]; then
+    $SUDO "$NGINX_BIN" -t >/dev/null
+  else
+    warn "Nginx-Binary nicht gefunden, überspringe nginx -t"
+  fi
   $SUDO systemctl reload "$NGINX_SERVICE_UNIT"
   log "Nginx-Konfiguration geprüft und neu geladen ($NGINX_SERVICE_UNIT)"
 else
-  if [ -z "$NGINX_BIN" ]; then
-    warn "Nginx-Binary nicht gefunden, Reload übersprungen"
-  else
-    warn "Nginx-Service nicht gefunden, Reload übersprungen"
-  fi
+  warn "Nginx-Service nicht gefunden, Reload übersprungen"
 fi
 
 echo ""
