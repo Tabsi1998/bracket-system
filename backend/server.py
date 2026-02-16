@@ -969,7 +969,7 @@ async def create_tournament_comment(request: Request, tournament_id: str, body: 
     await db.comments.insert_one(doc)
     doc.pop("_id", None)
     # Create notifications for tournament participants
-    regs = await db.registrations.find({"tournament_id": tournament_id, "user_id": {"$ne": None, "$ne": user["id"]}}, {"_id": 0}).to_list(200)
+    regs = await db.registrations.find({"tournament_id": tournament_id, "user_id": {"$nin": [None, user["id"]]}}, {"_id": 0}).to_list(200)
     for reg in regs:
         if reg.get("user_id") and reg["user_id"] != user["id"]:
             notif = {
