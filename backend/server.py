@@ -422,8 +422,14 @@ async def seed_admin():
 @api_router.get("/teams")
 async def list_teams(request: Request):
     user = await require_auth(request)
-    teams = await db.teams.find({"$or": [{"owner_id": user["id"]}, {"member_ids": user["id"]}]}, {"_id": 0}).to_list(100)
-    return teams
+    teams = await db.teams.find({"$or": [{"owner_id": user["id"]}, {"member_ids": user["id"]}], "parent_team_id": {"$in": [None, ""]}}, {"_id": 0}).to_list(100)
+    # Strip join_code for non-owners
+    result = []
+    for t in teams:
+        if t.get("owner_id") != user["id"]:
+            t.pop("join_code", None)
+        result.append(t)
+    return result
 
 @api_router.post("/teams")
 async def create_team(request: Request, body: TeamCreate):
@@ -431,8 +437,11 @@ async def create_team(request: Request, body: TeamCreate):
     doc = {
         "id": str(uuid.uuid4()), "name": body.name, "tag": body.tag,
         "owner_id": user["id"], "owner_name": user["username"],
+        "join_code": generate_join_code(),
         "member_ids": [user["id"]],
-        "members": [{"id": user["id"], "username": user["username"], "email": user["email"]}],
+        "leader_ids": [user["id"]],
+        "members": [{"id": user["id"], "username": user["username"], "email": user["email"], "role": "owner"}],
+        "parent_team_id": body.parent_team_id or None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.teams.insert_one(doc)
@@ -440,10 +449,14 @@ async def create_team(request: Request, body: TeamCreate):
     return doc
 
 @api_router.get("/teams/{team_id}")
-async def get_team(team_id: str):
+async def get_team(request: Request, team_id: str):
+    user = await get_current_user(request)
     team = await db.teams.find_one({"id": team_id}, {"_id": 0})
     if not team:
         raise HTTPException(404, "Team nicht gefunden")
+    # Hide join_code for non-owners
+    if not user or team.get("owner_id") != user.get("id"):
+        team.pop("join_code", None)
     return team
 
 @api_router.delete("/teams/{team_id}")
@@ -452,30 +465,96 @@ async def delete_team(request: Request, team_id: str):
     result = await db.teams.delete_one({"id": team_id, "owner_id": user["id"]})
     if result.deleted_count == 0:
         raise HTTPException(404, "Team nicht gefunden")
+    # Also delete sub-teams
+    await db.teams.delete_many({"parent_team_id": team_id})
     return {"status": "deleted"}
+
+@api_router.post("/teams/join")
+async def join_team(request: Request, body: TeamJoinRequest):
+    user = await require_auth(request)
+    team = await db.teams.find_one({"id": body.team_id}, {"_id": 0})
+    if not team:
+        raise HTTPException(404, "Team nicht gefunden")
+    if team.get("join_code") != body.join_code:
+        raise HTTPException(403, "Falscher Beitrittscode")
+    if user["id"] in team.get("member_ids", []):
+        raise HTTPException(400, "Bereits Teammitglied")
+    await db.teams.update_one({"id": body.team_id}, {
+        "$push": {"member_ids": user["id"], "members": {"id": user["id"], "username": user["username"], "email": user["email"], "role": "member"}}
+    })
+    updated = await db.teams.find_one({"id": body.team_id}, {"_id": 0})
+    updated.pop("join_code", None)
+    return updated
+
+@api_router.put("/teams/{team_id}/regenerate-code")
+async def regenerate_join_code(request: Request, team_id: str):
+    user = await require_auth(request)
+    team = await db.teams.find_one({"id": team_id, "owner_id": user["id"]}, {"_id": 0})
+    if not team:
+        raise HTTPException(404, "Team nicht gefunden oder keine Berechtigung")
+    new_code = generate_join_code()
+    await db.teams.update_one({"id": team_id}, {"$set": {"join_code": new_code}})
+    return {"join_code": new_code}
 
 @api_router.post("/teams/{team_id}/members")
 async def add_team_member(request: Request, team_id: str, body: TeamAddMember):
     user = await require_auth(request)
-    team = await db.teams.find_one({"id": team_id, "owner_id": user["id"]}, {"_id": 0})
+    team = await db.teams.find_one({"id": team_id}, {"_id": 0})
     if not team:
         raise HTTPException(404, "Team nicht gefunden")
+    if team.get("owner_id") != user["id"] and user["id"] not in team.get("leader_ids", []):
+        raise HTTPException(403, "Nur Owner oder Leader können Mitglieder hinzufügen")
     member = await db.users.find_one({"email": body.email}, {"_id": 0, "password_hash": 0})
     if not member:
         raise HTTPException(404, "Benutzer nicht gefunden")
     if member["id"] in team.get("member_ids", []):
         raise HTTPException(400, "Bereits Teammitglied")
-    await db.teams.update_one({"id": team_id}, {"$push": {"member_ids": member["id"], "members": {"id": member["id"], "username": member["username"], "email": member["email"]}}})
+    await db.teams.update_one({"id": team_id}, {"$push": {"member_ids": member["id"], "members": {"id": member["id"], "username": member["username"], "email": member["email"], "role": "member"}}})
     return await db.teams.find_one({"id": team_id}, {"_id": 0})
 
 @api_router.delete("/teams/{team_id}/members/{member_id}")
 async def remove_team_member(request: Request, team_id: str, member_id: str):
     user = await require_auth(request)
-    team = await db.teams.find_one({"id": team_id, "owner_id": user["id"]}, {"_id": 0})
+    team = await db.teams.find_one({"id": team_id}, {"_id": 0})
     if not team:
         raise HTTPException(404, "Team nicht gefunden")
-    await db.teams.update_one({"id": team_id}, {"$pull": {"member_ids": member_id, "members": {"id": member_id}}})
+    if team.get("owner_id") != user["id"] and user["id"] not in team.get("leader_ids", []):
+        raise HTTPException(403, "Keine Berechtigung")
+    await db.teams.update_one({"id": team_id}, {"$pull": {"member_ids": member_id, "members": {"id": member_id}, "leader_ids": member_id}})
     return await db.teams.find_one({"id": team_id}, {"_id": 0})
+
+@api_router.put("/teams/{team_id}/leaders/{user_id}")
+async def promote_to_leader(request: Request, team_id: str, user_id: str):
+    user = await require_auth(request)
+    team = await db.teams.find_one({"id": team_id, "owner_id": user["id"]}, {"_id": 0})
+    if not team:
+        raise HTTPException(404, "Nur der Team-Owner kann Leader ernennen")
+    if user_id not in team.get("member_ids", []):
+        raise HTTPException(400, "Benutzer ist kein Teammitglied")
+    if user_id in team.get("leader_ids", []):
+        raise HTTPException(400, "Bereits Leader")
+    await db.teams.update_one({"id": team_id}, {"$push": {"leader_ids": user_id}})
+    await db.teams.update_one({"id": team_id, "members.id": user_id}, {"$set": {"members.$.role": "leader"}})
+    return await db.teams.find_one({"id": team_id}, {"_id": 0})
+
+@api_router.delete("/teams/{team_id}/leaders/{user_id}")
+async def demote_leader(request: Request, team_id: str, user_id: str):
+    user = await require_auth(request)
+    team = await db.teams.find_one({"id": team_id, "owner_id": user["id"]}, {"_id": 0})
+    if not team:
+        raise HTTPException(404, "Nur der Team-Owner kann Leader entfernen")
+    await db.teams.update_one({"id": team_id}, {"$pull": {"leader_ids": user_id}})
+    await db.teams.update_one({"id": team_id, "members.id": user_id}, {"$set": {"members.$.role": "member"}})
+    return await db.teams.find_one({"id": team_id}, {"_id": 0})
+
+@api_router.get("/teams/{team_id}/sub-teams")
+async def list_sub_teams(request: Request, team_id: str):
+    user = await require_auth(request)
+    subs = await db.teams.find({"parent_team_id": team_id}, {"_id": 0}).to_list(50)
+    for s in subs:
+        if s.get("owner_id") != user["id"]:
+            s.pop("join_code", None)
+    return subs
 
 # ─── Game Endpoints ───
 
