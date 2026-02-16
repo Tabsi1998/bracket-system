@@ -24,6 +24,7 @@ const statusLabels = {
 };
 
 export default function HomePage() {
+  const { isAdmin } = useAuth();
   const [tournaments, setTournaments] = useState([]);
   const [stats, setStats] = useState({});
 
