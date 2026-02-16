@@ -1192,6 +1192,58 @@ async def stripe_webhook(request: Request):
         logger.error(f"Webhook error: {e}")
         return {"status": "error"}
 
+# ─── Profile Endpoint ───
+
+@api_router.get("/users/{user_id}/profile")
+async def get_user_profile(user_id: str):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(404, "Benutzer nicht gefunden")
+    teams = await db.teams.find({"member_ids": user_id, "parent_team_id": {"$in": [None, ""]}}, {"_id": 0, "join_code": 0}).to_list(50)
+    regs = await db.registrations.find({"user_id": user_id}, {"_id": 0}).to_list(100)
+    tournament_ids = list(set(r["tournament_id"] for r in regs))
+    tournaments = []
+    for tid in tournament_ids[:20]:
+        t = await db.tournaments.find_one({"id": tid}, {"_id": 0, "bracket": 0})
+        if t:
+            tournaments.append(t)
+    wins = 0
+    losses = 0
+    for reg in regs:
+        t = await db.tournaments.find_one({"id": reg["tournament_id"]}, {"_id": 0})
+        if t and t.get("bracket"):
+            all_matches = []
+            b = t["bracket"]
+            if b["type"] in ("single_elimination", "round_robin"):
+                for rd in b.get("rounds", []):
+                    all_matches.extend(rd["matches"])
+            elif b["type"] == "double_elimination":
+                for rd in b.get("winners_bracket", {}).get("rounds", []):
+                    all_matches.extend(rd["matches"])
+            for m in all_matches:
+                if m.get("status") == "completed":
+                    if m.get("team1_id") == reg["id"] or m.get("team2_id") == reg["id"]:
+                        if m.get("winner_id") == reg["id"]:
+                            wins += 1
+                        else:
+                            losses += 1
+    return {
+        **user,
+        "teams": teams,
+        "tournaments": tournaments,
+        "stats": {"tournaments_played": len(regs), "wins": wins, "losses": losses},
+    }
+
+# ─── Widget Endpoint ───
+
+@api_router.get("/widget/tournament/{tournament_id}")
+async def get_widget_data(tournament_id: str):
+    t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Tournament not found")
+    regs = await db.registrations.find({"tournament_id": tournament_id}, {"_id": 0}).to_list(200)
+    return {"tournament": t, "registrations": regs, "embed_version": "1.0"}
+
 # ─── Comment Endpoints ───
 
 @api_router.get("/tournaments/{tournament_id}/comments")
