@@ -107,6 +107,7 @@ export default function GamesPage() {
             </h1>
             <p className="text-sm text-zinc-500 mt-1">{games.length} Spiele in der Datenbank</p>
           </div>
+          {isAdmin && (
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
               <Button data-testid="add-game-btn" className="bg-yellow-500 text-black hover:bg-yellow-400 font-semibold gap-2 active:scale-95 transition-transform">
