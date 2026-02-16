@@ -567,7 +567,8 @@ async def list_games(category: Optional[str] = None):
     return games
 
 @api_router.post("/games")
-async def create_game(body: GameCreate):
+async def create_game(request: Request, body: GameCreate):
+    await require_admin(request)
     doc = {
         "id": str(uuid.uuid4()),
         "is_custom": True,
