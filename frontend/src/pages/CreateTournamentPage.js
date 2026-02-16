@@ -52,6 +52,12 @@ export default function CreateTournamentPage() {
     swiss_rounds: 5,
     battle_royale_group_size: 4,
     battle_royale_advance: 2,
+    matchday_interval_days: 7,
+    matchday_window_days: 7,
+    points_win: 3,
+    points_draw: 1,
+    points_loss: 0,
+    tiebreakers: "points,score_diff,score_for,team_name",
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -80,9 +86,19 @@ export default function CreateTournamentPage() {
     if (!form.game_mode) { toast.error("Bitte wähle einen Spielmodus"); return; }
     setSubmitting(true);
     try {
+      const parsedTieBreakers = String(form.tiebreakers || "")
+        .split(",")
+        .map((x) => x.trim().toLowerCase())
+        .filter(Boolean);
       const payload = {
         ...form,
         team_size: form.participant_mode === "solo" ? 1 : form.team_size,
+        matchday_interval_days: Math.max(1, parseInt(form.matchday_interval_days, 10) || 7),
+        matchday_window_days: Math.max(1, parseInt(form.matchday_window_days, 10) || 7),
+        points_win: Math.max(0, parseInt(form.points_win, 10) || 0),
+        points_draw: Math.max(0, parseInt(form.points_draw, 10) || 0),
+        points_loss: Math.max(0, parseInt(form.points_loss, 10) || 0),
+        tiebreakers: parsedTieBreakers.length > 0 ? parsedTieBreakers : ["points", "score_diff", "score_for", "team_name"],
         require_admin_score_approval:
           form.bracket_type === "battle_royale" ? true : form.require_admin_score_approval,
       };
@@ -343,7 +359,80 @@ export default function CreateTournamentPage() {
                     className="bg-zinc-900 border-white/10 text-white mt-1"
                   />
                 </div>
+                {["league", "round_robin", "group_stage", "group_playoffs"].includes(form.bracket_type) && (
+                  <>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Spieltag-Intervall (Tage)</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={form.matchday_interval_days}
+                        onChange={e => setForm({ ...form, matchday_interval_days: parseInt(e.target.value, 10) || 7 })}
+                        className="bg-zinc-900 border-white/10 text-white mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Spieltag-Fenster (Tage)</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={form.matchday_window_days}
+                        onChange={e => setForm({ ...form, matchday_window_days: parseInt(e.target.value, 10) || 7 })}
+                        className="bg-zinc-900 border-white/10 text-white mt-1"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
+              {["league", "round_robin", "group_stage", "group_playoffs", "swiss_system", "ladder_system", "king_of_the_hill", "battle_royale"].includes(form.bracket_type) && (
+                <div className="border-t border-white/5 pt-4">
+                  <h3 className="text-sm text-zinc-300 font-semibold mb-3">Punktesystem & Tie-Break</h3>
+                  <div className="grid sm:grid-cols-4 gap-4">
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Punkte Sieg</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={form.points_win}
+                        onChange={e => setForm({ ...form, points_win: parseInt(e.target.value, 10) || 0 })}
+                        className="bg-zinc-900 border-white/10 text-white mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Punkte Unentschieden</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={form.points_draw}
+                        onChange={e => setForm({ ...form, points_draw: parseInt(e.target.value, 10) || 0 })}
+                        className="bg-zinc-900 border-white/10 text-white mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Punkte Niederlage</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={form.points_loss}
+                        onChange={e => setForm({ ...form, points_loss: parseInt(e.target.value, 10) || 0 })}
+                        className="bg-zinc-900 border-white/10 text-white mt-1"
+                      />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <Label className="text-zinc-400 text-sm">Tie-Break Reihenfolge</Label>
+                      <Input
+                        value={form.tiebreakers}
+                        onChange={e => setForm({ ...form, tiebreakers: e.target.value })}
+                        placeholder="points,score_diff,score_for,team_name"
+                        className="bg-zinc-900 border-white/10 text-white mt-1"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-zinc-600 mt-2">
+                    Erlaubte Werte: points, score_diff, score_for, wins, draws, losses, played, team_name
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Pricing */}

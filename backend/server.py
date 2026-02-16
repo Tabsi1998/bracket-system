@@ -41,6 +41,7 @@ class GameMode(BaseModel):
     name: str
     team_size: int
     description: str = ""
+    settings_template: Dict[str, Any] = Field(default_factory=dict)
 
 class GameCreate(BaseModel):
     name: str
@@ -74,6 +75,12 @@ class TournamentCreate(BaseModel):
     battle_royale_group_size: int = 4
     battle_royale_advance: int = 2
     default_match_time: str = ""
+    matchday_interval_days: int = 7
+    matchday_window_days: int = 7
+    points_win: int = 3
+    points_draw: int = 1
+    points_loss: int = 0
+    tiebreakers: List[str] = Field(default_factory=lambda: ["points", "score_diff", "score_for", "team_name"])
 
 class TournamentUpdate(BaseModel):
     name: Optional[str] = None
@@ -92,6 +99,12 @@ class TournamentUpdate(BaseModel):
     swiss_rounds: Optional[int] = None
     battle_royale_group_size: Optional[int] = None
     battle_royale_advance: Optional[int] = None
+    matchday_interval_days: Optional[int] = None
+    matchday_window_days: Optional[int] = None
+    points_win: Optional[int] = None
+    points_draw: Optional[int] = None
+    points_loss: Optional[int] = None
+    tiebreakers: Optional[List[str]] = None
 
 class RegistrationCreate(BaseModel):
     team_name: str = ""
@@ -175,6 +188,17 @@ class AdminEmailTest(BaseModel):
 class BattleRoyaleResultSubmission(BaseModel):
     placements: List[str]
 
+class MatchSetupSubmission(BaseModel):
+    settings: Dict[str, Any] = Field(default_factory=dict)
+    note: str = ""
+
+class MatchSetupResolve(BaseModel):
+    settings: Dict[str, Any] = Field(default_factory=dict)
+    note: str = ""
+
+class AdminPayPalValidateRequest(BaseModel):
+    force_live: bool = True
+
 class UserAccountUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
@@ -224,8 +248,167 @@ TEAM_PROFILE_FIELDS = (
     "youtube_url",
 )
 
+DEFAULT_TIEBREAKERS = ["points", "score_diff", "score_for", "team_name"]
+ALLOWED_TIEBREAKERS = {
+    "points",
+    "score_diff",
+    "score_for",
+    "wins",
+    "draws",
+    "losses",
+    "played",
+    "team_name",
+}
+
+CATEGORY_SETTINGS_TEMPLATE_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "fps": {
+        "maps": [],
+        "map_order": "veto",
+        "region": "",
+        "platform": "",
+        "server_notes": "",
+        "ruleset": "",
+    },
+    "sports": {
+        "home_away": True,
+        "platform": "",
+        "match_rules": "",
+    },
+    "fighting": {
+        "stage_rules": "",
+        "character_rules": "",
+        "bo_default": 3,
+    },
+    "racing": {
+        "tracks": [],
+        "race_count": 3,
+        "points_table": "",
+    },
+    "moba": {
+        "server": "",
+        "patch": "",
+        "side_choice": "coin_toss",
+    },
+    "strategy": {
+        "server": "",
+        "patch": "",
+        "map_pool": [],
+        "side_choice": "coin_toss",
+    },
+    "battle_royale": {
+        "lobby_settings": "",
+        "scoring_rules": "",
+        "admin_review_required": True,
+    },
+    "other": {
+        "ruleset": "",
+        "notes": "",
+    },
+}
+
+GAME_SETTINGS_TEMPLATE_OVERRIDES: Dict[str, Dict[str, Any]] = {
+    "call of duty": {
+        "maps": [],
+        "map_order": "veto",
+        "modes": ["S&D", "Hardpoint", "Control"],
+        "veto_format": "A-B-B-A",
+        "platform_crossplay_required": True,
+    },
+    "ea fc (fifa)": {
+        "home_away": True,
+        "halves_minutes": 6,
+        "injuries": False,
+        "extra_time": True,
+        "penalties": True,
+    },
+    "mario kart": {
+        "tracks": [],
+        "race_count": 8,
+        "items": "standard",
+        "cpu": "none",
+    },
+}
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+def deep_clone_template(value: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return json.loads(json.dumps(value or {}))
+    except Exception:
+        return {}
+
+def normalize_tiebreakers(values: Optional[List[str]]) -> List[str]:
+    if not values:
+        return list(DEFAULT_TIEBREAKERS)
+    out: List[str] = []
+    for item in values:
+        key = str(item or "").strip().lower()
+        if key and key in ALLOWED_TIEBREAKERS and key not in out:
+            out.append(key)
+    return out or list(DEFAULT_TIEBREAKERS)
+
+def parse_int_or_default(value: Any, default: int) -> int:
+    if value is None:
+        return int(default)
+    try:
+        text = str(value).strip()
+        if text == "":
+            return int(default)
+        return int(text)
+    except Exception:
+        return int(default)
+
+def get_tournament_scoring_config(tournament: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "points_win": max(0, parse_int_or_default(tournament.get("points_win"), 3)),
+        "points_draw": max(0, parse_int_or_default(tournament.get("points_draw"), 1)),
+        "points_loss": max(0, parse_int_or_default(tournament.get("points_loss"), 0)),
+        "tiebreakers": normalize_tiebreakers(tournament.get("tiebreakers")),
+    }
+
+def get_tournament_matchday_config(tournament: Dict[str, Any]) -> Dict[str, int]:
+    return {
+        "interval_days": max(1, parse_int_or_default(tournament.get("matchday_interval_days"), 7)),
+        "window_days": max(1, parse_int_or_default(tournament.get("matchday_window_days"), 7)),
+    }
+
+def hydrate_tournament_defaults(tournament: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(tournament, dict):
+        return tournament
+    tournament["matchday_interval_days"] = max(1, parse_int_or_default(tournament.get("matchday_interval_days"), 7))
+    tournament["matchday_window_days"] = max(1, parse_int_or_default(tournament.get("matchday_window_days"), 7))
+    tournament["points_win"] = max(0, parse_int_or_default(tournament.get("points_win"), 3))
+    tournament["points_draw"] = max(0, parse_int_or_default(tournament.get("points_draw"), 1))
+    tournament["points_loss"] = max(0, parse_int_or_default(tournament.get("points_loss"), 0))
+    tournament["tiebreakers"] = normalize_tiebreakers(tournament.get("tiebreakers"))
+    return tournament
+
+def build_game_settings_template(category: str, game_name: str) -> Dict[str, Any]:
+    category_key = str(category or "other").strip().lower() or "other"
+    game_key = str(game_name or "").strip().lower()
+
+    base = deep_clone_template(CATEGORY_SETTINGS_TEMPLATE_DEFAULTS.get(category_key, CATEGORY_SETTINGS_TEMPLATE_DEFAULTS["other"]))
+    override = deep_clone_template(GAME_SETTINGS_TEMPLATE_OVERRIDES.get(game_key, {}))
+    base.update(override)
+    return base
+
+def apply_mode_templates_to_game(game_doc: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
+    if not isinstance(game_doc, dict):
+        return game_doc, False
+    changed = False
+    modes_out = []
+    category = str(game_doc.get("category", "other") or "other")
+    game_name = str(game_doc.get("name", "") or "")
+    for mode in game_doc.get("modes", []) or []:
+        mode_doc = dict(mode or {})
+        if not isinstance(mode_doc.get("settings_template"), dict) or not mode_doc.get("settings_template"):
+            mode_doc["settings_template"] = build_game_settings_template(category, game_name)
+            changed = True
+        modes_out.append(mode_doc)
+    if modes_out != (game_doc.get("modes") or []):
+        game_doc["modes"] = modes_out
+    return game_doc, changed
 
 def normalize_bracket_type(value: str) -> str:
     bracket_type = str(value or "").strip().lower()
@@ -598,6 +781,74 @@ async def get_paypal_base_url() -> str:
         return "https://api-m.paypal.com"
     return "https://api-m.sandbox.paypal.com"
 
+async def save_admin_setting_value(key: str, value: str) -> None:
+    await db.admin_settings.update_one(
+        {"key": key},
+        {"$set": {"key": key, "value": value, "updated_at": now_iso()}},
+        upsert=True,
+    )
+
+async def validate_paypal_configuration(force_live: bool = True, persist_result: bool = True) -> Dict[str, Any]:
+    client_id = await get_paypal_client_id()
+    secret = await get_paypal_secret()
+    base_url = await get_paypal_base_url()
+    mode = "live" if "api-m.paypal.com" in base_url and "sandbox" not in base_url else "sandbox"
+    result = {
+        "configured": bool(client_id and secret),
+        "valid": False,
+        "mode": mode,
+        "base_url": base_url,
+        "checked_at": now_iso(),
+        "detail": "",
+    }
+
+    if not client_id or not secret:
+        result["detail"] = "PayPal Credentials fehlen (Client ID / Secret)."
+    else:
+        try:
+            if force_live:
+                await get_paypal_access_token()
+            result["valid"] = True
+            result["detail"] = "PayPal Credentials sind gültig."
+        except HTTPException as e:
+            result["detail"] = str(e.detail or "PayPal Validierung fehlgeschlagen")
+        except Exception as e:
+            result["detail"] = f"PayPal Validierung fehlgeschlagen: {e}"
+
+    if persist_result:
+        await save_admin_setting_value("paypal_last_validation_status", "valid" if result["valid"] else "invalid")
+        await save_admin_setting_value("paypal_last_validation_detail", result["detail"])
+        await save_admin_setting_value("paypal_last_validation_mode", result["mode"])
+        await save_admin_setting_value("paypal_last_validation_checked_at", result["checked_at"])
+    return result
+
+async def get_payment_provider_status(force_paypal_check: bool = False) -> Dict[str, Any]:
+    stripe_key = await get_stripe_api_key()
+    paypal_client_id = await get_paypal_client_id()
+    paypal_secret = await get_paypal_secret()
+    paypal_base_url = await get_paypal_base_url()
+    paypal_mode = "live" if "api-m.paypal.com" in paypal_base_url and "sandbox" not in paypal_base_url else "sandbox"
+    paypal_status = {
+        "configured": bool(paypal_client_id and paypal_secret),
+        "mode": paypal_mode,
+        "valid": False,
+        "last_status": await get_admin_setting_value("paypal_last_validation_status", ""),
+        "last_detail": await get_admin_setting_value("paypal_last_validation_detail", ""),
+        "last_checked_at": await get_admin_setting_value("paypal_last_validation_checked_at", ""),
+    }
+    if force_paypal_check and paypal_status["configured"]:
+        live = await validate_paypal_configuration(force_live=True, persist_result=True)
+        paypal_status["valid"] = bool(live.get("valid"))
+        paypal_status["last_status"] = "valid" if live.get("valid") else "invalid"
+        paypal_status["last_detail"] = str(live.get("detail", "") or "")
+        paypal_status["last_checked_at"] = str(live.get("checked_at", "") or "")
+    else:
+        paypal_status["valid"] = str(paypal_status["last_status"]).lower() == "valid"
+    return {
+        "stripe": {"configured": bool(stripe_key)},
+        "paypal": paypal_status,
+    }
+
 async def paypal_api_request(
     method: str,
     path: str,
@@ -635,7 +886,15 @@ async def paypal_api_request(
         detail = "PayPal API Fehler"
         try:
             parsed = json.loads(body or "{}")
-            detail = str((parsed.get("message") or detail)).strip() or detail
+            err_code = str((parsed or {}).get("error", "") or "").strip()
+            err_message = str((parsed or {}).get("message", "") or "").strip()
+            err_description = str((parsed or {}).get("error_description", "") or "").strip()
+            if err_code == "invalid_client":
+                detail = "PayPal Credentials ungültig oder Sandbox/Live Modus passt nicht."
+            elif err_message:
+                detail = err_message
+            if err_description:
+                detail = f"{detail} ({err_description})"
         except Exception:
             pass
         raise HTTPException(400, detail)
@@ -885,11 +1144,12 @@ async def seed_games():
     count = await db.games.count_documents({})
     if count == 0:
         for game_data in SEED_GAMES:
+            game_payload, _ = apply_mode_templates_to_game(dict(game_data))
             doc = {
                 "id": str(uuid.uuid4()),
                 "is_custom": False,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                **game_data,
+                **game_payload,
             }
             await db.games.insert_one(doc)
         logger.info(f"Seeded {len(SEED_GAMES)} games")
@@ -1508,16 +1768,22 @@ async def list_games(category: Optional[str] = None):
     if category:
         query["category"] = category
     games = await db.games.find(query, {"_id": 0}).to_list(100)
+    for game in games:
+        patched, changed = apply_mode_templates_to_game(game)
+        if changed:
+            await db.games.update_one({"id": game.get("id")}, {"$set": {"modes": patched.get("modes", []), "updated_at": now_iso()}})
     return games
 
 @api_router.post("/games")
 async def create_game(request: Request, body: GameCreate):
     await require_admin(request)
+    payload = body.model_dump()
+    payload, _ = apply_mode_templates_to_game(payload)
     doc = {
         "id": str(uuid.uuid4()),
         "is_custom": True,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        **body.model_dump(),
+        **payload,
     }
     await db.games.insert_one(doc)
     doc.pop("_id", None)
@@ -1528,12 +1794,18 @@ async def get_game(game_id: str):
     game = await db.games.find_one({"id": game_id}, {"_id": 0})
     if not game:
         raise HTTPException(404, "Game not found")
+    game, changed = apply_mode_templates_to_game(game)
+    if changed:
+        await db.games.update_one({"id": game_id}, {"$set": {"modes": game.get("modes", []), "updated_at": now_iso()}})
     return game
 
 @api_router.put("/games/{game_id}")
 async def update_game(request: Request, game_id: str, body: GameCreate):
     await require_admin(request)
-    result = await db.games.update_one({"id": game_id}, {"$set": body.model_dump()})
+    payload = body.model_dump()
+    payload, _ = apply_mode_templates_to_game(payload)
+    payload["updated_at"] = now_iso()
+    result = await db.games.update_one({"id": game_id}, {"$set": payload})
     if result.matched_count == 0:
         raise HTTPException(404, "Game not found")
     game = await db.games.find_one({"id": game_id}, {"_id": 0})
@@ -1566,6 +1838,7 @@ async def list_tournaments(status: Optional[str] = None, game_id: Optional[str] 
         ]).to_list(200)
         reg_counts = {g["_id"]: g["count"] for g in grouped}
     for t in tournaments:
+        hydrate_tournament_defaults(t)
         t["registered_count"] = reg_counts.get(t["id"], 0)
     return tournaments
 
@@ -1602,6 +1875,12 @@ async def create_tournament(request: Request, body: TournamentCreate):
         "swiss_rounds": max(1, int(body.swiss_rounds or 5)),
         "battle_royale_group_size": max(2, int(body.battle_royale_group_size or body.group_size or 4)),
         "battle_royale_advance": max(1, int(body.battle_royale_advance or body.advance_per_group or 2)),
+        "matchday_interval_days": max(1, int(body.matchday_interval_days or 7)),
+        "matchday_window_days": max(1, int(body.matchday_window_days or 7)),
+        "points_win": max(0, int(body.points_win if body.points_win is not None else 3)),
+        "points_draw": max(0, int(body.points_draw if body.points_draw is not None else 1)),
+        "points_loss": max(0, int(body.points_loss if body.points_loss is not None else 0)),
+        "tiebreakers": normalize_tiebreakers(body.tiebreakers),
         "game_name": game["name"],
     }
     await db.tournaments.insert_one(doc)
@@ -1613,6 +1892,7 @@ async def get_tournament(tournament_id: str):
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Tournament not found")
+    hydrate_tournament_defaults(t)
     reg_count = await db.registrations.count_documents({"tournament_id": tournament_id})
     t["registered_count"] = reg_count
     return t
@@ -1639,6 +1919,18 @@ async def update_tournament(request: Request, tournament_id: str, body: Tourname
         update_data["battle_royale_group_size"] = max(2, int(update_data["battle_royale_group_size"] or 4))
     if "battle_royale_advance" in update_data:
         update_data["battle_royale_advance"] = max(1, int(update_data["battle_royale_advance"] or 2))
+    if "matchday_interval_days" in update_data:
+        update_data["matchday_interval_days"] = max(1, int(update_data["matchday_interval_days"] or 7))
+    if "matchday_window_days" in update_data:
+        update_data["matchday_window_days"] = max(1, int(update_data["matchday_window_days"] or 7))
+    if "points_win" in update_data:
+        update_data["points_win"] = max(0, int(update_data["points_win"] or 0))
+    if "points_draw" in update_data:
+        update_data["points_draw"] = max(0, int(update_data["points_draw"] or 0))
+    if "points_loss" in update_data:
+        update_data["points_loss"] = max(0, int(update_data["points_loss"] or 0))
+    if "tiebreakers" in update_data:
+        update_data["tiebreakers"] = normalize_tiebreakers(update_data["tiebreakers"])
 
     if update_data.get("participant_mode") == "solo":
         update_data["team_size"] = 1
@@ -1704,6 +1996,24 @@ async def list_registrations(request: Request, tournament_id: str):
 
     is_admin = bool(user and user.get("role") == "admin")
     return [sanitize_registration(r, include_private=is_admin, include_player_emails=is_admin) for r in regs]
+
+@api_router.get("/tournaments/{tournament_id}/my-registrations")
+async def list_my_registrations(request: Request, tournament_id: str):
+    user = await require_auth(request)
+    tournament = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0, "id": 1, "entry_fee": 1, "currency": 1})
+    if not tournament:
+        raise HTTPException(404, "Tournament not found")
+
+    regs = await db.registrations.find({"tournament_id": tournament_id, "user_id": user["id"]}, {"_id": 0}).to_list(200)
+    payload = []
+    for reg in regs:
+        row = sanitize_registration(reg, include_private=True, include_player_emails=False)
+        payment_status = str(reg.get("payment_status", "free") or "free").strip().lower()
+        row["entry_fee"] = float(tournament.get("entry_fee", 0) or 0)
+        row["currency"] = str(tournament.get("currency", "usd") or "usd").lower()
+        row["can_retry_payment"] = row["entry_fee"] > 0 and payment_status != "paid"
+        payload.append(row)
+    return payload
 
 @api_router.post("/tournaments/{tournament_id}/register")
 async def register_for_tournament(request: Request, tournament_id: str, body: RegistrationCreate):
@@ -1810,7 +2120,20 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
 
 @api_router.get("/tournaments/{tournament_id}/standings")
 async def get_tournament_standings(tournament_id: str):
-    tournament = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0, "id": 1, "bracket": 1, "bracket_type": 1, "updated_at": 1})
+    tournament = await db.tournaments.find_one(
+        {"id": tournament_id},
+        {
+            "_id": 0,
+            "id": 1,
+            "bracket": 1,
+            "bracket_type": 1,
+            "updated_at": 1,
+            "points_win": 1,
+            "points_draw": 1,
+            "points_loss": 1,
+            "tiebreakers": 1,
+        },
+    )
     if not tournament:
         raise HTTPException(404, "Tournament not found")
     bracket = tournament.get("bracket")
@@ -1823,12 +2146,26 @@ async def get_tournament_standings(tournament_id: str):
     if team_ids:
         teams = await db.teams.find({"id": {"$in": team_ids}}, {"_id": 0, "id": 1, "tag": 1, "logo_url": 1}).to_list(800)
     team_map = {t.get("id"): t for t in teams}
+    scoring = get_tournament_scoring_config(tournament)
 
     bracket_type = bracket.get("type", tournament.get("bracket_type", "single_elimination"))
     if bracket_type in ("round_robin", "league", "ladder_system", "king_of_the_hill"):
         matches = [m for rd in bracket.get("rounds", []) for m in rd.get("matches", [])]
-        standings = compute_standings_for_registrations(regs, matches, team_map)
-        return {"type": bracket_type, "standings": standings, "updated_at": tournament.get("updated_at")}
+        standings = compute_standings_for_registrations(
+            regs,
+            matches,
+            team_map,
+            points_win=scoring["points_win"],
+            points_draw=scoring["points_draw"],
+            points_loss=scoring["points_loss"],
+            tiebreakers=scoring["tiebreakers"],
+        )
+        return {
+            "type": bracket_type,
+            "standings": standings,
+            "updated_at": tournament.get("updated_at"),
+            "scoring": scoring,
+        }
 
     if bracket_type == "swiss_system":
         swiss_table = compute_swiss_points(regs, bracket.get("rounds", []))
@@ -1870,9 +2207,17 @@ async def get_tournament_standings(tournament_id: str):
                 if match.get("team2_id"):
                     group_reg_ids.add(str(match.get("team2_id")))
             group_regs = [reg_map[rid] for rid in group_reg_ids if rid in reg_map]
-            standings = compute_standings_for_registrations(group_regs, matches, team_map)
+            standings = compute_standings_for_registrations(
+                group_regs,
+                matches,
+                team_map,
+                points_win=scoring["points_win"],
+                points_draw=scoring["points_draw"],
+                points_loss=scoring["points_loss"],
+                tiebreakers=scoring["tiebreakers"],
+            )
             groups_payload.append({"id": group.get("id"), "name": group.get("name", ""), "standings": standings})
-        return {"type": bracket_type, "groups": groups_payload, "updated_at": tournament.get("updated_at")}
+        return {"type": bracket_type, "groups": groups_payload, "updated_at": tournament.get("updated_at"), "scoring": scoring}
 
     if bracket_type == "group_playoffs":
         reg_map = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
@@ -1886,7 +2231,15 @@ async def get_tournament_standings(tournament_id: str):
                 if match.get("team2_id"):
                     group_reg_ids.add(str(match.get("team2_id")))
             group_regs = [reg_map[rid] for rid in group_reg_ids if rid in reg_map]
-            standings = compute_standings_for_registrations(group_regs, matches, team_map)
+            standings = compute_standings_for_registrations(
+                group_regs,
+                matches,
+                team_map,
+                points_win=scoring["points_win"],
+                points_draw=scoring["points_draw"],
+                points_loss=scoring["points_loss"],
+                tiebreakers=scoring["tiebreakers"],
+            )
             groups_payload.append({"id": group.get("id"), "name": group.get("name", ""), "standings": standings})
         playoffs = bracket.get("playoffs") or {}
         return {
@@ -1895,6 +2248,7 @@ async def get_tournament_standings(tournament_id: str):
             "playoffs_generated": bool(bracket.get("playoffs_generated")),
             "playoffs": {"total_rounds": playoffs.get("total_rounds", 0)},
             "updated_at": tournament.get("updated_at"),
+            "scoring": scoring,
         }
 
     if bracket_type == "battle_royale":
@@ -1942,6 +2296,141 @@ async def get_tournament_standings(tournament_id: str):
 
     raise HTTPException(400, "Für diesen Bracket-Typ ist keine Tabelle verfügbar")
 
+def summarize_matchday(matches: List[Dict[str, Any]]) -> Dict[str, Any]:
+    total = len(matches)
+    completed = sum(1 for m in matches if str(m.get("status", "")).strip().lower() == "completed")
+    disputed = sum(
+        1
+        for m in matches
+        if str(m.get("status", "")).strip().lower() in {"disputed", "pending_admin_approval"}
+    )
+    scheduled = sum(1 for m in matches if str(m.get("scheduled_for", "")).strip())
+    if total and completed == total:
+        status = "completed"
+    elif completed > 0:
+        status = "in_progress"
+    else:
+        status = "pending"
+    return {
+        "status": status,
+        "total_matches": total,
+        "completed_matches": completed,
+        "disputed_matches": disputed,
+        "scheduled_matches": scheduled,
+    }
+
+def build_tournament_matchdays(tournament: Dict[str, Any]) -> List[Dict[str, Any]]:
+    bracket = (tournament or {}).get("bracket") or {}
+    bracket_type = str((bracket or {}).get("type", "")).strip().lower()
+    if bracket_type not in {"round_robin", "league", "group_stage", "group_playoffs"}:
+        return []
+
+    matchday_map: Dict[int, Dict[str, Any]] = {}
+    matchday_cfg = get_tournament_matchday_config(tournament or {})
+    start_dt = parse_optional_datetime(str((tournament or {}).get("start_date", "") or ""))
+
+    def ensure_matchday(day_index: int) -> Dict[str, Any]:
+        day_key = max(1, int(day_index or 1))
+        if day_key not in matchday_map:
+            window_start = ""
+            window_end = ""
+            if start_dt:
+                day_start = start_dt + timedelta(days=matchday_cfg["interval_days"] * (day_key - 1))
+                day_end = day_start + timedelta(days=matchday_cfg["window_days"])
+                window_start = day_start.isoformat()
+                window_end = day_end.isoformat()
+            matchday_map[day_key] = {
+                "matchday": day_key,
+                "name": f"Spieltag {day_key}",
+                "window_start": window_start,
+                "window_end": window_end,
+                "matches": [],
+            }
+        return matchday_map[day_key]
+
+    def append_round_matches(round_doc: Dict[str, Any], group_doc: Optional[Dict[str, Any]] = None):
+        round_index = int(round_doc.get("round") or round_doc.get("matchday") or 1)
+        matchday_index = int(round_doc.get("matchday") or round_index or 1)
+        target = ensure_matchday(matchday_index)
+        target["name"] = str(round_doc.get("name", f"Spieltag {matchday_index}") or f"Spieltag {matchday_index}")
+        if round_doc.get("window_start"):
+            target["window_start"] = str(round_doc.get("window_start", "") or "")
+        if round_doc.get("window_end"):
+            target["window_end"] = str(round_doc.get("window_end", "") or "")
+        for match in round_doc.get("matches", []) or []:
+            item = {
+                "id": match.get("id"),
+                "round": match.get("round", round_index),
+                "matchday": int(match.get("matchday") or matchday_index),
+                "position": int(match.get("position", 0) or 0),
+                "team1_id": match.get("team1_id"),
+                "team1_name": match.get("team1_name", ""),
+                "team1_logo_url": match.get("team1_logo_url", ""),
+                "team1_tag": match.get("team1_tag", ""),
+                "team2_id": match.get("team2_id"),
+                "team2_name": match.get("team2_name", ""),
+                "team2_logo_url": match.get("team2_logo_url", ""),
+                "team2_tag": match.get("team2_tag", ""),
+                "score1": int(match.get("score1", 0) or 0),
+                "score2": int(match.get("score2", 0) or 0),
+                "winner_id": match.get("winner_id"),
+                "status": str(match.get("status", "pending") or "pending"),
+                "scheduled_for": str(match.get("scheduled_for", "") or ""),
+            }
+            if group_doc:
+                item["group_id"] = group_doc.get("id")
+                item["group_name"] = group_doc.get("name", "")
+            target["matches"].append(item)
+
+    if bracket_type in {"round_robin", "league"}:
+        for round_doc in (bracket.get("rounds", []) or []):
+            append_round_matches(round_doc)
+    elif bracket_type in {"group_stage", "group_playoffs"}:
+        for group_doc in (bracket.get("groups", []) or []):
+            for round_doc in (group_doc.get("rounds", []) or []):
+                append_round_matches(round_doc, group_doc=group_doc)
+        if bracket_type == "group_playoffs":
+            playoffs = (bracket.get("playoffs") or {}).get("rounds", []) or []
+            for round_doc in playoffs:
+                append_round_matches(round_doc, group_doc={"id": "playoffs", "name": "Playoffs"})
+
+    result = []
+    for day in sorted(matchday_map):
+        doc = matchday_map[day]
+        doc["matches"].sort(key=lambda x: (int(x.get("position", 0) or 0), str(x.get("id", ""))))
+        doc.update(summarize_matchday(doc["matches"]))
+        result.append(doc)
+    return result
+
+@api_router.get("/tournaments/{tournament_id}/matchdays")
+async def get_tournament_matchdays(tournament_id: str):
+    tournament = await db.tournaments.find_one(
+        {"id": tournament_id},
+        {
+            "_id": 0,
+            "id": 1,
+            "name": 1,
+            "status": 1,
+            "bracket": 1,
+            "bracket_type": 1,
+            "start_date": 1,
+            "matchday_interval_days": 1,
+            "matchday_window_days": 1,
+        },
+    )
+    if not tournament:
+        raise HTTPException(404, "Tournament not found")
+    if not tournament.get("bracket"):
+        raise HTTPException(400, "Bracket wurde noch nicht generiert")
+
+    days = build_tournament_matchdays(tournament)
+    return {
+        "tournament_id": tournament_id,
+        "type": str((tournament.get("bracket") or {}).get("type", tournament.get("bracket_type", ""))),
+        "matchdays": days,
+        "count": len(days),
+    }
+
 @api_router.post("/tournaments/{tournament_id}/checkin/{registration_id}")
 async def checkin(request: Request, tournament_id: str, registration_id: str):
     user = await require_auth(request)
@@ -1956,7 +2445,8 @@ async def checkin(request: Request, tournament_id: str, registration_id: str):
         raise HTTPException(404, "Registration not found")
     if reg.get("checked_in"):
         return reg
-    if reg["payment_status"] == "pending":
+    entry_fee = float(t.get("entry_fee", 0) or 0)
+    if entry_fee > 0 and str(reg.get("payment_status", "")).strip().lower() != "paid":
         raise HTTPException(400, "Payment required before check-in")
 
     can_checkin = user.get("role") == "admin"
@@ -2189,8 +2679,21 @@ def build_duel_match(round_num: int, position: int, p1: Optional[Dict], p2: Opti
 def round_container(round_num: int, name: str, matches: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"round": int(round_num), "name": name, "matches": matches}
 
-def generate_group_playoffs(registrations: List[Dict], group_size: int = 4, advance_per_group: int = 2, start_date: str = ""):
-    groups = generate_group_stage(registrations, group_size=group_size, start_date=start_date)
+def generate_group_playoffs(
+    registrations: List[Dict],
+    group_size: int = 4,
+    advance_per_group: int = 2,
+    start_date: str = "",
+    interval_days: int = 7,
+    window_days: int = 7,
+):
+    groups = generate_group_stage(
+        registrations,
+        group_size=group_size,
+        start_date=start_date,
+        interval_days=interval_days,
+        window_days=window_days,
+    )
     adv = max(1, int(advance_per_group or 2))
     return {
         "type": "group_playoffs",
@@ -2405,7 +2908,13 @@ def generate_battle_royale(registrations: List[Dict], group_size: int = 4, advan
         "total_rounds": 1,
     }
 
-def generate_round_robin(registrations, start_date: str = "", bracket_type: str = "round_robin", interval_days: int = 7):
+def generate_round_robin(
+    registrations,
+    start_date: str = "",
+    bracket_type: str = "round_robin",
+    interval_days: int = 7,
+    window_days: int = 7,
+):
     participants = list(registrations)
     if len(participants) < 2:
         return {"type": bracket_type, "rounds": [], "total_rounds": 0}
@@ -2432,8 +2941,12 @@ def generate_round_robin(registrations, start_date: str = "", bracket_type: str 
                 p1, p2 = p2, p1
 
             scheduled_for = ""
+            window_start = None
+            window_end = None
             if base_start:
-                scheduled_for = (base_start + timedelta(days=interval_days * round_idx)).isoformat()
+                window_start = base_start + timedelta(days=interval_days * round_idx)
+                window_end = window_start + timedelta(days=max(1, int(window_days or 7)))
+                scheduled_for = window_start.isoformat()
 
             round_matches.append(
                 {
@@ -2457,7 +2970,23 @@ def generate_round_robin(registrations, start_date: str = "", bracket_type: str 
                 }
             )
 
-        rounds.append({"round": round_idx + 1, "name": f"Spieltag {round_idx + 1}", "matches": round_matches})
+        round_window_start = ""
+        round_window_end = ""
+        if base_start:
+            start_doc = base_start + timedelta(days=interval_days * round_idx)
+            end_doc = start_doc + timedelta(days=max(1, int(window_days or 7)))
+            round_window_start = start_doc.isoformat()
+            round_window_end = end_doc.isoformat()
+        rounds.append(
+            {
+                "round": round_idx + 1,
+                "matchday": round_idx + 1,
+                "name": f"Spieltag {round_idx + 1}",
+                "window_start": round_window_start,
+                "window_end": round_window_end,
+                "matches": round_matches,
+            }
+        )
 
         fixed = participants[0]
         rotating = participants[1:]
@@ -2466,7 +2995,13 @@ def generate_round_robin(registrations, start_date: str = "", bracket_type: str 
 
     return {"type": bracket_type, "rounds": rounds, "total_rounds": len(rounds)}
 
-def generate_group_stage(registrations, group_size: int = 4, start_date: str = ""):
+def generate_group_stage(
+    registrations,
+    group_size: int = 4,
+    start_date: str = "",
+    interval_days: int = 7,
+    window_days: int = 7,
+):
     regs = list(registrations)
     if len(regs) < 2:
         return {"type": "group_stage", "groups": [], "group_size": max(2, int(group_size or 4)), "total_groups": 0}
@@ -2481,7 +3016,13 @@ def generate_group_stage(registrations, group_size: int = 4, start_date: str = "
         if len(group_regs) < 2:
             continue
         group_name = f"Gruppe {chr(65 + idx)}"
-        rr = generate_round_robin(group_regs, start_date=start_date, bracket_type="round_robin")
+        rr = generate_round_robin(
+            group_regs,
+            start_date=start_date,
+            bracket_type="round_robin",
+            interval_days=interval_days,
+            window_days=window_days,
+        )
         for rd in rr.get("rounds", []):
             for match in rd.get("matches", []):
                 match["group_id"] = idx + 1
@@ -2490,7 +3031,37 @@ def generate_group_stage(registrations, group_size: int = 4, start_date: str = "
 
     return {"type": "group_stage", "groups": group_docs, "group_size": size, "total_groups": len(group_docs)}
 
-def compute_standings_for_registrations(registrations: List[Dict], matches: List[Dict], team_map: Dict[str, Dict]) -> List[Dict]:
+def sort_standings_rows(rows: List[Dict[str, Any]], tiebreakers: List[str]) -> List[Dict[str, Any]]:
+    ordered_rules = normalize_tiebreakers(tiebreakers)
+
+    def numeric_value(row: Dict[str, Any], key: str) -> float:
+        try:
+            return float(row.get(key, 0) or 0)
+        except Exception:
+            return 0.0
+
+    def key_fn(row: Dict[str, Any]):
+        parts = []
+        for rule in ordered_rules:
+            if rule == "team_name":
+                parts.append(str(row.get("team_name", "")).lower())
+            else:
+                parts.append(-numeric_value(row, rule))
+        parts.append(str(row.get("team_name", "")).lower())
+        return tuple(parts)
+
+    return sorted(rows, key=key_fn)
+
+def compute_standings_for_registrations(
+    registrations: List[Dict],
+    matches: List[Dict],
+    team_map: Dict[str, Dict],
+    *,
+    points_win: int = 3,
+    points_draw: int = 1,
+    points_loss: int = 0,
+    tiebreakers: Optional[List[str]] = None,
+) -> List[Dict]:
     standings = {}
     for reg in registrations:
         reg_id = str(reg.get("id", "")).strip()
@@ -2538,22 +3109,24 @@ def compute_standings_for_registrations(registrations: List[Dict], matches: List
 
         if score1 > score2:
             st1["wins"] += 1
-            st1["points"] += 3
+            st1["points"] += int(points_win)
             st2["losses"] += 1
+            st2["points"] += int(points_loss)
         elif score2 > score1:
             st2["wins"] += 1
-            st2["points"] += 3
+            st2["points"] += int(points_win)
             st1["losses"] += 1
+            st1["points"] += int(points_loss)
         else:
             st1["draws"] += 1
             st2["draws"] += 1
-            st1["points"] += 1
-            st2["points"] += 1
+            st1["points"] += int(points_draw)
+            st2["points"] += int(points_draw)
 
     rows = list(standings.values())
     for row in rows:
         row["score_diff"] = row["score_for"] - row["score_against"]
-    rows.sort(key=lambda r: (-r["points"], -r["score_diff"], -r["score_for"], str(r.get("team_name", "")).lower()))
+    rows = sort_standings_rows(rows, tiebreakers or DEFAULT_TIEBREAKERS)
     for idx, row in enumerate(rows, start=1):
         row["rank"] = idx
     return rows
@@ -2588,7 +3161,23 @@ def find_match_in_bracket(bracket: Dict, match_id: str):
     return None
 
 async def find_tournament_and_match_by_match_id(match_id: str):
-    tournaments = await db.tournaments.find({"bracket": {"$ne": None}}, {"_id": 0, "id": 1, "bracket": 1}).to_list(300)
+    tournaments = await db.tournaments.find(
+        {"bracket": {"$ne": None}},
+        {
+            "_id": 0,
+            "id": 1,
+            "name": 1,
+            "status": 1,
+            "game_id": 1,
+            "game_name": 1,
+            "game_mode": 1,
+            "participant_mode": 1,
+            "start_date": 1,
+            "matchday_interval_days": 1,
+            "matchday_window_days": 1,
+            "bracket": 1,
+        },
+    ).to_list(400)
     for t in tournaments:
         match = find_match_in_bracket(t.get("bracket"), match_id)
         if match:
@@ -2621,6 +3210,263 @@ async def can_user_manage_match(user: Dict, match_data: Dict) -> bool:
                 return True
     return False
 
+async def get_tournament_mode_settings_template(tournament: Dict[str, Any]) -> Dict[str, Any]:
+    game_id = str((tournament or {}).get("game_id", "") or "").strip()
+    game_mode = str((tournament or {}).get("game_mode", "") or "").strip().lower()
+    if not game_id or not game_mode:
+        return {}
+    game = await db.games.find_one({"id": game_id}, {"_id": 0, "category": 1, "name": 1, "modes": 1})
+    if not game:
+        return {}
+    _, changed = apply_mode_templates_to_game(game)
+    if changed:
+        await db.games.update_one({"id": game_id}, {"$set": {"modes": game.get("modes", []), "updated_at": now_iso()}})
+    for mode in game.get("modes", []) or []:
+        if str(mode.get("name", "")).strip().lower() == game_mode:
+            tpl = mode.get("settings_template", {})
+            if isinstance(tpl, dict):
+                return deep_clone_template(tpl)
+    return {}
+
+async def resolve_user_match_side(user: Dict[str, Any], team1_reg: Optional[Dict], team2_reg: Optional[Dict]) -> Optional[str]:
+    if not user:
+        return None
+    if user.get("role") == "admin":
+        return "admin"
+
+    async def _belongs(reg: Optional[Dict]) -> bool:
+        if not reg:
+            return False
+        if reg.get("user_id") == user.get("id"):
+            return True
+        team_id = str(reg.get("team_id", "") or "").strip()
+        if team_id:
+            team_role = await get_user_team_role(user["id"], team_id)
+            if team_role in {"owner", "leader"}:
+                return True
+        return False
+
+    if await _belongs(team1_reg):
+        return "team1"
+    if await _belongs(team2_reg):
+        return "team2"
+    return None
+
+def prepare_match_setup_response(doc: Optional[Dict[str, Any]], *, match_id: str, tournament_id: str) -> Dict[str, Any]:
+    if not doc:
+        return {
+            "id": None,
+            "tournament_id": tournament_id,
+            "match_id": match_id,
+            "status": "pending",
+            "submission_team1": None,
+            "submission_team2": None,
+            "final_setup": {},
+            "final_note": "",
+            "updated_at": None,
+            "created_at": None,
+            "resolved_by": None,
+            "resolved_at": None,
+        }
+    clean = {k: v for k, v in doc.items() if k != "_id"}
+    clean.setdefault("status", "pending")
+    clean.setdefault("submission_team1", None)
+    clean.setdefault("submission_team2", None)
+    clean.setdefault("final_setup", {})
+    clean.setdefault("final_note", "")
+    return clean
+
+@api_router.get("/matches/{match_id}")
+async def get_match_detail(request: Request, match_id: str):
+    user = await require_auth(request)
+    tournament, match = await find_tournament_and_match_by_match_id(match_id)
+    if not tournament or not match:
+        raise HTTPException(404, "Match nicht gefunden")
+    if not await can_user_manage_match(user, match):
+        raise HTTPException(403, "Keine Berechtigung")
+
+    team_reg_ids = [rid for rid in [match.get("team1_id"), match.get("team2_id")] if rid]
+    regs = await db.registrations.find({"id": {"$in": team_reg_ids}}, {"_id": 0}).to_list(10)
+    reg_by_id = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
+    team1_reg = reg_by_id.get(str(match.get("team1_id", "")).strip())
+    team2_reg = reg_by_id.get(str(match.get("team2_id", "")).strip())
+
+    side = await resolve_user_match_side(user, team1_reg, team2_reg)
+    setup_doc = await db.match_setups.find_one({"tournament_id": tournament["id"], "match_id": match_id}, {"_id": 0})
+    accepted_schedule = await db.schedule_proposals.find_one(
+        {
+            "match_id": match_id,
+            "status": "accepted",
+            "$or": [{"tournament_id": tournament["id"]}, {"tournament_id": {"$exists": False}}],
+        },
+        {"_id": 0},
+    )
+    schedule_count = await db.schedule_proposals.count_documents(
+        {"match_id": match_id, "$or": [{"tournament_id": tournament["id"]}, {"tournament_id": {"$exists": False}}]}
+    )
+
+    mode_template = await get_tournament_mode_settings_template(tournament)
+
+    return {
+        "tournament": {
+            "id": tournament.get("id"),
+            "name": tournament.get("name", ""),
+            "status": tournament.get("status", ""),
+            "game_name": tournament.get("game_name", ""),
+            "game_mode": tournament.get("game_mode", ""),
+            "participant_mode": tournament.get("participant_mode", "team"),
+        },
+        "match": match,
+        "team1_registration": sanitize_registration(team1_reg) if team1_reg else None,
+        "team2_registration": sanitize_registration(team2_reg) if team2_reg else None,
+        "setup": prepare_match_setup_response(setup_doc, match_id=match_id, tournament_id=tournament["id"]),
+        "setup_template": mode_template,
+        "schedule": {
+            "scheduled_for": str(match.get("scheduled_for", "") or ""),
+            "accepted": accepted_schedule,
+            "proposal_count": int(schedule_count or 0),
+        },
+        "viewer": {
+            "is_admin": bool(user.get("role") == "admin"),
+            "side": side,
+            "can_manage_match": True,
+        },
+    }
+
+@api_router.get("/matches/{match_id}/setup")
+async def get_match_setup(request: Request, match_id: str):
+    user = await require_auth(request)
+    tournament, match = await find_tournament_and_match_by_match_id(match_id)
+    if not tournament or not match:
+        raise HTTPException(404, "Match nicht gefunden")
+    if not await can_user_manage_match(user, match):
+        raise HTTPException(403, "Keine Berechtigung")
+
+    setup_doc = await db.match_setups.find_one({"tournament_id": tournament["id"], "match_id": match_id}, {"_id": 0})
+    mode_template = await get_tournament_mode_settings_template(tournament)
+
+    regs = await db.registrations.find(
+        {"id": {"$in": [match.get("team1_id"), match.get("team2_id")] if match.get("team1_id") or match.get("team2_id") else []}},
+        {"_id": 0},
+    ).to_list(10)
+    reg_by_id = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
+    side = await resolve_user_match_side(
+        user,
+        reg_by_id.get(str(match.get("team1_id", "")).strip()),
+        reg_by_id.get(str(match.get("team2_id", "")).strip()),
+    )
+
+    return {
+        "setup": prepare_match_setup_response(setup_doc, match_id=match_id, tournament_id=tournament["id"]),
+        "template": mode_template,
+        "viewer_side": side,
+    }
+
+@api_router.post("/matches/{match_id}/setup")
+async def submit_match_setup(request: Request, match_id: str, body: MatchSetupSubmission):
+    user = await require_auth(request)
+    tournament, match = await find_tournament_and_match_by_match_id(match_id)
+    if not tournament or not match:
+        raise HTTPException(404, "Match nicht gefunden")
+    if match.get("status") == "completed":
+        raise HTTPException(400, "Match ist bereits abgeschlossen")
+    if match.get("type") == "battle_royale_heat" or match.get("participants"):
+        raise HTTPException(400, "Für dieses Match ist Team-Setup nicht verfügbar")
+    if not await can_user_manage_match(user, match):
+        raise HTTPException(403, "Keine Berechtigung")
+
+    regs = await db.registrations.find(
+        {"id": {"$in": [match.get("team1_id"), match.get("team2_id")] if match.get("team1_id") or match.get("team2_id") else []}},
+        {"_id": 0},
+    ).to_list(10)
+    reg_by_id = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
+    team1_reg = reg_by_id.get(str(match.get("team1_id", "")).strip())
+    team2_reg = reg_by_id.get(str(match.get("team2_id", "")).strip())
+    side = await resolve_user_match_side(user, team1_reg, team2_reg)
+    if side not in {"team1", "team2"}:
+        raise HTTPException(403, "Nur Team-Verantwortliche können Setup einreichen")
+
+    settings = body.settings if isinstance(body.settings, dict) else {}
+    if not settings:
+        raise HTTPException(400, "Setup darf nicht leer sein")
+
+    now = now_iso()
+    submission = {
+        "by": user["id"],
+        "by_name": user.get("username", ""),
+        "settings": settings,
+        "note": normalize_optional_text(body.note, max_len=1000),
+        "submitted_at": now,
+    }
+
+    query = {"tournament_id": tournament["id"], "match_id": match_id}
+    existing = await db.match_setups.find_one(query, {"_id": 0})
+    doc = existing or {
+        "id": str(uuid.uuid4()),
+        "tournament_id": tournament["id"],
+        "match_id": match_id,
+        "status": "pending",
+        "submission_team1": None,
+        "submission_team2": None,
+        "final_setup": {},
+        "final_note": "",
+        "created_at": now,
+    }
+    key = "submission_team1" if side == "team1" else "submission_team2"
+    doc[key] = submission
+    doc["updated_at"] = now
+
+    left = doc.get("submission_team1")
+    right = doc.get("submission_team2")
+    if left and right:
+        left_norm = json.dumps(left.get("settings", {}), sort_keys=True)
+        right_norm = json.dumps(right.get("settings", {}), sort_keys=True)
+        if left_norm == right_norm:
+            doc["status"] = "confirmed"
+            doc["final_setup"] = left.get("settings", {})
+            doc["final_note"] = left.get("note", "") or right.get("note", "")
+            doc["confirmed_at"] = now
+        else:
+            doc["status"] = "disputed"
+            doc["final_setup"] = {}
+    else:
+        doc["status"] = "pending"
+
+    await db.match_setups.update_one(query, {"$set": doc}, upsert=True)
+    return prepare_match_setup_response(doc, match_id=match_id, tournament_id=tournament["id"])
+
+@api_router.put("/matches/{match_id}/setup/resolve")
+async def resolve_match_setup(request: Request, match_id: str, body: MatchSetupResolve):
+    admin = await require_admin(request)
+    tournament, match = await find_tournament_and_match_by_match_id(match_id)
+    if not tournament or not match:
+        raise HTTPException(404, "Match nicht gefunden")
+    if match.get("type") == "battle_royale_heat" or match.get("participants"):
+        raise HTTPException(400, "Für dieses Match ist Team-Setup nicht verfügbar")
+    settings = body.settings if isinstance(body.settings, dict) else {}
+    if not settings:
+        raise HTTPException(400, "Setup darf nicht leer sein")
+
+    now = now_iso()
+    query = {"tournament_id": tournament["id"], "match_id": match_id}
+    existing = await db.match_setups.find_one(query, {"_id": 0}) or {
+        "id": str(uuid.uuid4()),
+        "tournament_id": tournament["id"],
+        "match_id": match_id,
+        "submission_team1": None,
+        "submission_team2": None,
+        "created_at": now,
+    }
+    existing["status"] = "resolved_by_admin"
+    existing["final_setup"] = settings
+    existing["final_note"] = normalize_optional_text(body.note, max_len=1000)
+    existing["resolved_by"] = admin["id"]
+    existing["resolved_by_name"] = admin.get("username", "")
+    existing["resolved_at"] = now
+    existing["updated_at"] = now
+    await db.match_setups.update_one(query, {"$set": existing}, upsert=True)
+    return prepare_match_setup_response(existing, match_id=match_id, tournament_id=tournament["id"])
+
 @api_router.post("/tournaments/{tournament_id}/generate-bracket")
 async def generate_bracket(request: Request, tournament_id: str):
     await require_admin(request)
@@ -2631,22 +3477,43 @@ async def generate_bracket(request: Request, tournament_id: str):
     if len(regs) < 2:
         raise HTTPException(400, "Need at least 2 registrations to generate bracket")
     bracket_type = normalize_bracket_type(t.get("bracket_type", "single_elimination"))
+    matchday_cfg = get_tournament_matchday_config(t)
     if bracket_type == "single_elimination":
         bracket = generate_single_elimination(regs)
     elif bracket_type == "double_elimination":
         bracket = generate_double_elimination(regs)
     elif bracket_type == "round_robin":
-        bracket = generate_round_robin(regs, start_date=t.get("start_date", ""), bracket_type="round_robin")
+        bracket = generate_round_robin(
+            regs,
+            start_date=t.get("start_date", ""),
+            bracket_type="round_robin",
+            interval_days=matchday_cfg["interval_days"],
+            window_days=matchday_cfg["window_days"],
+        )
     elif bracket_type == "league":
-        bracket = generate_round_robin(regs, start_date=t.get("start_date", ""), bracket_type="league")
+        bracket = generate_round_robin(
+            regs,
+            start_date=t.get("start_date", ""),
+            bracket_type="league",
+            interval_days=matchday_cfg["interval_days"],
+            window_days=matchday_cfg["window_days"],
+        )
     elif bracket_type == "group_stage":
-        bracket = generate_group_stage(regs, group_size=int(t.get("group_size", 4) or 4), start_date=t.get("start_date", ""))
+        bracket = generate_group_stage(
+            regs,
+            group_size=int(t.get("group_size", 4) or 4),
+            start_date=t.get("start_date", ""),
+            interval_days=matchday_cfg["interval_days"],
+            window_days=matchday_cfg["window_days"],
+        )
     elif bracket_type == "group_playoffs":
         bracket = generate_group_playoffs(
             regs,
             group_size=int(t.get("group_size", 4) or 4),
             advance_per_group=int(t.get("advance_per_group", 2) or 2),
             start_date=t.get("start_date", ""),
+            interval_days=matchday_cfg["interval_days"],
+            window_days=matchday_cfg["window_days"],
         )
     elif bracket_type == "swiss_system":
         bracket = generate_swiss_system(regs, rounds_count=int(t.get("swiss_rounds", 5) or 5), start_date=t.get("start_date", ""))
@@ -3316,6 +4183,11 @@ async def create_checkout(request: Request, body: PaymentRequest):
     if unit_amount <= 0:
         raise HTTPException(400, "Invalid entry fee")
     if payment_provider == "paypal":
+        validation = await validate_paypal_configuration(force_live=True, persist_result=True)
+        if not validation.get("configured"):
+            raise HTTPException(400, "PayPal ist nicht vollständig konfiguriert")
+        if not validation.get("valid"):
+            raise HTTPException(400, str(validation.get("detail") or "PayPal Validierung fehlgeschlagen"))
         return_url = f"{host_url}/tournaments/{body.tournament_id}?payment_provider=paypal"
         cancel_url = f"{host_url}/tournaments/{body.tournament_id}?payment_cancelled=1"
         order = await create_paypal_order(
@@ -3716,12 +4588,35 @@ async def get_user_profile(user_id: str):
 # ─── Widget Endpoint ───
 
 @api_router.get("/widget/tournament/{tournament_id}")
-async def get_widget_data(tournament_id: str):
+async def get_widget_data(tournament_id: str, view: Optional[str] = None, matchday: Optional[int] = None):
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Tournament not found")
+    hydrate_tournament_defaults(t)
     regs = await db.registrations.find({"tournament_id": tournament_id}, {"_id": 0}).to_list(200)
-    return {"tournament": t, "registrations": [sanitize_registration(r) for r in regs], "embed_version": "1.0"}
+    requested_view = str(view or "bracket").strip().lower()
+    if requested_view not in {"bracket", "standings", "matchdays"}:
+        requested_view = "bracket"
+
+    payload: Dict[str, Any] = {
+        "tournament": t,
+        "registrations": [sanitize_registration(r) for r in regs],
+        "embed_version": "1.1",
+        "view": requested_view,
+    }
+
+    if requested_view == "standings" and t.get("bracket"):
+        try:
+            payload["standings"] = await get_tournament_standings(tournament_id)
+        except HTTPException as e:
+            payload["standings_error"] = str(e.detail)
+    elif requested_view == "matchdays" and t.get("bracket"):
+        all_days = build_tournament_matchdays(t)
+        payload["matchdays"] = all_days
+        if isinstance(matchday, int) and matchday > 0:
+            payload["selected_matchday"] = next((d for d in all_days if int(d.get("matchday", 0) or 0) == matchday), None)
+
+    return payload
 
 # ─── Comment Endpoints ───
 
@@ -3836,13 +4731,17 @@ async def propose_match_time(request: Request, match_id: str, body: TimeProposal
     if not await can_user_manage_match(user, match):
         raise HTTPException(403, "Keine Berechtigung")
 
+    parsed_time = parse_optional_datetime(body.proposed_time)
+    if not parsed_time:
+        raise HTTPException(400, "Ungültiges Datum/Zeitformat")
+
     doc = {
         "id": str(uuid.uuid4()),
         "tournament_id": tournament["id"],
         "match_id": match_id,
         "proposed_by": user["id"],
         "proposed_by_name": user["username"],
-        "proposed_time": body.proposed_time,
+        "proposed_time": parsed_time.isoformat(),
         "status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -3874,13 +4773,24 @@ async def accept_schedule(request: Request, match_id: str, proposal_id: str):
     }
     await db.schedule_proposals.update_many(match_query, {"$set": {"status": "rejected"}})
     await db.schedule_proposals.update_one(proposal_query, {"$set": {"status": "accepted", "accepted_by": user["id"], "accepted_at": datetime.now(timezone.utc).isoformat(), "tournament_id": tournament["id"]}})
+
+    accepted_time = str((proposal or {}).get("proposed_time", "") or "").strip()
+    bracket = tournament.get("bracket") or {}
+    target_match = find_match_in_bracket(bracket, match_id)
+    if target_match and accepted_time:
+        target_match["scheduled_for"] = accepted_time
+        await db.tournaments.update_one(
+            {"id": tournament["id"]},
+            {"$set": {"bracket": bracket, "updated_at": now_iso()}},
+        )
+
     if proposal and proposal.get("proposed_by") != user["id"]:
         notif = {
             "id": str(uuid.uuid4()),
             "user_id": proposal["proposed_by"],
             "type": "schedule",
             "message": f"{user['username']} hat deinen Zeitvorschlag akzeptiert",
-            "link": "",
+            "link": f"/tournaments/{tournament['id']}/matches/{match_id}",
             "read": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -3904,6 +4814,20 @@ async def update_admin_setting(request: Request, body: AdminSettingUpdate):
         upsert=True
     )
     return {"status": "ok"}
+
+@api_router.get("/admin/payments/providers/status")
+async def admin_get_payment_provider_status(request: Request):
+    await require_admin(request)
+    provider = await get_payment_provider()
+    status = await get_payment_provider_status(force_paypal_check=False)
+    return {"selected_provider": provider, **status}
+
+@api_router.post("/admin/payments/paypal/validate")
+async def admin_validate_paypal(request: Request, body: Optional[AdminPayPalValidateRequest] = None):
+    await require_admin(request)
+    force_live = True if body is None else bool(body.force_live)
+    result = await validate_paypal_configuration(force_live=force_live, persist_result=True)
+    return result
 
 @api_router.post("/admin/email/test")
 async def admin_send_test_email(request: Request, body: AdminEmailTest):

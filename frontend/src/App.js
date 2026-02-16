@@ -14,6 +14,7 @@ import TeamsPage from "@/pages/TeamsPage";
 import AdminPage from "@/pages/AdminPage";
 import ProfilePage from "@/pages/ProfilePage";
 import WidgetPage from "@/pages/WidgetPage";
+import MatchDetailPage from "@/pages/MatchDetailPage";
 
 function App() {
   return (
@@ -42,6 +43,7 @@ function MainLayout() {
         <Route path="/tournaments" element={<TournamentsPage />} />
         <Route path="/tournaments/create" element={<CreateTournamentPage />} />
         <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
+        <Route path="/tournaments/:id/matches/:matchId" element={<MatchDetailPage />} />
         <Route path="/games" element={<GamesPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />

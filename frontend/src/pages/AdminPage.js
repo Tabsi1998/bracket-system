@@ -23,16 +23,19 @@ export default function AdminPage() {
   const [games, setGames] = useState([]);
   const [settings, setSettings] = useState([]);
   const [smtpTestEmail, setSmtpTestEmail] = useState("");
+  const [paymentProviders, setPaymentProviders] = useState(null);
+  const [paypalValidating, setPaypalValidating] = useState(false);
 
   const fetchAdminData = useCallback(async () => {
     try {
-      const [dashboardRes, usersRes, teamsRes, tournamentsRes, gamesRes, settingsRes] = await Promise.all([
+      const [dashboardRes, usersRes, teamsRes, tournamentsRes, gamesRes, settingsRes, providersRes] = await Promise.all([
         axios.get(`${API}/admin/dashboard`),
         axios.get(`${API}/admin/users`),
         axios.get(`${API}/admin/teams`),
         axios.get(`${API}/tournaments`),
         axios.get(`${API}/games`),
         axios.get(`${API}/admin/settings`),
+        axios.get(`${API}/admin/payments/providers/status`).catch(() => ({ data: null })),
       ]);
       setDashboard(dashboardRes.data || {});
       setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
@@ -40,6 +43,7 @@ export default function AdminPage() {
       setTournaments(Array.isArray(tournamentsRes.data) ? tournamentsRes.data : []);
       setGames(Array.isArray(gamesRes.data) ? gamesRes.data : []);
       setSettings(Array.isArray(settingsRes.data) ? settingsRes.data : []);
+      setPaymentProviders(providersRes?.data || null);
     } catch {
       toast.error("Admin-Daten konnten nicht geladen werden");
     }
@@ -159,6 +163,23 @@ export default function AdminPage() {
     { key: "smtp_use_starttls", label: "SMTP STARTTLS", placeholder: "true" },
     { key: "smtp_use_ssl", label: "SMTP SSL", placeholder: "false" },
   ];
+
+  const runPayPalValidation = async () => {
+    setPaypalValidating(true);
+    try {
+      const res = await axios.post(`${API}/admin/payments/paypal/validate`, { force_live: true });
+      if (res.data?.valid) {
+        toast.success("PayPal Credentials sind gültig");
+      } else {
+        toast.error(res.data?.detail || "PayPal Validierung fehlgeschlagen");
+      }
+      fetchAdminData();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "PayPal Validierung fehlgeschlagen");
+    } finally {
+      setPaypalValidating(false);
+    }
+  };
 
   return (
     <div data-testid="admin-page" className="pt-20 min-h-screen">
@@ -380,6 +401,33 @@ export default function AdminPage() {
                 <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-white uppercase mb-4 flex items-center gap-2">
                   <CreditCard className="w-5 h-5 text-yellow-500" />Zahlungs-Einstellungen
                 </h3>
+                <div className="mb-4 p-3 rounded-lg bg-zinc-900/50 border border-white/5 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-zinc-500">Aktiver Provider:</span>
+                    <Badge className="bg-zinc-800 text-zinc-300 text-xs">{paymentProviders?.selected_provider || "auto"}</Badge>
+                    <Badge className={`text-xs ${paymentProviders?.paypal?.valid ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+                      PayPal {paymentProviders?.paypal?.valid ? "OK" : "Fehler"}
+                    </Badge>
+                    <Badge className="bg-zinc-800 text-zinc-300 text-xs">Mode: {paymentProviders?.paypal?.mode || "-"}</Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 border-yellow-500/30 text-yellow-500 hover:bg-yellow-500/10"
+                      onClick={runPayPalValidation}
+                      disabled={paypalValidating}
+                    >
+                      {paypalValidating ? "Prüft..." : "PayPal testen"}
+                    </Button>
+                  </div>
+                  {paymentProviders?.paypal?.last_checked_at && (
+                    <p className="text-[11px] text-zinc-600">
+                      Zuletzt geprüft: {new Date(paymentProviders.paypal.last_checked_at).toLocaleString("de-DE")}
+                    </p>
+                  )}
+                  {paymentProviders?.paypal?.last_detail ? (
+                    <p className="text-[11px] text-zinc-500">{paymentProviders.paypal.last_detail}</p>
+                  ) : null}
+                </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   {settingKeys.filter(s => s.key.startsWith("stripe") || s.key.startsWith("paypal") || s.key === "payment_provider").map(sk => (
                     <div key={sk.key}>

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,6 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
+const EMPTY_TEMPLATE_JSON = "{}";
 
 const categories = [
   { value: "fps", label: "FPS" },
@@ -46,7 +48,7 @@ export default function GamesPage() {
     short_name: "",
     category: "fps",
     image_url: "",
-    modes: [{ name: "", team_size: 1, description: "" }],
+    modes: [{ name: "", team_size: 1, description: "", settings_template_text: EMPTY_TEMPLATE_JSON }],
     platforms: [],
   });
   const [editGame, setEditGame] = useState(null);
@@ -59,15 +61,51 @@ export default function GamesPage() {
     axios.get(`${API}/games`).then(r => setGames(r.data)).catch(() => {});
   };
 
+  const parseModesForSubmit = (modes) => {
+    return (modes || [])
+      .filter((m) => (m?.name || "").trim())
+      .map((mode, idx) => {
+        const raw = mode.settings_template_text || EMPTY_TEMPLATE_JSON;
+        let parsedTemplate = {};
+        try {
+          parsedTemplate = JSON.parse(raw);
+        } catch {
+          throw new Error(`Ungültiges Template-JSON bei Modus ${idx + 1}`);
+        }
+        if (!parsedTemplate || typeof parsedTemplate !== "object" || Array.isArray(parsedTemplate)) {
+          throw new Error(`Template-JSON bei Modus ${idx + 1} muss ein Objekt sein`);
+        }
+        return {
+          name: (mode.name || "").trim(),
+          team_size: parseInt(mode.team_size, 10) || 1,
+          description: mode.description || "",
+          settings_template: parsedTemplate,
+        };
+      });
+  };
+
   const handleCreateGame = async () => {
     if (!newGame.name.trim()) { toast.error("Spielname erforderlich"); return; }
-    const validModes = newGame.modes.filter(m => m.name.trim());
+    let validModes = [];
+    try {
+      validModes = parseModesForSubmit(newGame.modes);
+    } catch (e) {
+      toast.error(e.message || "Template JSON ist ungültig");
+      return;
+    }
     if (validModes.length === 0) { toast.error("Mindestens ein Modus erforderlich"); return; }
     try {
       await axios.post(`${API}/games`, { ...newGame, modes: validModes });
       toast.success("Spiel erstellt!");
       setCreateOpen(false);
-      setNewGame({ name: "", short_name: "", category: "fps", image_url: "", modes: [{ name: "", team_size: 1, description: "" }], platforms: [] });
+      setNewGame({
+        name: "",
+        short_name: "",
+        category: "fps",
+        image_url: "",
+        modes: [{ name: "", team_size: 1, description: "", settings_template_text: EMPTY_TEMPLATE_JSON }],
+        platforms: [],
+      });
       fetchGames();
     } catch (e) {
       toast.error("Fehler beim Erstellen");
@@ -84,7 +122,7 @@ export default function GamesPage() {
     }
   };
 
-  const addMode = () => setNewGame({ ...newGame, modes: [...newGame.modes, { name: "", team_size: 1, description: "" }] });
+  const addMode = () => setNewGame({ ...newGame, modes: [...newGame.modes, { name: "", team_size: 1, description: "", settings_template_text: EMPTY_TEMPLATE_JSON }] });
   const removeMode = (idx) => setNewGame({ ...newGame, modes: newGame.modes.filter((_, i) => i !== idx) });
   const updateMode = (idx, field, value) => {
     const modes = [...newGame.modes];
@@ -100,14 +138,19 @@ export default function GamesPage() {
       category: game.category || "other",
       image_url: game.image_url || "",
       modes: Array.isArray(game.modes) && game.modes.length > 0
-        ? game.modes.map((m) => ({ name: m.name || "", team_size: m.team_size || 1, description: m.description || "" }))
-        : [{ name: "", team_size: 1, description: "" }],
+        ? game.modes.map((m) => ({
+            name: m.name || "",
+            team_size: m.team_size || 1,
+            description: m.description || "",
+            settings_template_text: JSON.stringify(m.settings_template || {}, null, 2),
+          }))
+        : [{ name: "", team_size: 1, description: "", settings_template_text: EMPTY_TEMPLATE_JSON }],
       platforms: Array.isArray(game.platforms) ? game.platforms : [],
     });
     setEditOpen(true);
   };
 
-  const addEditMode = () => setEditGame((prev) => ({ ...prev, modes: [...(prev?.modes || []), { name: "", team_size: 1, description: "" }] }));
+  const addEditMode = () => setEditGame((prev) => ({ ...prev, modes: [...(prev?.modes || []), { name: "", team_size: 1, description: "", settings_template_text: EMPTY_TEMPLATE_JSON }] }));
   const removeEditMode = (idx) => setEditGame((prev) => ({ ...prev, modes: (prev?.modes || []).filter((_, i) => i !== idx) }));
   const updateEditMode = (idx, field, value) => {
     setEditGame((prev) => {
@@ -128,7 +171,13 @@ export default function GamesPage() {
   const handleUpdateGame = async () => {
     if (!editGame?.id) return;
     if (!editGame.name.trim()) { toast.error("Spielname erforderlich"); return; }
-    const validModes = (editGame.modes || []).filter((m) => m.name.trim());
+    let validModes = [];
+    try {
+      validModes = parseModesForSubmit(editGame.modes || []);
+    } catch (e) {
+      toast.error(e.message || "Template JSON ist ungültig");
+      return;
+    }
     if (validModes.length === 0) { toast.error("Mindestens ein Modus erforderlich"); return; }
     try {
       await axios.put(`${API}/games/${editGame.id}`, { ...editGame, modes: validModes });
@@ -219,27 +268,35 @@ export default function GamesPage() {
                 <div>
                   <Label className="text-zinc-400 text-sm">Spielmodi *</Label>
                   {newGame.modes.map((mode, idx) => (
-                    <div key={idx} className="flex gap-2 mt-2">
-                      <Input
-                        data-testid={`mode-name-${idx}`}
-                        value={mode.name}
-                        onChange={e => updateMode(idx, "name", e.target.value)}
-                        placeholder="z.B. 5v5"
-                        className="bg-zinc-900 border-white/10 text-white flex-1"
+                    <div key={idx} className="mt-2 rounded-md border border-white/5 p-2">
+                      <div className="flex gap-2">
+                        <Input
+                          data-testid={`mode-name-${idx}`}
+                          value={mode.name}
+                          onChange={e => updateMode(idx, "name", e.target.value)}
+                          placeholder="z.B. 5v5"
+                          className="bg-zinc-900 border-white/10 text-white flex-1"
+                        />
+                        <Input
+                          data-testid={`mode-size-${idx}`}
+                          type="number"
+                          min="1"
+                          value={mode.team_size}
+                          onChange={e => updateMode(idx, "team_size", e.target.value)}
+                          className="bg-zinc-900 border-white/10 text-white w-20"
+                        />
+                        {newGame.modes.length > 1 && (
+                          <Button variant="ghost" size="sm" onClick={() => removeMode(idx)} className="text-red-500 hover:text-red-400 px-2">
+                            <XIcon className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <Label className="text-zinc-500 text-[11px] mt-2 block">Settings Template (JSON)</Label>
+                      <Textarea
+                        value={mode.settings_template_text || EMPTY_TEMPLATE_JSON}
+                        onChange={(e) => updateMode(idx, "settings_template_text", e.target.value)}
+                        className="bg-zinc-900 border-white/10 text-white mt-1 min-h-[96px] font-mono text-xs"
                       />
-                      <Input
-                        data-testid={`mode-size-${idx}`}
-                        type="number"
-                        min="1"
-                        value={mode.team_size}
-                        onChange={e => updateMode(idx, "team_size", e.target.value)}
-                        className="bg-zinc-900 border-white/10 text-white w-20"
-                      />
-                      {newGame.modes.length > 1 && (
-                        <Button variant="ghost" size="sm" onClick={() => removeMode(idx)} className="text-red-500 hover:text-red-400 px-2">
-                          <XIcon className="w-4 h-4" />
-                        </Button>
-                      )}
                     </div>
                   ))}
                   <Button variant="ghost" size="sm" onClick={addMode} className="mt-2 text-yellow-500">+ Modus hinzufügen</Button>
@@ -307,25 +364,33 @@ export default function GamesPage() {
                     <div>
                       <Label className="text-zinc-400 text-sm">Spielmodi *</Label>
                       {(editGame.modes || []).map((mode, idx) => (
-                        <div key={`edit-mode-${idx}`} className="flex gap-2 mt-2">
-                          <Input
-                            value={mode.name}
-                            onChange={e => updateEditMode(idx, "name", e.target.value)}
-                            placeholder="z.B. 5v5"
-                            className="bg-zinc-900 border-white/10 text-white flex-1"
+                        <div key={`edit-mode-${idx}`} className="mt-2 rounded-md border border-white/5 p-2">
+                          <div className="flex gap-2">
+                            <Input
+                              value={mode.name}
+                              onChange={e => updateEditMode(idx, "name", e.target.value)}
+                              placeholder="z.B. 5v5"
+                              className="bg-zinc-900 border-white/10 text-white flex-1"
+                            />
+                            <Input
+                              type="number"
+                              min="1"
+                              value={mode.team_size}
+                              onChange={e => updateEditMode(idx, "team_size", e.target.value)}
+                              className="bg-zinc-900 border-white/10 text-white w-20"
+                            />
+                            {(editGame.modes || []).length > 1 && (
+                              <Button variant="ghost" size="sm" onClick={() => removeEditMode(idx)} className="text-red-500 hover:text-red-400 px-2">
+                                <XIcon className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                          <Label className="text-zinc-500 text-[11px] mt-2 block">Settings Template (JSON)</Label>
+                          <Textarea
+                            value={mode.settings_template_text || EMPTY_TEMPLATE_JSON}
+                            onChange={(e) => updateEditMode(idx, "settings_template_text", e.target.value)}
+                            className="bg-zinc-900 border-white/10 text-white mt-1 min-h-[96px] font-mono text-xs"
                           />
-                          <Input
-                            type="number"
-                            min="1"
-                            value={mode.team_size}
-                            onChange={e => updateEditMode(idx, "team_size", e.target.value)}
-                            className="bg-zinc-900 border-white/10 text-white w-20"
-                          />
-                          {(editGame.modes || []).length > 1 && (
-                            <Button variant="ghost" size="sm" onClick={() => removeEditMode(idx)} className="text-red-500 hover:text-red-400 px-2">
-                              <XIcon className="w-4 h-4" />
-                            </Button>
-                          )}
                         </div>
                       ))}
                       <Button variant="ghost" size="sm" onClick={addEditMode} className="mt-2 text-yellow-500">+ Modus hinzufügen</Button>

@@ -15,11 +15,14 @@ ARENA deckt den kompletten Flow ab:
 - Benutzer-Registrierung/Login mit JWT
 - Team-Management mit Hauptteam + Sub-Teams
 - Turniere mit mehreren Bracket-Formaten
+- Liga-/Round-Robin-Spieltage mit Zeitfenstern
+- Match-Hub pro Match (Termin, Setup, Kommentare, Ergebnis)
+- Spielmodus-Templates für Match-Settings (Kategorie-Defaults + Overrides)
 - Score-Submission mit Auto-Confirm/Dispute/Admin-Resolve
 - Battle-Royale-Heats mit Placement-Workflow
-- Check-in, Payments (Stripe + PayPal)
+- Check-in, Payments (Stripe + PayPal) inkl. Retry-Flow
 - Kommentare, Benachrichtigungen, Match-Terminabstimmung
-- Admin-Panel (User/Team/Turnier/Spiel/Settings)
+- Admin-Panel (User/Team/Turnier/Spiel/Settings + PayPal-Validation)
 - Profilseiten und Widget-Einbettung
 
 ---
@@ -31,18 +34,21 @@ ARENA deckt den kompletten Flow ab:
 | Auth (Register/Login/Me) | ✅ |
 | Team-System (Main/Sub, Join-Code, Leader) | ✅ |
 | Öffentliche Teamliste mit Team Finder | ✅ |
-| Turniere (Create/Update/Delete/Register/Check-in) | ✅ |
+| Turniere (Create/Update/Delete/Register/Check-in + Matchday/Punkte-Config) | ✅ |
 | Brackets (11 Formate) | ✅ |
-| Tabellen/Standings API | ✅ |
-| Match-Scheduling (Vorschläge/Accept) | ✅ |
+| Tabellen/Standings API (konfigurierbares Punktesystem) | ✅ |
+| Matchday-API (Spieltage + Statusaggregation) | ✅ |
+| Match-Scheduling (Vorschläge/Accept + Bracket `scheduled_for` Sync) | ✅ |
+| Match-Setup-Workflow (Team A/B Confirm + Admin Resolve) | ✅ |
 | Score-Workflow inkl. Dispute/Admin-Resolve | ✅ |
 | Battle Royale Workflow inkl. Admin-Resolve | ✅ |
-| Zahlungen (Stripe + PayPal) | ✅ |
+| Zahlungen (Stripe + PayPal, Provider-Hardening, Retry) | ✅ |
+| PayPal Admin-Validierung + Provider-Status | ✅ |
 | Stripe Webhook | ✅ |
 | SMTP-Test + Check-in-Reminder | ✅ |
 | Admin-Panel (Users/Teams/Games/Tournaments/Settings) | ✅ |
 | Profil bearbeiten (User selbst) | ✅ |
-| Widget-API + Frontend-Widgetseite | ✅ |
+| Widget-API + Frontend-Widgetseite (`view=bracket|standings|matchdays`) | ✅ |
 
 ---
 
@@ -212,6 +218,9 @@ Diese Keys werden im Admin-Bereich gepflegt:
 - `paypal_client_id`
 - `paypal_secret`
 - `paypal_mode` (`sandbox`/`live`)
+- `paypal_last_validation_status` (automatisch)
+- `paypal_last_validation_detail` (automatisch)
+- `paypal_last_validation_checked_at` (automatisch)
 - `smtp_host`
 - `smtp_port`
 - `smtp_user`
@@ -247,6 +256,31 @@ Rechte im Team:
 
 ---
 
+## Liga, Matchdays, Match-Hub
+
+Turniere unterstützen zusätzliche Liga-/Matchday-Konfiguration:
+
+- `matchday_interval_days` (Default `7`)
+- `matchday_window_days` (Default `7`)
+- `points_win`, `points_draw`, `points_loss`
+- `tiebreakers` (Default: `points,score_diff,score_for,team_name`)
+
+Für `round_robin`, `league`, `group_stage` und `group_playoffs` enthält jede Runde:
+
+- `matchday`
+- `window_start`
+- `window_end`
+
+Der Match-Hub (`/tournaments/:id/matches/:matchId`) bündelt:
+
+- Terminabstimmung inkl. Accept-Flow
+- Match-Setup JSON pro Teamseite
+- Konflikterkennung (`disputed`) + Admin-Resolve
+- Match-Kommentare
+- Ergebnis-Submission
+
+---
+
 ## Ergebnis- und Match-Workflow
 
 ### Standard-Score (`submit-score`)
@@ -269,6 +303,15 @@ Rechte im Team:
 
 - Zeitvorschläge pro Match (`/matches/{id}/schedule`).
 - Annahme eines Vorschlags setzt alle anderen auf `rejected`.
+- Akzeptierter Termin wird zusätzlich persistent in `match.scheduled_for` im Bracket gespeichert.
+
+### Match Setup (neu)
+
+- Endpoints: `GET/POST /api/matches/{match_id}/setup`, `PUT /api/matches/{match_id}/setup/resolve`.
+- Team A und Team B reichen Setup-JSON ein.
+- Identische Inputs => `confirmed`.
+- Unterschiedliche Inputs => `disputed`.
+- Admin kann final auflösen (`resolved_by_admin`).
 
 ---
 
@@ -279,12 +322,19 @@ Rechte im Team:
 - Endpoint: `POST /api/payments/create-checkout`
 - Erzeugt Stripe Checkout Session oder PayPal Order.
 - Rückgabe enthält Redirect-URL.
+- Bei PayPal wird vor Checkout aktiv validiert (Credentials + Mode).
+- Bei ungültiger PayPal-Konfiguration wird Checkout blockiert (z. B. `invalid_client`).
+- Pending-Registrierungen können Checkout erneut starten (Retry ohne Neuregistrierung).
 
 ### Status
 
 - Endpoint: `GET /api/payments/status/{session_id}`
 - Auth erforderlich.
 - Setzt bei Erfolg `registrations.payment_status = paid`.
+
+### Check-in-Hardening
+
+- Bei `entry_fee > 0` ist Check-in nur mit `payment_status = paid` erlaubt.
 
 ### Stripe Webhook
 
@@ -330,10 +380,10 @@ Hinweis:
 
 | Methode | Endpoint | Auth | Beschreibung |
 |---|---|---|---|
-| GET | `/api/games` | ❌ | Spieleliste |
-| POST | `/api/games` | Admin | Spiel erstellen |
+| GET | `/api/games` | ❌ | Spieleliste (inkl. `modes[].settings_template`) |
+| POST | `/api/games` | Admin | Spiel erstellen (Templates werden normalisiert) |
 | GET | `/api/games/{game_id}` | ❌ | Spieldetails |
-| PUT | `/api/games/{game_id}` | Admin | Spiel bearbeiten |
+| PUT | `/api/games/{game_id}` | Admin | Spiel bearbeiten (Mode-Template-Overrides möglich) |
 | DELETE | `/api/games/{game_id}` | Admin | Spiel löschen |
 
 ### Tournaments
@@ -346,10 +396,21 @@ Hinweis:
 | PUT | `/api/tournaments/{tournament_id}` | Admin | Turnier bearbeiten |
 | DELETE | `/api/tournaments/{tournament_id}` | Admin | Turnier löschen |
 | GET | `/api/tournaments/{tournament_id}/registrations` | Optional | Teilnehmerliste |
+| GET | `/api/tournaments/{tournament_id}/my-registrations` | ✅ | Eigene Registrierungen inkl. `can_retry_payment` |
 | POST | `/api/tournaments/{tournament_id}/register` | ✅ | Registrierung |
 | GET | `/api/tournaments/{tournament_id}/standings` | ❌ | Tabelle/Standings |
+| GET | `/api/tournaments/{tournament_id}/matchdays` | ❌ | Spieltage + Fenster + Matchstatus |
 | POST | `/api/tournaments/{tournament_id}/checkin/{registration_id}` | ✅ | Check-in |
 | POST | `/api/tournaments/{tournament_id}/generate-bracket` | Admin | Bracket generieren |
+
+### Match Hub / Setup
+
+| Methode | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| GET | `/api/matches/{match_id}` | ✅ | Match-Detail (Kontext, Setup, Schedule, Viewer-Rechte) |
+| GET | `/api/matches/{match_id}/setup` | ✅ | Setup-Daten + Mode-Template |
+| POST | `/api/matches/{match_id}/setup` | ✅ | Setup einreichen (Teamseite) |
+| PUT | `/api/matches/{match_id}/setup/resolve` | Admin | Setup-Konflikt finalisieren |
 
 ### Match Scoring / BR
 
@@ -367,7 +428,7 @@ Hinweis:
 
 | Methode | Endpoint | Auth | Beschreibung |
 |---|---|---|---|
-| POST | `/api/payments/create-checkout` | ✅ | Stripe/PayPal Checkout erzeugen |
+| POST | `/api/payments/create-checkout` | ✅ | Stripe/PayPal Checkout erzeugen (PayPal-Validierung aktiv) |
 | GET | `/api/payments/status/{session_id}` | ✅ | Zahlungsstatus prüfen |
 | POST | `/api/webhook/stripe` | ❌ | Stripe Webhook |
 
@@ -409,7 +470,7 @@ Hinweis:
 
 | Methode | Endpoint | Auth | Beschreibung |
 |---|---|---|---|
-| GET | `/api/widget/tournament/{tournament_id}` | ❌ | Widget-Daten |
+| GET | `/api/widget/tournament/{tournament_id}` | ❌ | Widget-Daten (`view=bracket|standings|matchdays`, optional `matchday`) |
 | GET | `/api/stats` | ❌ | Öffentliche Zahlen |
 
 ### Admin
@@ -424,6 +485,8 @@ Hinweis:
 | DELETE | `/api/admin/teams/{team_id}` | Admin | Team inkl. Hierarchie löschen |
 | GET | `/api/admin/settings` | Admin | Settings lesen |
 | PUT | `/api/admin/settings` | Admin | Setting schreiben |
+| GET | `/api/admin/payments/providers/status` | Admin | Provider-Status inkl. PayPal-Validation-Metadaten |
+| POST | `/api/admin/payments/paypal/validate` | Admin | PayPal Credentials aktiv validieren |
 | POST | `/api/admin/email/test` | Admin | SMTP-Testmail |
 | POST | `/api/admin/reminders/checkin/{tournament_id}` | Admin | Check-in-Reminder versenden |
 
@@ -529,6 +592,29 @@ ADMIN_FORCE_PASSWORD_RESET=true
 ```bash
 journalctl -u arena-backend -n 120 --no-pager
 ```
+
+### PayPal `invalid_client` / Checkout schlägt fehl
+
+1. Credentials und Modus prüfen:
+
+```bash
+curl -H "Authorization: Bearer <ADMIN_JWT>" \
+  -H "Content-Type: application/json" \
+  -X POST https://DEINE-DOMAIN/api/admin/payments/paypal/validate
+```
+
+2. Achte auf die korrekte Kombination:
+
+- Sandbox Client/Secret nur mit `paypal_mode=sandbox`
+- Live Client/Secret nur mit `paypal_mode=live`
+
+3. Provider-Status prüfen:
+
+```bash
+curl -H "Authorization: Bearer <ADMIN_JWT>" https://DEINE-DOMAIN/api/admin/payments/providers/status
+```
+
+4. Bei abgebrochener/fehlgeschlagener Zahlung im Turnier die Aktion `Jetzt bezahlen` verwenden (Retry auf bestehende Registrierung).
 
 ### Nginx wurde nicht neu geladen
 

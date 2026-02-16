@@ -75,6 +75,7 @@ export default function TournamentDetailPage() {
   const [submissions, setSubmissions] = useState({});
   const [standings, setStandings] = useState(null);
   const [standingsLoading, setStandingsLoading] = useState(false);
+  const [myRegistrations, setMyRegistrations] = useState([]);
   const [brDialogOpen, setBrDialogOpen] = useState(false);
   const [selectedBRHeat, setSelectedBRHeat] = useState(null);
   const [brPlacementsInput, setBrPlacementsInput] = useState("");
@@ -103,19 +104,29 @@ export default function TournamentDetailPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [tRes, rRes] = await Promise.all([
+      const requests = [
         axios.get(`${API}/tournaments/${id}`),
         axios.get(`${API}/tournaments/${id}/registrations`),
-      ]);
+      ];
+      if (user) {
+        requests.push(
+          axios.get(`${API}/tournaments/${id}/my-registrations`).catch(() => ({ data: [] }))
+        );
+      }
+      const responses = await Promise.all(requests);
+      const tRes = responses[0];
+      const rRes = responses[1];
+      const myRes = responses[2];
       setTournament(tRes.data);
       setRegistrations(rRes.data);
+      setMyRegistrations(Array.isArray(myRes?.data) ? myRes.data : []);
       fetchStandings(tRes.data);
     } catch {
       toast.error("Turnier nicht gefunden");
     } finally {
       setLoading(false);
     }
-  }, [id, fetchStandings]);
+  }, [id, fetchStandings, user]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -293,6 +304,19 @@ export default function TournamentDetailPage() {
     updated[idx][field] = value;
     setPlayers(updated);
   };
+
+  const handleRetryPayment = async (registrationId) => {
+    try {
+      const payRes = await axios.post(`${API}/payments/create-checkout`, {
+        tournament_id: id,
+        registration_id: registrationId,
+        origin_url: window.location.origin,
+      });
+      window.location.href = payRes.data.url;
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Zahlung konnte nicht gestartet werden");
+    }
+  };
   const handleSelectTeam = (teamId) => {
     setSelectedTeamId(teamId);
     if (!teamId) {
@@ -393,11 +417,30 @@ export default function TournamentDetailPage() {
     return [];
   };
 
-  const embedCode = `<iframe src="${window.location.origin}/widget/${id}" width="100%" height="400" frameborder="0" style="border-radius:12px;overflow:hidden;"></iframe>`;
+  const widgetBase = `${window.location.origin}/widget/${id}`;
+  const embedCodes = [
+    {
+      key: "bracket",
+      label: "Bracket",
+      code: `<iframe src="${widgetBase}?view=bracket" width="100%" height="420" frameborder="0" style="border-radius:12px;overflow:hidden;"></iframe>`,
+    },
+    {
+      key: "standings",
+      label: "Tabelle",
+      code: `<iframe src="${widgetBase}?view=standings" width="100%" height="520" frameborder="0" style="border-radius:12px;overflow:hidden;"></iframe>`,
+    },
+    {
+      key: "matchdays",
+      label: "Spieltage",
+      code: `<iframe src="${widgetBase}?view=matchdays&matchday=1" width="100%" height="520" frameborder="0" style="border-radius:12px;overflow:hidden;"></iframe>`,
+    },
+  ];
 
   const bracketType = tournament?.bracket?.type || tournament?.bracket_type;
   const hasStandings = ["round_robin", "league", "group_stage", "group_playoffs", "swiss_system", "battle_royale", "ladder_system", "king_of_the_hill"].includes(bracketType);
   const isBattleRoyale = bracketType === "battle_royale";
+  const myRegById = Object.fromEntries((myRegistrations || []).map((r) => [r.id, r]));
+  const myPendingPayments = (myRegistrations || []).filter((r) => r.can_retry_payment);
   const renderStandingsTable = (rows) => (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -565,6 +608,15 @@ export default function TournamentDetailPage() {
               </DialogContent>
             </Dialog>
           )}
+          {myPendingPayments.length > 0 && (
+            <Button
+              variant="outline"
+              className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+              onClick={() => handleRetryPayment(myPendingPayments[0].id)}
+            >
+              <CreditCard className="w-4 h-4 mr-2" />Ausstehende Zahlung fortsetzen
+            </Button>
+          )}
         </div>
 
         {/* Tabs */}
@@ -592,7 +644,7 @@ export default function TournamentDetailPage() {
           <TabsContent value="bracket" className="mt-6">
             {tournament.bracket ? (
               <div className="glass rounded-xl p-6 border border-white/5">
-                <BracketView bracket={tournament.bracket} />
+                <BracketView bracket={tournament.bracket} tournamentId={id} />
                 {/* Score entry section */}
                 {tournament.status === "live" && (
                   <div className="mt-8 border-t border-white/5 pt-6">
@@ -631,6 +683,11 @@ export default function TournamentDetailPage() {
                                     {isAdmin ? "Ergebnis freigeben" : "Ergebnis melden"}
                                   </Button>
                                 )}
+                                <Link to={`/tournaments/${id}/matches/${heat.id}`} className="flex-1">
+                                  <Button size="sm" variant="outline" className="w-full text-xs h-7 border-white/20 text-zinc-300 hover:bg-white/5">
+                                    Match Hub
+                                  </Button>
+                                </Link>
                               </div>
                             </div>
                           ))}
@@ -694,6 +751,11 @@ export default function TournamentDetailPage() {
                                       Admin
                                     </Button>
                                   )}
+                                  <Link to={`/tournaments/${id}/matches/${match.id}`}>
+                                    <Button size="sm" variant="ghost" className="text-zinc-500 hover:text-white text-xs h-7 px-2">
+                                      Hub
+                                    </Button>
+                                  </Link>
                                 </div>
                               </div>
                             );
@@ -738,6 +800,16 @@ export default function TournamentDetailPage() {
                       <div className="flex items-center gap-2">
                         {reg.payment_status === "paid" && <Badge className="bg-green-500/10 text-green-400 border border-green-500/20 text-xs">Bezahlt</Badge>}
                         {reg.payment_status === "pending" && <Badge className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs">Ausstehend</Badge>}
+                        {myRegById[reg.id]?.can_retry_payment && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                            onClick={() => handleRetryPayment(reg.id)}
+                          >
+                            Jetzt bezahlen
+                          </Button>
+                        )}
                         {reg.checked_in ? (
                           <Badge className="bg-green-500/10 text-green-400 border border-green-500/20 text-xs"><Check className="w-3 h-3 mr-1" />Eingecheckt</Badge>
                         ) : tournament.status === "checkin" && user && (
@@ -837,13 +909,23 @@ export default function TournamentDetailPage() {
                 <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-white mb-2 flex items-center gap-2">
                   <Code className="w-5 h-5 text-yellow-500" />Widget einbetten
                 </h3>
-                <p className="text-xs text-zinc-500 mb-3">Kopiere diesen Code, um das Turnier-Bracket auf deiner Webseite einzubetten:</p>
-                <div className="relative">
-                  <pre className="bg-zinc-900 rounded-lg p-4 text-xs text-zinc-400 overflow-x-auto border border-white/5 font-mono">{embedCode}</pre>
-                  <Button data-testid="copy-embed-code" variant="ghost" size="sm" className="absolute top-2 right-2 text-zinc-500 hover:text-white"
-                    onClick={() => copyToClipboard(embedCode)}>
-                    <Copy className="w-4 h-4" />
-                  </Button>
+                <p className="text-xs text-zinc-500 mb-3">Bracket, Tabelle oder Spieltage können direkt als Iframe eingebettet werden:</p>
+                <div className="space-y-3">
+                  {embedCodes.map((item) => (
+                    <div key={`embed-${item.key}`} className="relative">
+                      <p className="text-[11px] text-zinc-500 mb-1 uppercase tracking-wider">{item.label}</p>
+                      <pre className="bg-zinc-900 rounded-lg p-4 text-xs text-zinc-400 overflow-x-auto border border-white/5 font-mono">{item.code}</pre>
+                      <Button
+                        data-testid={`copy-embed-code-${item.key}`}
+                        variant="ghost"
+                        size="sm"
+                        className="absolute top-6 right-2 text-zinc-500 hover:text-white"
+                        onClick={() => copyToClipboard(item.code)}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
