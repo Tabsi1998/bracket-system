@@ -87,7 +87,7 @@ class PaymentRequest(BaseModel):
     origin_url: str
 
 class UserRegister(BaseModel):
-    username: str
+    username: Optional[str] = ""
     email: str
     password: str
 
@@ -434,15 +434,18 @@ async def seed_games():
 @api_router.post("/auth/register")
 async def register_user(body: UserRegister):
     email = normalize_email(body.email)
-    username = body.username.strip()
-    if not username:
-        raise HTTPException(400, "Benutzername erforderlich")
     if not email:
         raise HTTPException(400, "E-Mail erforderlich")
     if await db.users.find_one({"email": exact_ci_regex(email, allow_outer_whitespace=True)}):
         raise HTTPException(400, "E-Mail bereits registriert")
+
+    requested_username = str(body.username or "").strip()
+    username = requested_username or (email.split("@")[0] if "@" in email else "user")
+    if not username:
+        username = f"user_{uuid.uuid4().hex[:6]}"
     if await db.users.find_one({"username": exact_ci_regex(username, allow_outer_whitespace=True)}):
-        raise HTTPException(400, "Benutzername bereits vergeben")
+        username = f"{username}_{uuid.uuid4().hex[:6]}"
+
     user_doc = {
         "id": str(uuid.uuid4()), "username": username, "email": email,
         "password_hash": hash_password(body.password), "role": "user",
@@ -455,20 +458,11 @@ async def register_user(body: UserRegister):
 
 @api_router.post("/auth/login")
 async def login_user(body: UserLogin):
-    identifier = body.email.strip()
-    if not identifier:
-        raise HTTPException(400, "E-Mail oder Benutzername erforderlich")
+    email = normalize_email(body.email)
+    if not email:
+        raise HTTPException(400, "E-Mail erforderlich")
 
-    exact_ci = exact_ci_regex(identifier, allow_outer_whitespace=True)
-    user = None
-    if "@" in identifier:
-        user = await db.users.find_one({"email": exact_ci})
-        if not user:
-            user = await db.users.find_one({"username": exact_ci})
-    else:
-        user = await db.users.find_one({"username": exact_ci})
-        if not user:
-            user = await db.users.find_one({"email": exact_ci})
+    user = await db.users.find_one({"email": exact_ci_regex(email, allow_outer_whitespace=True)})
     if not user:
         raise HTTPException(401, "Ungültige Anmeldedaten")
 

@@ -18,7 +18,7 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!username || !email || !password) { toast.error("Alle Felder ausfüllen"); return; }
+    if (!email || !password) { toast.error("E-Mail und Passwort ausfüllen"); return; }
     if (password.length < 6) { toast.error("Passwort muss mindestens 6 Zeichen haben"); return; }
     setLoading(true);
     try {
@@ -51,14 +51,14 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <Label className="text-zinc-400 text-sm">Benutzername</Label>
+              <Label className="text-zinc-400 text-sm">Anzeigename (optional)</Label>
               <div className="relative mt-1">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
                 <Input
                   data-testid="register-username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Benutzername"
+                  placeholder="Wird sonst aus E-Mail erzeugt"
                   className="pl-10 bg-zinc-900 border-white/10 text-white"
                 />
               </div>
