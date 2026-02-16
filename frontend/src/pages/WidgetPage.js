@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Trophy, Users, Zap, CalendarRange } from "lucide-react";
+import { buildMatchdayHierarchy, matchdayStatusBadgeClass } from "@/lib/matchdayHierarchy";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
@@ -127,8 +128,11 @@ export default function WidgetPage() {
   }
 
   const { tournament: t, registrations } = data;
-  const matchdays = data.matchdays || [];
-  const selectedMatchday = data.selected_matchday || (activeMatchday ? matchdays.find((d) => d.matchday === activeMatchday) : null);
+  const matchdayHierarchy = buildMatchdayHierarchy(data);
+  const matchdays = matchdayHierarchy.matchdays || [];
+  const weeks = matchdayHierarchy.weeks || [];
+  const selectedMatchdayNumber = Number.parseInt(String(data.selected_matchday?.matchday || activeMatchday || ""), 10) || null;
+  const selectedMatchday = selectedMatchdayNumber ? matchdays.find((d) => d.matchday === selectedMatchdayNumber) : null;
   const shownMatchday = selectedMatchday || matchdays[0];
 
   return (
@@ -196,28 +200,55 @@ export default function WidgetPage() {
         <div className="space-y-3">
           {matchdays.length > 0 ? (
             <>
-              <div className="flex gap-1 overflow-x-auto pb-1">
-                {matchdays.map((day) => (
-                  <button
-                    key={`day-${day.matchday}`}
-                    onClick={() => switchMatchday(day.matchday)}
-                    className={`text-[11px] px-2 py-1 rounded border transition ${
-                      shownMatchday?.matchday === day.matchday
-                        ? "border-yellow-500/40 text-yellow-500 bg-yellow-500/10"
-                        : "border-zinc-700 text-zinc-400"
-                    }`}
-                  >
-                    ST {day.matchday}
-                  </button>
+              {matchdayHierarchy?.season ? (
+                <div className="rounded border border-zinc-800 p-2.5 bg-zinc-950/50 flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-zinc-400">{matchdayHierarchy.season.name}</span>
+                  <Badge className={`text-[10px] ${matchdayStatusBadgeClass(matchdayHierarchy.season.status)}`}>
+                    {matchdayHierarchy.season.status_label}
+                  </Badge>
+                </div>
+              ) : null}
+              <div className="space-y-2">
+                {(weeks.length ? weeks : [{ id: "all-matchdays", label: "Spieltage", matchdays }]).map((week) => (
+                  <div key={`widget-week-${week.id}`} className="rounded border border-zinc-800 p-2 bg-zinc-950/40">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-cyan-400">{week.label || week.name || "Spieltage"}</span>
+                      {week.status ? (
+                        <Badge className={`text-[10px] ${matchdayStatusBadgeClass(week.status)}`}>
+                          {week.status_label}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
+                      {(week.matchdays || []).map((day) => (
+                        <button
+                          key={`day-${day.matchday}`}
+                          onClick={() => switchMatchday(day.matchday)}
+                          className={`text-[11px] px-2 py-1 rounded border transition ${
+                            shownMatchday?.matchday === day.matchday
+                              ? "border-yellow-500/40 text-yellow-500 bg-yellow-500/10"
+                              : "border-zinc-700 text-zinc-400"
+                          }`}
+                        >
+                          ST {day.matchday}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
               {shownMatchday && (
                 <div className="rounded border border-zinc-800 p-3">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="text-xs text-white font-semibold">{shownMatchday.name}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs text-white font-semibold">{shownMatchday.name}</div>
+                      <Badge className={`text-[10px] ${matchdayStatusBadgeClass(shownMatchday.status)}`}>
+                        {shownMatchday.status_label}
+                      </Badge>
+                    </div>
                     <div className="text-[10px] text-zinc-500 flex items-center gap-1">
                       <CalendarRange className="w-3 h-3" />
-                      {shownMatchday.window_start ? new Date(shownMatchday.window_start).toLocaleDateString("de-DE") : "-"} - {shownMatchday.window_end ? new Date(shownMatchday.window_end).toLocaleDateString("de-DE") : "-"}
+                      {shownMatchday.window_label || `${shownMatchday.window_start ? new Date(shownMatchday.window_start).toLocaleDateString("de-DE") : "-"} - ${shownMatchday.window_end ? new Date(shownMatchday.window_end).toLocaleDateString("de-DE") : "-"}`}
                     </div>
                   </div>
                   <div className="space-y-1.5">

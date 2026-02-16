@@ -8,10 +8,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Users, Trophy, Zap, UserCheck, CreditCard, Play, Shield, Check, X as XIcon, MessageSquare, AlertTriangle, Copy, Code } from "lucide-react";
+import { Users, Trophy, Zap, UserCheck, CreditCard, Play, Shield, Check, X as XIcon, MessageSquare, AlertTriangle, Copy, Code, CalendarRange } from "lucide-react";
 import BracketView from "@/components/BracketView";
 import CommentSection from "@/components/CommentSection";
 import { useAuth } from "@/context/AuthContext";
+import { buildMatchdayHierarchy, matchdayStatusBadgeClass } from "@/lib/matchdayHierarchy";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
@@ -75,6 +76,8 @@ export default function TournamentDetailPage() {
   const [submissions, setSubmissions] = useState({});
   const [standings, setStandings] = useState(null);
   const [standingsLoading, setStandingsLoading] = useState(false);
+  const [matchdayHierarchy, setMatchdayHierarchy] = useState(null);
+  const [matchdayLoading, setMatchdayLoading] = useState(false);
   const [myRegistrations, setMyRegistrations] = useState([]);
   const [brDialogOpen, setBrDialogOpen] = useState(false);
   const [selectedBRHeat, setSelectedBRHeat] = useState(null);
@@ -129,6 +132,34 @@ export default function TournamentDetailPage() {
   }, [id, fetchStandings, user]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    const bracketType = tournament?.bracket?.type || tournament?.bracket_type;
+    const supportsStructuredMatchdays = ["round_robin", "league", "group_stage", "group_playoffs"].includes(bracketType);
+    if (!tournament?.id || !tournament?.bracket || !supportsStructuredMatchdays) {
+      setMatchdayHierarchy(null);
+      setMatchdayLoading(false);
+      return;
+    }
+
+    let active = true;
+    setMatchdayLoading(true);
+    axios.get(`${API}/tournaments/${id}/matchdays`)
+      .then((res) => {
+        if (!active) return;
+        setMatchdayHierarchy(buildMatchdayHierarchy(res.data));
+      })
+      .catch(() => {
+        if (!active) return;
+        setMatchdayHierarchy(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setMatchdayLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [id, tournament?.id, tournament?.updated_at, tournament?.bracket, tournament?.bracket_type]);
 
   useEffect(() => {
     if (!user) {
@@ -438,6 +469,7 @@ export default function TournamentDetailPage() {
 
   const bracketType = tournament?.bracket?.type || tournament?.bracket_type;
   const hasStandings = ["round_robin", "league", "group_stage", "group_playoffs", "swiss_system", "battle_royale", "ladder_system", "king_of_the_hill"].includes(bracketType);
+  const hasStructuredMatchdays = ["round_robin", "league", "group_stage", "group_playoffs"].includes(bracketType);
   const isBattleRoyale = bracketType === "battle_royale";
   const myRegById = Object.fromEntries((myRegistrations || []).map((r) => [r.id, r]));
   const myPendingPayments = (myRegistrations || []).filter((r) => r.can_retry_payment);
@@ -645,6 +677,74 @@ export default function TournamentDetailPage() {
             {tournament.bracket ? (
               <div className="glass rounded-xl p-6 border border-white/5">
                 <BracketView bracket={tournament.bracket} tournamentId={id} />
+                {hasStructuredMatchdays && (
+                  <div className="mt-6 border-t border-white/5 pt-6">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-white uppercase tracking-wider">
+                        Saison / Wochen / Spieltage
+                      </h3>
+                      {matchdayHierarchy?.season ? (
+                        <div className="flex items-center gap-2">
+                          <Badge className={`text-[10px] ${matchdayStatusBadgeClass(matchdayHierarchy.season.status)}`}>
+                            {matchdayHierarchy.season.status_label}
+                          </Badge>
+                          <span className="text-[11px] text-zinc-500 font-mono">
+                            {matchdayHierarchy.season.name}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                    {matchdayLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-zinc-500">
+                        <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
+                        Spieltagsstruktur wird geladen...
+                      </div>
+                    ) : matchdayHierarchy?.weeks?.length ? (
+                      <div className="space-y-3">
+                        {matchdayHierarchy.weeks.map((week) => (
+                          <div key={`week-${week.id}`} className="rounded-lg border border-white/5 bg-zinc-950/40 p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <h4 className="text-sm font-semibold text-cyan-400">
+                                  {week.label || week.name}
+                                </h4>
+                                <p className="text-[11px] text-zinc-500">
+                                  Spieltage: {week.matchday_count} | Matches: {week.total_matches}
+                                </p>
+                              </div>
+                              <Badge className={`text-[10px] ${matchdayStatusBadgeClass(week.status)}`}>
+                                {week.status_label}
+                              </Badge>
+                            </div>
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                              {(week.matchdays || []).map((day) => (
+                                <div key={`week-${week.id}-day-${day.matchday}`} className="rounded-md border border-white/5 bg-zinc-900/40 p-3">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-sm text-white font-medium">
+                                      {day.name || `Spieltag ${day.matchday}`}
+                                    </span>
+                                    <Badge className={`text-[10px] ${matchdayStatusBadgeClass(day.status)}`}>
+                                      {day.status_label}
+                                    </Badge>
+                                  </div>
+                                  <div className="mt-1 text-[11px] text-zinc-500 flex items-center gap-1">
+                                    <CalendarRange className="w-3 h-3" />
+                                    <span>{day.window_label || "-"}</span>
+                                  </div>
+                                  <div className="mt-1 text-[11px] text-zinc-600">
+                                    Abgeschlossen: {day.completed_matches}/{day.total_matches}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-zinc-600">Keine Spieltagsstruktur verfuegbar.</p>
+                    )}
+                  </div>
+                )}
                 {/* Score entry section */}
                 {tournament.status === "live" && (
                   <div className="mt-8 border-t border-white/5 pt-6">

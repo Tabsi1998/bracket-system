@@ -271,6 +271,13 @@ Für `round_robin`, `league`, `group_stage` und `group_playoffs` enthält jede R
 - `window_start`
 - `window_end`
 
+Zusaetzlich liefert `GET /api/tournaments/{id}/matchdays` jetzt eine hierarchische Struktur:
+
+- `season` (inkl. Status + Status-Label)
+- `weeks` (ISO-KW, Datumsbereich, Status)
+- `matchdays` (mit `status_label`, KW-Metadaten, Fenster-Label)
+- `hierarchy.summary` (Anzahl Wochen, Spieltage, Matches)
+
 Der Match-Hub (`/tournaments/:id/matches/:matchId`) bündelt:
 
 - Terminabstimmung inkl. Accept-Flow
@@ -615,6 +622,43 @@ curl -H "Authorization: Bearer <ADMIN_JWT>" https://DEINE-DOMAIN/api/admin/payme
 ```
 
 4. Bei abgebrochener/fehlgeschlagener Zahlung im Turnier die Aktion `Jetzt bezahlen` verwenden (Retry auf bestehende Registrierung).
+
+### PayPal Setup fuer dieses Projekt (konkret)
+
+Dieses Projekt nutzt aktuell PayPal Checkout Orders (`/v2/checkout/orders`) mit anschliessendem Capture beim Status-Polling.
+
+Erforderlich:
+
+1. In PayPal Developer eine App vom Typ **Merchant** erstellen (nicht Platform).
+2. Aus der App **Client ID** und **Secret** fuer genau den verwendeten Modus kopieren:
+   - Sandbox Credentials -> `paypal_mode=sandbox`
+   - Live Credentials -> `paypal_mode=live`
+3. In den Admin Settings setzen:
+   - `payment_provider=paypal`
+   - `paypal_client_id=<CLIENT_ID>`
+   - `paypal_secret=<SECRET>`
+   - `paypal_mode=sandbox|live`
+4. Danach validieren:
+
+```bash
+curl -H "Authorization: Bearer <ADMIN_JWT>" \
+  -H "Content-Type: application/json" \
+  -X POST https://DEINE-DOMAIN/api/admin/payments/paypal/validate
+```
+
+Hinweise:
+
+- Ein PayPal Webhook ist fuer den bestehenden Flow nicht zwingend erforderlich.
+- Wenn `payment_provider=auto`, waehlt das Backend PayPal nur dann automatisch, wenn Client ID + Secret vorhanden sind.
+
+### PayPal Developer Portal bleibt weiss / laedt nicht
+
+1. Browser-Hard-Reload (`Ctrl+F5`) und Test im Inkognito-Fenster.
+2. Drittanbieter-Cookies fuer `paypal.com` erlauben.
+3. Adblocker/Tracking-Schutz/Script-Blocker fuer PayPal deaktivieren.
+4. VPN/Proxy testweise deaktivieren oder anderes Netzwerk probieren.
+5. Mit einem zweiten Browser gegenpruefen (z. B. Chrome <-> Firefox).
+6. Wenn das Problem nur temporaer auftritt: PayPal-Statusseite pruefen.
 
 ### Nginx wurde nicht neu geladen
 

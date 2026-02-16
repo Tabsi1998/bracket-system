@@ -35,7 +35,91 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ─── Pydantic Models ───
+STRUCTURED_LOG_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+STRUCTURED_LOG_MAX_DEPTH = 4
+STRUCTURED_LOG_MAX_ITEMS = 20
+STRUCTURED_LOG_MAX_STRING_LEN = 600
+
+MATCHDAY_STATUS_LABELS = {
+    "pending": "Geplant",
+    "in_progress": "Aktiv",
+    "completed": "Abgeschlossen",
+}
+
+SEASON_STATUS_LABELS = {
+    "pending": "Geplant",
+    "in_progress": "Aktiv",
+    "completed": "Abgeschlossen",
+}
+
+TOURNAMENT_TO_MATCHDAY_STATUS = {
+    "registration": "pending",
+    "checkin": "pending",
+    "live": "in_progress",
+    "completed": "completed",
+}
+
+def _sanitize_log_value(value: Any, depth: int = 0) -> Any:
+    if depth >= STRUCTURED_LOG_MAX_DEPTH:
+        return "<max-depth>"
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        if isinstance(value, str) and len(value) > STRUCTURED_LOG_MAX_STRING_LEN:
+            return f"{value[:STRUCTURED_LOG_MAX_STRING_LEN]}...[truncated]"
+        return value
+    if isinstance(value, dict):
+        out = {}
+        for idx, (k, v) in enumerate(value.items()):
+            if idx >= STRUCTURED_LOG_MAX_ITEMS:
+                out["__truncated__"] = True
+                break
+            out[str(k)] = _sanitize_log_value(v, depth + 1)
+        return out
+    if isinstance(value, (list, tuple, set)):
+        out_list = []
+        for idx, item in enumerate(value):
+            if idx >= STRUCTURED_LOG_MAX_ITEMS:
+                out_list.append("<truncated>")
+                break
+            out_list.append(_sanitize_log_value(item, depth + 1))
+        return out_list
+    return str(value)
+
+def log_structured(level: str, event: str, message: str, context: Optional[Dict[str, Any]] = None, exc_info: bool = False) -> None:
+    level_name = str(level or "INFO").strip().upper()
+    payload = {
+        "event": str(event or "unknown_event").strip() or "unknown_event",
+        "message": str(message or "").strip(),
+    }
+    if context:
+        payload["context"] = _sanitize_log_value(context)
+    try:
+        line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
+    except Exception:
+        line = str(payload)
+    logger.log(STRUCTURED_LOG_LEVELS.get(level_name, logging.INFO), line, exc_info=exc_info)
+
+def log_debug(event: str, message: str, **context: Any) -> None:
+    log_structured("DEBUG", event, message, context=context or None)
+
+def log_info(event: str, message: str, **context: Any) -> None:
+    log_structured("INFO", event, message, context=context or None)
+
+def log_warning(event: str, message: str, **context: Any) -> None:
+    log_structured("WARNING", event, message, context=context or None)
+
+def log_error(event: str, message: str, exc_info: bool = False, **context: Any) -> None:
+    log_structured("ERROR", event, message, context=context or None, exc_info=exc_info)
+
+def log_critical(event: str, message: str, exc_info: bool = False, **context: Any) -> None:
+    log_structured("CRITICAL", event, message, context=context or None, exc_info=exc_info)
+
+# --- Pydantic Models ---
 
 class GameMode(BaseModel):
     name: str
@@ -216,7 +300,7 @@ class UserPasswordUpdate(BaseModel):
     current_password: str
     new_password: str
 
-# ─── JWT Auth ───
+# --- JWT Auth ---
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "arena-esports-secret-2026-xk9m2")
 JWT_ALGORITHM = "HS256"
@@ -511,12 +595,25 @@ async def get_current_user(request: Request):
 async def require_auth(request: Request):
     user = await get_current_user(request)
     if not user:
+        log_warning(
+            "auth.required.denied",
+            "Request blocked because user is not authenticated",
+            path=str(request.url.path),
+            client_ip=get_request_client_ip(request),
+        )
         raise HTTPException(401, "Nicht eingeloggt")
     return user
 
 async def require_admin(request: Request):
     user = await require_auth(request)
     if user.get("role") != "admin":
+        log_warning(
+            "auth.admin.denied",
+            "Admin endpoint access denied",
+            path=str(request.url.path),
+            user_id=str(user.get("id", "") or ""),
+            role=str(user.get("role", "") or ""),
+        )
         raise HTTPException(403, "Admin-Rechte erforderlich")
     return user
 
@@ -737,6 +834,7 @@ def normalize_payment_provider(value: str) -> str:
 async def get_payment_provider(requested_provider: Optional[str] = None) -> str:
     provider = normalize_payment_provider(requested_provider or "")
     if provider in {"stripe", "paypal"}:
+        log_debug("payments.provider.resolve.explicit", "Using explicitly requested payment provider", provider=provider)
         return provider
     setting = await db.admin_settings.find_one({"key": "payment_provider"}, {"_id": 0, "value": 1})
     setting_provider_raw = str((setting or {}).get("value", ""))
@@ -744,13 +842,17 @@ async def get_payment_provider(requested_provider: Optional[str] = None) -> str:
         setting_provider = normalize_payment_provider(setting_provider_raw)
     except HTTPException:
         logger.warning(f"Ignoring invalid payment_provider setting: {setting_provider_raw}")
+        log_warning("payments.provider.resolve.invalid_setting", "Ignoring invalid payment provider setting", value=setting_provider_raw)
         setting_provider = "auto"
     if setting_provider in {"stripe", "paypal"}:
+        log_debug("payments.provider.resolve.setting", "Using payment provider from admin settings", provider=setting_provider)
         return setting_provider
     paypal_client_id = await get_paypal_client_id()
     paypal_secret = await get_paypal_secret()
     if paypal_client_id and paypal_secret:
+        log_debug("payments.provider.resolve.auto", "Auto-selected PayPal because credentials are configured")
         return "paypal"
+    log_debug("payments.provider.resolve.auto", "Auto-selected Stripe because no PayPal credentials were found")
     return "stripe"
 
 async def get_paypal_client_id() -> Optional[str]:
@@ -793,6 +895,14 @@ async def validate_paypal_configuration(force_live: bool = True, persist_result:
     secret = await get_paypal_secret()
     base_url = await get_paypal_base_url()
     mode = "live" if "api-m.paypal.com" in base_url and "sandbox" not in base_url else "sandbox"
+    log_info(
+        "paypal.validate.start",
+        "Validating PayPal configuration",
+        force_live=bool(force_live),
+        persist_result=bool(persist_result),
+        mode=mode,
+        configured=bool(client_id and secret),
+    )
     result = {
         "configured": bool(client_id and secret),
         "valid": False,
@@ -812,14 +922,26 @@ async def validate_paypal_configuration(force_live: bool = True, persist_result:
             result["detail"] = "PayPal Credentials sind gültig."
         except HTTPException as e:
             result["detail"] = str(e.detail or "PayPal Validierung fehlgeschlagen")
+            log_warning("paypal.validate.http_error", "PayPal validation returned an HTTP exception", detail=result["detail"], mode=mode)
         except Exception as e:
             result["detail"] = f"PayPal Validierung fehlgeschlagen: {e}"
+            log_critical(
+                "paypal.validate.unexpected_exception",
+                "Unexpected exception during PayPal validation",
+                exc_info=True,
+                error=str(e),
+                mode=mode,
+            )
 
     if persist_result:
         await save_admin_setting_value("paypal_last_validation_status", "valid" if result["valid"] else "invalid")
         await save_admin_setting_value("paypal_last_validation_detail", result["detail"])
         await save_admin_setting_value("paypal_last_validation_mode", result["mode"])
         await save_admin_setting_value("paypal_last_validation_checked_at", result["checked_at"])
+    if result["valid"]:
+        log_info("paypal.validate.success", "PayPal configuration validation succeeded", mode=result["mode"])
+    else:
+        log_warning("paypal.validate.failed", "PayPal configuration validation failed", mode=result["mode"], detail=result["detail"])
     return result
 
 async def get_payment_provider_status(force_paypal_check: bool = False) -> Dict[str, Any]:
@@ -860,6 +982,7 @@ async def paypal_api_request(
 ) -> Dict:
     base_url = await get_paypal_base_url()
     url = f"{base_url}{path}"
+    log_debug("paypal.api.request.start", "Calling PayPal API", method=method.upper(), path=path)
     data = None
     headers = {"Content-Type": content_type, "Accept": "application/json"}
     if raw_body is not None:
@@ -879,10 +1002,20 @@ async def paypal_api_request(
             return json.loads(body or "{}")
 
     try:
-        return await asyncio.to_thread(_do_request)
+        response = await asyncio.to_thread(_do_request)
+        log_debug("paypal.api.request.success", "PayPal API call succeeded", method=method.upper(), path=path)
+        return response
     except urllib.error.HTTPError as http_error:
         body = http_error.read().decode("utf-8", errors="ignore") if http_error else ""
         logger.warning(f"PayPal API error {http_error.code}: {body}")
+        log_warning(
+            "paypal.api.request.http_error",
+            "PayPal API returned an HTTP error",
+            method=method.upper(),
+            path=path,
+            status_code=int(http_error.code),
+            response_body=body[:500],
+        )
         detail = "PayPal API Fehler"
         try:
             parsed = json.loads(body or "{}")
@@ -900,6 +1033,7 @@ async def paypal_api_request(
         raise HTTPException(400, detail)
     except Exception as e:
         logger.warning(f"PayPal request failed: {e}")
+        log_error("paypal.api.request.error", "PayPal API call failed due to connection or parsing error", method=method.upper(), path=path, error=str(e))
         raise HTTPException(400, "PayPal Verbindung fehlgeschlagen")
 
 async def get_paypal_access_token() -> str:
@@ -918,10 +1052,19 @@ async def get_paypal_access_token() -> str:
     )
     access_token = str((token_response or {}).get("access_token", "")).strip()
     if not access_token:
+        log_error("paypal.token.missing", "PayPal access token response did not include access_token")
         raise HTTPException(500, "PayPal Token konnte nicht erzeugt werden")
+    log_debug("paypal.token.success", "PayPal access token retrieved successfully")
     return access_token
 
 async def create_paypal_order(amount: float, currency: str, tournament_name: str, return_url: str, cancel_url: str) -> Dict:
+    log_info(
+        "paypal.order.create.start",
+        "Creating PayPal order",
+        amount=float(amount or 0),
+        currency=str(currency or "").upper(),
+        tournament_name=str(tournament_name or ""),
+    )
     token = await get_paypal_access_token()
     payload = {
         "intent": "CAPTURE",
@@ -941,15 +1084,33 @@ async def create_paypal_order(amount: float, currency: str, tournament_name: str
             "user_action": "PAY_NOW",
         },
     }
-    return await paypal_api_request("POST", "/v2/checkout/orders", payload=payload, bearer_token=token)
+    order = await paypal_api_request("POST", "/v2/checkout/orders", payload=payload, bearer_token=token)
+    log_info(
+        "paypal.order.create.success",
+        "PayPal order created",
+        order_id=str((order or {}).get("id", "") or ""),
+        status=str((order or {}).get("status", "") or ""),
+    )
+    return order
 
 async def get_paypal_order(order_id: str) -> Dict:
+    log_debug("paypal.order.fetch.start", "Fetching PayPal order", order_id=str(order_id or ""))
     token = await get_paypal_access_token()
-    return await paypal_api_request("GET", f"/v2/checkout/orders/{order_id}", payload=None, bearer_token=token)
+    order = await paypal_api_request("GET", f"/v2/checkout/orders/{order_id}", payload=None, bearer_token=token)
+    log_debug("paypal.order.fetch.success", "Fetched PayPal order", order_id=str(order_id or ""), status=str((order or {}).get("status", "") or ""))
+    return order
 
 async def capture_paypal_order(order_id: str) -> Dict:
+    log_info("paypal.order.capture.start", "Capturing PayPal order", order_id=str(order_id or ""))
     token = await get_paypal_access_token()
-    return await paypal_api_request("POST", f"/v2/checkout/orders/{order_id}/capture", payload={}, bearer_token=token)
+    capture = await paypal_api_request("POST", f"/v2/checkout/orders/{order_id}/capture", payload={}, bearer_token=token)
+    log_info(
+        "paypal.order.capture.success",
+        "PayPal order capture completed",
+        order_id=str(order_id or ""),
+        status=str((capture or {}).get("status", "") or ""),
+    )
+    return capture
 
 def sanitize_registration(reg: Dict, include_private: bool = False, include_player_emails: bool = False) -> Dict:
     players = []
@@ -984,7 +1145,7 @@ def sanitize_registration(reg: Dict, include_private: bool = False, include_play
 
     return doc
 
-# ─── Seed Data ───
+# --- Seed Data ---
 
 SEED_GAMES = [
     {
@@ -1154,16 +1315,20 @@ async def seed_games():
             await db.games.insert_one(doc)
         logger.info(f"Seeded {len(SEED_GAMES)} games")
 
-# ─── Auth Endpoints ───
+# --- Auth Endpoints ---
 
 @api_router.post("/auth/register")
 async def register_user(body: UserRegister):
     email = normalize_email(body.email)
+    log_info("auth.register.start", "User registration requested", email=email)
     if not email:
+        log_warning("auth.register.invalid_email", "Registration blocked because email is missing")
         raise HTTPException(400, "E-Mail erforderlich")
     if not is_valid_email(email):
+        log_warning("auth.register.invalid_email", "Registration blocked because email format is invalid", email=email)
         raise HTTPException(400, "Ungültige E-Mail")
     if await db.users.find_one({"email": exact_ci_regex(email, allow_outer_whitespace=True)}):
+        log_warning("auth.register.duplicate_email", "Registration blocked because email already exists", email=email)
         raise HTTPException(400, "E-Mail bereits registriert")
 
     requested_username = str(body.username or "").strip()
@@ -1189,6 +1354,7 @@ async def register_user(body: UserRegister):
     }
     await db.users.insert_one(user_doc)
     token = create_token(user_doc["id"], user_doc["email"], user_doc["role"])
+    log_info("auth.register.success", "User registration succeeded", user_id=user_doc["id"], email=email)
     return {
         "token": token,
         "user": {
@@ -1204,11 +1370,14 @@ async def register_user(body: UserRegister):
 @api_router.post("/auth/login")
 async def login_user(request: Request, body: UserLogin):
     email = normalize_email(body.email)
+    log_info("auth.login.start", "Login requested", email=email, client_ip=get_request_client_ip(request))
     if not email:
+        log_warning("auth.login.invalid_email", "Login blocked because email is missing")
         raise HTTPException(400, "E-Mail erforderlich")
 
     user = await db.users.find_one({"email": exact_ci_regex(email, allow_outer_whitespace=True)})
     if not user:
+        log_warning("auth.login.unknown_user", "Login failed because user was not found", email=email)
         raise HTTPException(401, "Ungültige Anmeldedaten")
 
     password_hash = str(user.get("password_hash", "") or "")
@@ -1234,6 +1403,12 @@ async def login_user(request: Request, body: UserLogin):
             is_authenticated = True
 
     if not is_authenticated:
+        log_warning(
+            "auth.login.invalid_credentials",
+            "Login failed because credentials are invalid",
+            email=email,
+            user_id=str(user.get("id", "") or ""),
+        )
         raise HTTPException(401, "Ungültige Anmeldedaten")
 
     user_id = user.get("id")
@@ -1260,6 +1435,14 @@ async def login_user(request: Request, body: UserLogin):
     await db.users.update_one({"_id": user["_id"]}, {"$set": normalize_updates})
 
     token = create_token(user_id, email, role)
+    log_info(
+        "auth.login.success",
+        "Login succeeded",
+        user_id=str(user_id or ""),
+        email=email,
+        role=str(role or ""),
+        client_ip=client_ip,
+    )
     return {"token": token, "user": {"id": user_id, "username": username, "email": email, "role": role, "avatar_url": avatar_url, "banner_url": banner_url}}
 
 @api_router.get("/auth/me")
@@ -1342,7 +1525,7 @@ async def seed_admin():
     await db.users.insert_one(admin_doc)
     logger.info(f"Admin user seeded/ensured: {admin_email}")
 
-# ─── Team Endpoints ───
+# --- Team Endpoints ---
 
 @api_router.get("/teams")
 async def list_teams(request: Request):
@@ -1760,7 +1943,7 @@ async def list_sub_teams(request: Request, team_id: str):
         merged_subs.append(s)
     return merged_subs
 
-# ─── Game Endpoints ───
+# --- Game Endpoints ---
 
 @api_router.get("/games")
 async def list_games(category: Optional[str] = None):
@@ -1819,7 +2002,7 @@ async def delete_game(request: Request, game_id: str):
         raise HTTPException(404, "Game not found")
     return {"status": "deleted"}
 
-# ─── Tournament Endpoints ───
+# --- Tournament Endpoints ---
 
 @api_router.get("/tournaments")
 async def list_tournaments(status: Optional[str] = None, game_id: Optional[str] = None):
@@ -1955,7 +2138,7 @@ async def delete_tournament(request: Request, tournament_id: str):
     await db.registrations.delete_many({"tournament_id": tournament_id})
     return {"status": "deleted"}
 
-# ─── Registration Endpoints ───
+# --- Registration Endpoints ---
 
 @api_router.get("/tournaments/{tournament_id}/registrations")
 async def list_registrations(request: Request, tournament_id: str):
@@ -2018,13 +2201,33 @@ async def list_my_registrations(request: Request, tournament_id: str):
 @api_router.post("/tournaments/{tournament_id}/register")
 async def register_for_tournament(request: Request, tournament_id: str, body: RegistrationCreate):
     user = await require_auth(request)
+    log_info(
+        "tournament.registration.start",
+        "Tournament registration requested",
+        tournament_id=tournament_id,
+        user_id=str(user.get("id", "") or ""),
+    )
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t:
+        log_warning("tournament.registration.not_found", "Registration blocked because tournament does not exist", tournament_id=tournament_id)
         raise HTTPException(404, "Tournament not found")
     if t["status"] not in ("registration", "checkin"):
+        log_warning(
+            "tournament.registration.closed",
+            "Registration blocked because tournament is closed",
+            tournament_id=tournament_id,
+            status=str(t.get("status", "") or ""),
+        )
         raise HTTPException(400, "Registration is closed")
     reg_count = await db.registrations.count_documents({"tournament_id": tournament_id})
     if reg_count >= t["max_participants"]:
+        log_warning(
+            "tournament.registration.full",
+            "Registration blocked because participant limit is reached",
+            tournament_id=tournament_id,
+            registered_count=reg_count,
+            max_participants=int(t.get("max_participants", 0) or 0),
+        )
         raise HTTPException(400, "Tournament is full")
 
     participant_mode = normalize_participant_mode(t.get("participant_mode", "team"))
@@ -2115,6 +2318,16 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
         "created_at": now_iso(),
     }
     await db.registrations.insert_one(doc)
+    log_info(
+        "tournament.registration.success",
+        "Tournament registration created",
+        tournament_id=tournament_id,
+        registration_id=str(doc.get("id", "") or ""),
+        user_id=str(user.get("id", "") or ""),
+        team_id=str(doc.get("team_id", "") or ""),
+        participant_mode=participant_mode,
+        payment_status=str(doc.get("payment_status", "") or ""),
+    )
     doc.pop("_id", None)
     return doc
 
@@ -2296,6 +2509,174 @@ async def get_tournament_standings(tournament_id: str):
 
     raise HTTPException(400, "Für diesen Bracket-Typ ist keine Tabelle verfügbar")
 
+def normalize_matchday_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status in MATCHDAY_STATUS_LABELS:
+        return status
+    return "pending"
+
+def matchday_status_label(value: Any) -> str:
+    status = normalize_matchday_status(value)
+    return MATCHDAY_STATUS_LABELS.get(status, MATCHDAY_STATUS_LABELS["pending"])
+
+def aggregate_progress_status(values: List[str]) -> str:
+    normalized = [normalize_matchday_status(v) for v in values if str(v or "").strip()]
+    if normalized and all(v == "completed" for v in normalized):
+        return "completed"
+    if any(v in {"in_progress", "completed"} for v in normalized):
+        return "in_progress"
+    return "pending"
+
+def format_date_range_label(start_iso: str, end_iso: str) -> str:
+    start_dt = parse_optional_datetime(str(start_iso or ""))
+    end_dt = parse_optional_datetime(str(end_iso or ""))
+    if not start_dt or not end_dt:
+        return ""
+    return f"{start_dt.strftime('%d.%m.%Y')} - {end_dt.strftime('%d.%m.%Y')}"
+
+def resolve_matchday_anchor(
+    day_doc: Dict[str, Any],
+    *,
+    fallback_start: Optional[datetime],
+    interval_days: int,
+) -> datetime:
+    window_start = parse_optional_datetime(str(day_doc.get("window_start", "") or ""))
+    if window_start:
+        return window_start
+    for match in day_doc.get("matches", []) or []:
+        scheduled = parse_optional_datetime(str(match.get("scheduled_for", "") or ""))
+        if scheduled:
+            return scheduled
+    day_index = max(1, int(day_doc.get("matchday", 1) or 1))
+    anchor = fallback_start or datetime.now(timezone.utc)
+    return anchor + timedelta(days=max(1, int(interval_days or 1)) * (day_index - 1))
+
+def enrich_matchdays_with_calendar(
+    tournament: Dict[str, Any],
+    matchdays: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not matchdays:
+        return []
+    cfg = get_tournament_matchday_config(tournament or {})
+    tournament_start = parse_optional_datetime(str((tournament or {}).get("start_date", "") or ""))
+    out = []
+    for day in sorted(matchdays, key=lambda x: int(x.get("matchday", 0) or 0)):
+        doc = dict(day or {})
+        status = normalize_matchday_status(doc.get("status"))
+        anchor = resolve_matchday_anchor(
+            doc,
+            fallback_start=tournament_start,
+            interval_days=cfg["interval_days"],
+        )
+        iso = anchor.isocalendar()
+        week_start = anchor - timedelta(days=iso.weekday - 1)
+        week_end = week_start + timedelta(days=6)
+        week_id = f"{iso.year}-KW{iso.week:02d}"
+        week_name = f"KW {iso.week:02d}"
+        week_range_label = f"{week_start.strftime('%d.%m.%Y')} - {week_end.strftime('%d.%m.%Y')}"
+        doc["status"] = status
+        doc["status_label"] = matchday_status_label(status)
+        doc["window_label"] = format_date_range_label(doc.get("window_start", ""), doc.get("window_end", ""))
+        doc["iso_year"] = int(iso.year)
+        doc["iso_week"] = int(iso.week)
+        doc["week_id"] = week_id
+        doc["week_name"] = week_name
+        doc["week_range_start"] = week_start.isoformat()
+        doc["week_range_end"] = week_end.isoformat()
+        doc["week_range_label"] = week_range_label
+        doc["week_label"] = f"{week_name} ({week_range_label})"
+        out.append(doc)
+    return out
+
+def build_matchday_hierarchy(tournament: Dict[str, Any], matchdays: List[Dict[str, Any]]) -> Dict[str, Any]:
+    enriched_days = enrich_matchdays_with_calendar(tournament, matchdays)
+    if not enriched_days:
+        tournament_status = TOURNAMENT_TO_MATCHDAY_STATUS.get(str((tournament or {}).get("status", "")).strip().lower(), "pending")
+        empty_season = {
+            "name": "Saison",
+            "status": tournament_status,
+            "status_label": SEASON_STATUS_LABELS.get(tournament_status, "Geplant"),
+            "start": "",
+            "end": "",
+            "weeks": [],
+        }
+        return {
+            "season": empty_season,
+            "weeks": [],
+            "summary": {"week_count": 0, "matchday_count": 0, "match_count": 0},
+            "matchdays": [],
+        }
+
+    week_map: Dict[str, Dict[str, Any]] = {}
+    for day in enriched_days:
+        week_id = str(day.get("week_id", "") or "")
+        if week_id not in week_map:
+            week_map[week_id] = {
+                "id": week_id,
+                "name": day.get("week_name", ""),
+                "iso_year": int(day.get("iso_year", 0) or 0),
+                "iso_week": int(day.get("iso_week", 0) or 0),
+                "range_start": str(day.get("week_range_start", "") or ""),
+                "range_end": str(day.get("week_range_end", "") or ""),
+                "range_label": str(day.get("week_range_label", "") or ""),
+                "label": str(day.get("week_label", "") or ""),
+                "status": "pending",
+                "status_label": MATCHDAY_STATUS_LABELS["pending"],
+                "matchdays": [],
+                "matchday_count": 0,
+                "total_matches": 0,
+                "completed_matches": 0,
+                "disputed_matches": 0,
+                "scheduled_matches": 0,
+            }
+        week_doc = week_map[week_id]
+        day_entry = dict(day)
+        week_doc["matchdays"].append(day_entry)
+        week_doc["matchday_count"] += 1
+        week_doc["total_matches"] += int(day_entry.get("total_matches", 0) or 0)
+        week_doc["completed_matches"] += int(day_entry.get("completed_matches", 0) or 0)
+        week_doc["disputed_matches"] += int(day_entry.get("disputed_matches", 0) or 0)
+        week_doc["scheduled_matches"] += int(day_entry.get("scheduled_matches", 0) or 0)
+
+    weeks = sorted(week_map.values(), key=lambda x: (int(x.get("iso_year", 0) or 0), int(x.get("iso_week", 0) or 0)))
+    for week in weeks:
+        week_status = aggregate_progress_status([str(day.get("status", "")) for day in week["matchdays"]])
+        week["status"] = week_status
+        week["status_label"] = matchday_status_label(week_status)
+        week["matchdays"] = sorted(week["matchdays"], key=lambda x: int(x.get("matchday", 0) or 0))
+
+    season_start = weeks[0].get("range_start", "")
+    season_end = weeks[-1].get("range_end", "")
+    season_start_dt = parse_optional_datetime(str(season_start or ""))
+    season_end_dt = parse_optional_datetime(str(season_end or ""))
+    season_name = "Saison"
+    if season_start_dt and season_end_dt:
+        if season_start_dt.year == season_end_dt.year:
+            season_name = f"Saison {season_start_dt.year}"
+        else:
+            season_name = f"Saison {season_start_dt.year}/{season_end_dt.year}"
+    season_status = aggregate_progress_status([str(week.get("status", "")) for week in weeks])
+    season_doc = {
+        "name": season_name,
+        "status": season_status,
+        "status_label": SEASON_STATUS_LABELS.get(season_status, "Geplant"),
+        "start": season_start,
+        "end": season_end,
+        "weeks": weeks,
+    }
+    total_matches = sum(int(week.get("total_matches", 0) or 0) for week in weeks)
+    summary = {
+        "week_count": len(weeks),
+        "matchday_count": len(enriched_days),
+        "match_count": total_matches,
+    }
+    return {
+        "season": season_doc,
+        "weeks": weeks,
+        "summary": summary,
+        "matchdays": enriched_days,
+    }
+
 def summarize_matchday(matches: List[Dict[str, Any]]) -> Dict[str, Any]:
     total = len(matches)
     completed = sum(1 for m in matches if str(m.get("status", "")).strip().lower() == "completed")
@@ -2399,11 +2780,15 @@ def build_tournament_matchdays(tournament: Dict[str, Any]) -> List[Dict[str, Any
         doc = matchday_map[day]
         doc["matches"].sort(key=lambda x: (int(x.get("position", 0) or 0), str(x.get("id", ""))))
         doc.update(summarize_matchday(doc["matches"]))
+        doc["status"] = normalize_matchday_status(doc.get("status"))
+        doc["status_label"] = matchday_status_label(doc.get("status"))
+        doc["window_label"] = format_date_range_label(doc.get("window_start", ""), doc.get("window_end", ""))
         result.append(doc)
-    return result
+    return enrich_matchdays_with_calendar(tournament, result)
 
 @api_router.get("/tournaments/{tournament_id}/matchdays")
 async def get_tournament_matchdays(tournament_id: str):
+    log_info("matchdays.fetch.start", "Loading tournament matchdays", tournament_id=tournament_id)
     tournament = await db.tournaments.find_one(
         {"id": tournament_id},
         {
@@ -2419,16 +2804,31 @@ async def get_tournament_matchdays(tournament_id: str):
         },
     )
     if not tournament:
+        log_warning("matchdays.fetch.not_found", "Tournament not found while loading matchdays", tournament_id=tournament_id)
         raise HTTPException(404, "Tournament not found")
     if not tournament.get("bracket"):
+        log_warning("matchdays.fetch.no_bracket", "Matchdays requested before bracket generation", tournament_id=tournament_id)
         raise HTTPException(400, "Bracket wurde noch nicht generiert")
 
     days = build_tournament_matchdays(tournament)
+    hierarchy = build_matchday_hierarchy(tournament, days)
+    enriched_days = hierarchy.get("matchdays", days)
+    log_info(
+        "matchdays.fetch.success",
+        "Tournament matchdays loaded",
+        tournament_id=tournament_id,
+        matchday_count=len(enriched_days),
+        week_count=int((hierarchy.get("summary") or {}).get("week_count", 0) or 0),
+    )
     return {
         "tournament_id": tournament_id,
         "type": str((tournament.get("bracket") or {}).get("type", tournament.get("bracket_type", ""))),
-        "matchdays": days,
-        "count": len(days),
+        "matchdays": enriched_days,
+        "count": len(enriched_days),
+        "hierarchy": hierarchy,
+        "season": hierarchy.get("season"),
+        "weeks": hierarchy.get("weeks", []),
+        "summary": hierarchy.get("summary", {}),
     }
 
 @api_router.post("/tournaments/{tournament_id}/checkin/{registration_id}")
@@ -2463,7 +2863,7 @@ async def checkin(request: Request, tournament_id: str, registration_id: str):
     reg["checked_in"] = True
     return reg
 
-# ─── Bracket Generation ───
+# --- Bracket Generation ---
 
 def get_round_name(round_num, total_rounds):
     remaining = total_rounds - round_num
@@ -3469,12 +3869,25 @@ async def resolve_match_setup(request: Request, match_id: str, body: MatchSetupR
 
 @api_router.post("/tournaments/{tournament_id}/generate-bracket")
 async def generate_bracket(request: Request, tournament_id: str):
-    await require_admin(request)
+    admin_user = await require_admin(request)
+    log_info(
+        "tournament.bracket.generate.start",
+        "Bracket generation requested",
+        tournament_id=tournament_id,
+        admin_id=str(admin_user.get("id", "") or ""),
+    )
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t:
+        log_warning("tournament.bracket.generate.not_found", "Bracket generation failed because tournament was not found", tournament_id=tournament_id)
         raise HTTPException(404, "Tournament not found")
     regs = await db.registrations.find({"tournament_id": tournament_id}, {"_id": 0}).sort("seed", 1).to_list(200)
     if len(regs) < 2:
+        log_warning(
+            "tournament.bracket.generate.not_enough_participants",
+            "Bracket generation failed because not enough registrations are present",
+            tournament_id=tournament_id,
+            registration_count=len(regs),
+        )
         raise HTTPException(400, "Need at least 2 registrations to generate bracket")
     bracket_type = normalize_bracket_type(t.get("bracket_type", "single_elimination"))
     matchday_cfg = get_tournament_matchday_config(t)
@@ -3534,10 +3947,17 @@ async def generate_bracket(request: Request, tournament_id: str):
         {"id": tournament_id},
         {"$set": {"bracket": bracket, "status": "live", "updated_at": now_iso()}}
     )
+    log_info(
+        "tournament.bracket.generate.success",
+        "Bracket generation completed",
+        tournament_id=tournament_id,
+        bracket_type=bracket_type,
+        registration_count=len(regs),
+    )
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     return t
 
-# ─── Score Submission System ───
+# --- Score Submission System ---
 
 @api_router.post("/tournaments/{tournament_id}/matches/{match_id}/submit-score")
 async def submit_match_score(request: Request, tournament_id: str, match_id: str, body: ScoreSubmission):
@@ -3633,7 +4053,7 @@ async def submit_match_score(request: Request, tournament_id: str, match_id: str
             await db.score_submissions.update_many({"tournament_id": tournament_id, "match_id": match_id}, {"$set": {"status": "confirmed"}})
             return {"status": "confirmed", "message": "Ergebnisse stimmen überein - automatisch bestätigt!"}
         else:
-            # Scores differ → disputed
+            # Scores differ -> disputed
             await db.score_submissions.update_many({"tournament_id": tournament_id, "match_id": match_id}, {"$set": {"status": "disputed"}})
             # Notify admins
             admins = await db.users.find({"role": "admin"}, {"_id": 0}).to_list(10)
@@ -4153,40 +4573,72 @@ async def update_match_score(request: Request, tournament_id: str, match_id: str
     await _apply_score_to_bracket(tournament_id, match_id, body.score1, body.score2, body.winner_id)
     return await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
 
-# ─── Payment Endpoints ───
+# --- Payment Endpoints ---
 
 @api_router.post("/payments/create-checkout")
 async def create_checkout(request: Request, body: PaymentRequest):
+    log_info(
+        "payments.checkout.start",
+        "Checkout creation requested",
+        tournament_id=body.tournament_id,
+        registration_id=body.registration_id,
+        requested_provider=str(body.provider or ""),
+    )
     t = await db.tournaments.find_one({"id": body.tournament_id}, {"_id": 0})
     if not t:
+        log_warning("payments.checkout.tournament_not_found", "Checkout failed because tournament was not found", tournament_id=body.tournament_id)
         raise HTTPException(404, "Tournament not found")
     entry_fee = t.get("entry_fee", 0)
     if entry_fee <= 0:
+        log_warning("payments.checkout.free_tournament", "Checkout blocked because tournament has no entry fee", tournament_id=body.tournament_id)
         raise HTTPException(400, "This tournament is free")
     reg = await db.registrations.find_one({"id": body.registration_id, "tournament_id": body.tournament_id}, {"_id": 0})
     if not reg:
+        log_warning(
+            "payments.checkout.registration_not_found",
+            "Checkout failed because registration was not found",
+            tournament_id=body.tournament_id,
+            registration_id=body.registration_id,
+        )
         raise HTTPException(404, "Registration not found")
     if reg.get("payment_status") == "paid":
+        log_warning(
+            "payments.checkout.already_paid",
+            "Checkout blocked because registration is already paid",
+            tournament_id=body.tournament_id,
+            registration_id=body.registration_id,
+        )
         raise HTTPException(400, "Registration is already paid")
 
     user = await get_current_user(request)
     if reg.get("user_id") and (not user or (user["id"] != reg["user_id"] and user.get("role") != "admin")):
+        log_warning(
+            "payments.checkout.forbidden",
+            "Checkout blocked because requester has no permission for this registration",
+            tournament_id=body.tournament_id,
+            registration_id=body.registration_id,
+            requester_id=str((user or {}).get("id", "") or ""),
+        )
         raise HTTPException(403, "Keine Berechtigung für diese Zahlung")
 
     payment_provider = await get_payment_provider(body.provider)
     host_url = body.origin_url.rstrip("/")
     if not (host_url.startswith("http://") or host_url.startswith("https://")):
+        log_warning("payments.checkout.invalid_origin", "Checkout blocked because origin URL is invalid", origin_url=body.origin_url)
         raise HTTPException(400, "Invalid origin URL")
 
     currency = str(t.get("currency", "usd") or "usd").lower()
     unit_amount = int(round(float(entry_fee) * 100))
     if unit_amount <= 0:
+        log_warning("payments.checkout.invalid_amount", "Checkout blocked because computed amount is invalid", tournament_id=body.tournament_id, entry_fee=float(entry_fee or 0))
         raise HTTPException(400, "Invalid entry fee")
     if payment_provider == "paypal":
         validation = await validate_paypal_configuration(force_live=True, persist_result=True)
         if not validation.get("configured"):
+            log_warning("payments.checkout.paypal_not_configured", "Checkout blocked because PayPal is not fully configured")
             raise HTTPException(400, "PayPal ist nicht vollständig konfiguriert")
         if not validation.get("valid"):
+            log_warning("payments.checkout.paypal_invalid", "Checkout blocked because PayPal validation failed", detail=str(validation.get("detail", "") or ""))
             raise HTTPException(400, str(validation.get("detail") or "PayPal Validierung fehlgeschlagen"))
         return_url = f"{host_url}/tournaments/{body.tournament_id}?payment_provider=paypal"
         cancel_url = f"{host_url}/tournaments/{body.tournament_id}?payment_cancelled=1"
@@ -4223,6 +4675,13 @@ async def create_checkout(request: Request, body: PaymentRequest):
         }
         await db.payment_transactions.insert_one(payment_doc)
         await db.registrations.update_one({"id": body.registration_id}, {"$set": {"payment_session_id": order_id}})
+        log_info(
+            "payments.checkout.paypal.success",
+            "PayPal checkout created",
+            tournament_id=body.tournament_id,
+            registration_id=body.registration_id,
+            session_id=order_id,
+        )
         return {"url": approve_url, "session_id": order_id, "provider": "paypal"}
 
     stripe_api_key = await get_stripe_api_key()
@@ -4250,6 +4709,13 @@ async def create_checkout(request: Request, body: PaymentRequest):
         )
     except Exception as e:
         logger.error(f"Stripe checkout create error: {e}")
+        log_error(
+            "payments.checkout.stripe.error",
+            "Stripe checkout creation failed",
+            tournament_id=body.tournament_id,
+            registration_id=body.registration_id,
+            error=str(e),
+        )
         raise HTTPException(500, "Stripe checkout konnte nicht erstellt werden")
 
     payment_doc = {
@@ -4267,17 +4733,32 @@ async def create_checkout(request: Request, body: PaymentRequest):
     }
     await db.payment_transactions.insert_one(payment_doc)
     await db.registrations.update_one({"id": body.registration_id}, {"$set": {"payment_session_id": session.id}})
+    log_info(
+        "payments.checkout.stripe.success",
+        "Stripe checkout created",
+        tournament_id=body.tournament_id,
+        registration_id=body.registration_id,
+        session_id=str(session.id),
+    )
     return {"url": session.url, "session_id": session.id, "provider": "stripe"}
 
 @api_router.get("/payments/status/{session_id}")
 async def check_payment_status(request: Request, session_id: str):
     user = await require_auth(request)
+    log_debug("payments.status.start", "Payment status requested", session_id=session_id, user_id=str(user.get("id", "") or ""))
     existing = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not existing:
+        log_warning("payments.status.not_found", "Payment status requested for unknown session", session_id=session_id)
         raise HTTPException(404, "Payment session not found")
 
     registration = await db.registrations.find_one({"id": existing.get("registration_id")}, {"_id": 0, "user_id": 1})
     if registration and registration.get("user_id") and registration.get("user_id") != user.get("id") and user.get("role") != "admin":
+        log_warning(
+            "payments.status.forbidden",
+            "Payment status denied because requester has no permission",
+            session_id=session_id,
+            requester_id=str(user.get("id", "") or ""),
+        )
         raise HTTPException(403, "Keine Berechtigung")
 
     provider = str(existing.get("provider", "stripe") or "stripe").strip().lower()
@@ -4293,6 +4774,7 @@ async def check_payment_status(request: Request, session_id: str):
                 if capture_status:
                     order_status = capture_status
             except HTTPException:
+                log_warning("payments.status.paypal_capture_retry", "PayPal order capture failed during polling, refetching order status", session_id=session_id)
                 refreshed = await get_paypal_order(session_id)
                 order = refreshed or order
                 order_status = str((refreshed or {}).get("status", order_status) or order_status).strip().upper()
@@ -4321,6 +4803,13 @@ async def check_payment_status(request: Request, session_id: str):
         if payment_status == "paid":
             await db.registrations.update_one({"id": existing["registration_id"]}, {"$set": {"payment_status": "paid"}})
 
+        log_info(
+            "payments.status.paypal.result",
+            "Resolved PayPal payment status",
+            session_id=session_id,
+            payment_status=payment_status,
+            status=order_status,
+        )
         return {
             "provider": "paypal",
             "status": order_status,
@@ -4337,6 +4826,7 @@ async def check_payment_status(request: Request, session_id: str):
         session = stripe.checkout.Session.retrieve(session_id)
     except Exception as e:
         logger.error(f"Stripe checkout status error: {e}")
+        log_error("payments.status.stripe.error", "Stripe status request failed", session_id=session_id, error=str(e))
         raise HTTPException(404, "Payment session not found")
 
     payment_status = str(getattr(session, "payment_status", "") or "")
@@ -4348,6 +4838,13 @@ async def check_payment_status(request: Request, session_id: str):
         )
         if payment_status == "paid":
             await db.registrations.update_one({"id": existing["registration_id"]}, {"$set": {"payment_status": "paid"}})
+    log_info(
+        "payments.status.stripe.result",
+        "Resolved Stripe payment status",
+        session_id=session_id,
+        payment_status=payment_status,
+        status=session_status,
+    )
     return {
         "provider": "stripe",
         "status": session_status,
@@ -4392,7 +4889,7 @@ async def stripe_webhook(request: Request):
         logger.error(f"Webhook error: {e}")
         return {"status": "error"}
 
-# ─── Profile Endpoint ───
+# --- Profile Endpoint ---
 
 @api_router.put("/users/me/account")
 async def update_my_account(request: Request, body: UserAccountUpdate):
@@ -4585,12 +5082,14 @@ async def get_user_profile(user_id: str):
         "stats": {"tournaments_played": len(regs), "wins": wins, "draws": draws, "losses": losses},
     }
 
-# ─── Widget Endpoint ───
+# --- Widget Endpoint ---
 
 @api_router.get("/widget/tournament/{tournament_id}")
 async def get_widget_data(tournament_id: str, view: Optional[str] = None, matchday: Optional[int] = None):
+    log_debug("widget.fetch.start", "Widget payload requested", tournament_id=tournament_id, view=view, matchday=matchday)
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t:
+        log_warning("widget.fetch.not_found", "Widget requested for missing tournament", tournament_id=tournament_id)
         raise HTTPException(404, "Tournament not found")
     hydrate_tournament_defaults(t)
     regs = await db.registrations.find({"tournament_id": tournament_id}, {"_id": 0}).to_list(200)
@@ -4612,13 +5111,27 @@ async def get_widget_data(tournament_id: str, view: Optional[str] = None, matchd
             payload["standings_error"] = str(e.detail)
     elif requested_view == "matchdays" and t.get("bracket"):
         all_days = build_tournament_matchdays(t)
+        hierarchy = build_matchday_hierarchy(t, all_days)
+        all_days = hierarchy.get("matchdays", all_days)
         payload["matchdays"] = all_days
+        payload["matchday_hierarchy"] = hierarchy
+        payload["season"] = hierarchy.get("season")
+        payload["weeks"] = hierarchy.get("weeks", [])
+        payload["matchday_summary"] = hierarchy.get("summary", {})
         if isinstance(matchday, int) and matchday > 0:
             payload["selected_matchday"] = next((d for d in all_days if int(d.get("matchday", 0) or 0) == matchday), None)
 
+    log_debug(
+        "widget.fetch.success",
+        "Widget payload built",
+        tournament_id=tournament_id,
+        view=requested_view,
+        registration_count=len(payload.get("registrations", [])),
+        matchday_count=len(payload.get("matchdays", [])) if isinstance(payload.get("matchdays"), list) else 0,
+    )
     return payload
 
-# ─── Comment Endpoints ───
+# --- Comment Endpoints ---
 
 @api_router.get("/tournaments/{tournament_id}/comments")
 async def list_tournament_comments(tournament_id: str):
@@ -4678,7 +5191,7 @@ async def create_match_comment(request: Request, match_id: str, body: CommentCre
     doc.pop("_id", None)
     return doc
 
-# ─── Notification Endpoints ───
+# --- Notification Endpoints ---
 
 @api_router.get("/notifications")
 async def list_notifications(request: Request):
@@ -4704,7 +5217,7 @@ async def mark_all_read(request: Request):
     await db.notifications.update_many({"user_id": user["id"], "read": False}, {"$set": {"read": True}})
     return {"status": "ok"}
 
-# ─── Match Scheduling ───
+# --- Match Scheduling ---
 
 @api_router.get("/matches/{match_id}/schedule")
 async def get_match_schedule(request: Request, match_id: str):
@@ -4797,7 +5310,7 @@ async def accept_schedule(request: Request, match_id: str, proposal_id: str):
         await db.notifications.insert_one(notif)
     return {"status": "accepted"}
 
-# ─── Admin Endpoints ───
+# --- Admin Endpoints ---
 
 @api_router.get("/admin/settings")
 async def get_admin_settings(request: Request):
@@ -4824,9 +5337,22 @@ async def admin_get_payment_provider_status(request: Request):
 
 @api_router.post("/admin/payments/paypal/validate")
 async def admin_validate_paypal(request: Request, body: Optional[AdminPayPalValidateRequest] = None):
-    await require_admin(request)
+    admin_user = await require_admin(request)
     force_live = True if body is None else bool(body.force_live)
+    log_info(
+        "paypal.validate.admin.start",
+        "Admin triggered PayPal validation",
+        admin_id=str(admin_user.get("id", "") or ""),
+        force_live=force_live,
+    )
     result = await validate_paypal_configuration(force_live=force_live, persist_result=True)
+    log_info(
+        "paypal.validate.admin.result",
+        "Admin PayPal validation completed",
+        admin_id=str(admin_user.get("id", "") or ""),
+        valid=bool(result.get("valid")),
+        mode=str(result.get("mode", "") or ""),
+    )
     return result
 
 @api_router.post("/admin/email/test")
@@ -5036,7 +5562,7 @@ async def admin_dashboard(request: Request):
         "total_payments": total_payments,
     }
 
-# ─── Stats ───
+# --- Stats ---
 
 @api_router.get("/stats")
 async def get_stats():
@@ -5051,7 +5577,7 @@ async def get_stats():
         "total_games": total_games,
     }
 
-# ─── App Setup ───
+# --- App Setup ---
 
 app.include_router(api_router)
 
