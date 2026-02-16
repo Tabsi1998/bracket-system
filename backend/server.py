@@ -876,7 +876,8 @@ def generate_round_robin(registrations):
     return {"type": "round_robin", "rounds": rounds, "total_rounds": len(rounds)}
 
 @api_router.post("/tournaments/{tournament_id}/generate-bracket")
-async def generate_bracket(tournament_id: str):
+async def generate_bracket(request: Request, tournament_id: str):
+    await require_admin(request)
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Tournament not found")
