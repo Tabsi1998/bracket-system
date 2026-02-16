@@ -321,6 +321,9 @@ export default function TournamentDetailPage() {
             <TabsTrigger data-testid="tab-info" value="info" className="data-[state=active]:bg-yellow-500/10 data-[state=active]:text-yellow-500">
               <Shield className="w-4 h-4 mr-2" />Info
             </TabsTrigger>
+            <TabsTrigger data-testid="tab-comments" value="comments" className="data-[state=active]:bg-yellow-500/10 data-[state=active]:text-yellow-500">
+              <MessageSquare className="w-4 h-4 mr-2" />Kommentare
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="bracket" className="mt-6">
