@@ -587,7 +587,8 @@ async def get_game(game_id: str):
     return game
 
 @api_router.put("/games/{game_id}")
-async def update_game(game_id: str, body: GameCreate):
+async def update_game(request: Request, game_id: str, body: GameCreate):
+    await require_admin(request)
     result = await db.games.update_one({"id": game_id}, {"$set": body.model_dump()})
     if result.matched_count == 0:
         raise HTTPException(404, "Game not found")
