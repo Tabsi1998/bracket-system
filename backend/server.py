@@ -135,6 +135,15 @@ class AdminSettingUpdate(BaseModel):
 JWT_SECRET = os.environ.get("JWT_SECRET", "arena-esports-secret-2026-xk9m2")
 JWT_ALGORITHM = "HS256"
 
+def normalize_email(value: str) -> str:
+    return str(value or "").strip().strip('"').strip("'").lower()
+
+def exact_ci_regex(value: str, allow_outer_whitespace: bool = False) -> Dict[str, str]:
+    escaped = re.escape(str(value or "").strip())
+    if allow_outer_whitespace:
+        escaped = rf"\s*{escaped}\s*"
+    return {"$regex": f"^{escaped}$", "$options": "i"}
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
@@ -424,15 +433,15 @@ async def seed_games():
 
 @api_router.post("/auth/register")
 async def register_user(body: UserRegister):
-    email = body.email.strip().lower()
+    email = normalize_email(body.email)
     username = body.username.strip()
     if not username:
         raise HTTPException(400, "Benutzername erforderlich")
     if not email:
         raise HTTPException(400, "E-Mail erforderlich")
-    if await db.users.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}):
+    if await db.users.find_one({"email": exact_ci_regex(email, allow_outer_whitespace=True)}):
         raise HTTPException(400, "E-Mail bereits registriert")
-    if await db.users.find_one({"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}}):
+    if await db.users.find_one({"username": exact_ci_regex(username, allow_outer_whitespace=True)}):
         raise HTTPException(400, "Benutzername bereits vergeben")
     user_doc = {
         "id": str(uuid.uuid4()), "username": username, "email": email,
@@ -450,7 +459,7 @@ async def login_user(body: UserLogin):
     if not identifier:
         raise HTTPException(400, "E-Mail oder Benutzername erforderlich")
 
-    exact_ci = {"$regex": f"^{re.escape(identifier)}$", "$options": "i"}
+    exact_ci = exact_ci_regex(identifier, allow_outer_whitespace=True)
     user = None
     if "@" in identifier:
         user = await db.users.find_one({"email": exact_ci})
@@ -463,18 +472,29 @@ async def login_user(body: UserLogin):
     if not user:
         raise HTTPException(401, "Ungültige Anmeldedaten")
 
-    password_hash = user.get("password_hash", "")
-    if not password_hash and user.get("password"):
-        # One-time migration from old plaintext schema.
-        if str(user.get("password")) != body.password:
-            raise HTTPException(401, "Ungültige Anmeldedaten")
+    password_hash = str(user.get("password_hash", "") or "")
+    is_authenticated = verify_password(body.password, password_hash)
+
+    if not is_authenticated and password_hash and password_hash == body.password:
+        # One-time migration if legacy code stored plaintext in password_hash.
         password_hash = hash_password(body.password)
         await db.users.update_one(
             {"_id": user["_id"]},
             {"$set": {"password_hash": password_hash}, "$unset": {"password": ""}},
         )
+        is_authenticated = True
 
-    if not verify_password(body.password, password_hash):
+    if not is_authenticated and not password_hash and user.get("password"):
+        # One-time migration from old plaintext schema.
+        if str(user.get("password")) == body.password:
+            password_hash = hash_password(body.password)
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"password_hash": password_hash}, "$unset": {"password": ""}},
+            )
+            is_authenticated = True
+
+    if not is_authenticated:
         raise HTTPException(401, "Ungültige Anmeldedaten")
 
     user_id = user.get("id")
@@ -482,10 +502,19 @@ async def login_user(body: UserLogin):
         user_id = str(uuid.uuid4())
         await db.users.update_one({"_id": user["_id"]}, {"$set": {"id": user_id}})
 
-    email = str(user.get("email", "")).strip().lower()
+    email = normalize_email(user.get("email", ""))
     username = str(user.get("username", ""))
     role = user.get("role", "user")
     avatar_url = user.get("avatar_url") or f"https://api.dicebear.com/7.x/avataaars/svg?seed={username or user_id}"
+
+    normalize_updates = {}
+    if user.get("email") != email:
+        normalize_updates["email"] = email
+    if username != username.strip():
+        normalize_updates["username"] = username.strip()
+        username = username.strip()
+    if normalize_updates:
+        await db.users.update_one({"_id": user["_id"]}, {"$set": normalize_updates})
 
     token = create_token(user_id, email, role)
     return {"token": token, "user": {"id": user_id, "username": username, "email": email, "role": role, "avatar_url": avatar_url}}
@@ -496,14 +525,21 @@ async def get_me(request: Request):
     return user
 
 async def seed_admin():
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@arena.gg").strip().lower()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123").strip()
+    admin_email = normalize_email(os.environ.get("ADMIN_EMAIL", "admin@arena.gg"))
+    if not admin_email or "@" not in admin_email:
+        logger.warning("Invalid ADMIN_EMAIL in environment, falling back to admin@arena.gg")
+        admin_email = "admin@arena.gg"
+
+    admin_password = str(os.environ.get("ADMIN_PASSWORD", "admin123") or "").strip()
+    if not admin_password:
+        logger.warning("Empty ADMIN_PASSWORD in environment, falling back to admin123")
+        admin_password = "admin123"
+
     default_username = os.environ.get("ADMIN_USERNAME", admin_email.split("@")[0] or "admin").strip()
     username = default_username or "admin"
 
     existing_with_email = await db.users.find_one(
-        {"email": {"$regex": f"^{re.escape(admin_email)}$", "$options": "i"}},
-        {"_id": 0},
+        {"email": exact_ci_regex(admin_email, allow_outer_whitespace=True)},
     )
     if existing_with_email:
         update_doc = {
@@ -518,19 +554,18 @@ async def seed_admin():
             update_doc["username"] = username
         if not existing_with_email.get("avatar_url"):
             update_doc["avatar_url"] = f"https://api.dicebear.com/7.x/avataaars/svg?seed={update_doc.get('username', existing_with_email.get('username', username))}"
-        update_filter = {"email": {"$regex": f"^{re.escape(admin_email)}$", "$options": "i"}}
-        if existing_with_email.get("id"):
-            update_filter = {"id": existing_with_email["id"]}
+        update_filter = {"_id": existing_with_email["_id"]}
         await db.users.update_one(
             update_filter,
             {
-                "$set": update_doc
+                "$set": update_doc,
+                "$unset": {"password": ""},
             },
         )
         logger.info(f"Promoted existing user to admin: {admin_email}")
         return
 
-    if await db.users.find_one({"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}}, {"_id": 0}):
+    if await db.users.find_one({"username": exact_ci_regex(username, allow_outer_whitespace=True)}, {"_id": 0}):
         username = f"{username}_{uuid.uuid4().hex[:6]}"
 
     admin_doc = {

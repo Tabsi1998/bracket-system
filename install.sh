@@ -40,6 +40,13 @@ normalize_domain() {
   echo "$value"
 }
 
+normalize_email() {
+  local value="$1"
+  value="$(printf '%s' "$value" | sed -e "s/^[[:space:]\"']*//" -e "s/[[:space:]\"']*$//")"
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  echo "$value"
+}
+
 dotenv_quote() {
   local value="$1"
   value="${value//\\/\\\\}"
@@ -65,8 +72,16 @@ if [ -z "$DOMAIN" ]; then err "Domain/IP ist erforderlich"; fi
 read -rp "Installationsverzeichnis [$INSTALL_DIR_DEFAULT]: " input && INSTALL_DIR="${input:-$INSTALL_DIR_DEFAULT}"
 
 read -rp "Admin E-Mail [$ADMIN_EMAIL]: " input && ADMIN_EMAIL="${input:-$ADMIN_EMAIL}"
+ADMIN_EMAIL="$(normalize_email "$ADMIN_EMAIL")"
+if [[ -z "$ADMIN_EMAIL" || ! "$ADMIN_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+  err "Ungültige Admin-E-Mail"
+fi
 read -rsp "Admin Passwort [$ADMIN_PASSWORD]: " input && ADMIN_PASSWORD="${input:-$ADMIN_PASSWORD}"
 echo ""
+if [ -z "$ADMIN_PASSWORD" ]; then
+  warn "Leeres Admin-Passwort erkannt, setze Fallback auf admin123"
+  ADMIN_PASSWORD="admin123"
+fi
 read -rp "MongoDB Datenbankname [$MONGO_DB_NAME]: " input && MONGO_DB_NAME="${input:-$MONGO_DB_NAME}"
 read -rp "Stripe Secret Key (optional, Enter zum Überspringen): " STRIPE_KEY
 
