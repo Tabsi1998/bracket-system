@@ -658,7 +658,8 @@ async def update_tournament(request: Request, tournament_id: str, body: Tourname
     return t
 
 @api_router.delete("/tournaments/{tournament_id}")
-async def delete_tournament(tournament_id: str):
+async def delete_tournament(request: Request, tournament_id: str):
+    await require_admin(request)
     await db.tournaments.delete_one({"id": tournament_id})
     await db.registrations.delete_many({"tournament_id": tournament_id})
     return {"status": "deleted"}
