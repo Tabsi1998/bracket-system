@@ -189,12 +189,6 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-# Frontend Service (serve static files via nginx, but we can also run dev server)
-# We'll use nginx to serve the build instead
-cat > /etc/systemd/system/arena-backend.service.d/override.conf 2>/dev/null << EOF || true
-EOF
-mkdir -p /etc/systemd/system/arena-backend.service.d
-
 systemctl daemon-reload
 systemctl enable arena-backend --now
 log "Backend-Service gestartet auf Port ${BACKEND_PORT}"
