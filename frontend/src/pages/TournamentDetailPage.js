@@ -32,6 +32,7 @@ const statusLabels = {
 export default function TournamentDetailPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  const { user } = useAuth();
   const [tournament, setTournament] = useState(null);
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
