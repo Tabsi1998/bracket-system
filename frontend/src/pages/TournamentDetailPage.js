@@ -476,6 +476,12 @@ export default function TournamentDetailPage() {
               </div>
             </div>
           </TabsContent>
+
+          <TabsContent value="comments" className="mt-6">
+            <div className="glass rounded-xl p-6 border border-white/5">
+              <CommentSection targetType="tournament" targetId={id} />
+            </div>
+          </TabsContent>
         </Tabs>
 
         {/* Score Update Dialog */}
