@@ -67,16 +67,16 @@ apt-get install -y -qq curl gnupg software-properties-common git build-essential
 log "Basis-Pakete installiert"
 
 # ── Python 3.11+ ──
-if ! command -v python3.11 &>/dev/null && ! python3 --version 2>&1 | grep -qE "3\.(1[1-9]|[2-9])"; then
-  add-apt-repository -y ppa:deadsnakes/ppa > /dev/null 2>&1
-  apt-get update -qq
-  apt-get install -y -qq python3.11 python3.11-venv python3.11-dev > /dev/null 2>&1
-  PYTHON_BIN="python3.11"
-  log "Python 3.11 installiert"
-else
-  PYTHON_BIN="python3"
-  log "Python $(${PYTHON_BIN} --version 2>&1 | awk '{print $2}') gefunden"
+PYTHON_BIN="python3"
+
+PY_VERSION=$($PYTHON_BIN -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+
+if ! dpkg -s python${PY_VERSION}-venv >/dev/null 2>&1; then
+  apt-get install -y -qq python${PY_VERSION}-venv python${PY_VERSION}-dev > /dev/null 2>&1
+  log "python${PY_VERSION}-venv installiert"
 fi
+
+log "Python $($PYTHON_BIN --version 2>&1 | awk '{print $2}') gefunden"
 
 # ── Node.js 20.x ──
 if ! command -v node &>/dev/null; then
@@ -95,11 +95,17 @@ else
   log "Yarn $(yarn --version) gefunden"
 fi
 
-# ── MongoDB 7.0 ──
+# ── MongoDB 8.0 ──
 if ! command -v mongod &>/dev/null; then
+  rm -f /etc/apt/sources.list.d/mongodb-org-*.list
+
   curl -fsSL https://pgp.mongodb.com/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg 2>/dev/null
+
   UBUNTU_CODENAME=$(lsb_release -cs)
+  [ "$UBUNTU_CODENAME" = "noble" ] && UBUNTU_CODENAME="jammy"
+
   echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${UBUNTU_CODENAME}/mongodb-org/8.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-8.0.list
+
   apt-get update -qq
   apt-get install -y -qq mongodb-org > /dev/null 2>&1
   systemctl enable mongod --now > /dev/null 2>&1
