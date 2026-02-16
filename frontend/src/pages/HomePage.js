@@ -74,6 +74,7 @@ export default function HomePage() {
                   <ArrowRight className="w-5 h-5 ml-2" />
                 </Button>
               </Link>
+              {isAdmin && (
               <Link to="/tournaments/create" data-testid="hero-create-btn">
                 <Button variant="outline" className="h-12 px-8 text-base border-white/20 text-white hover:bg-white/5 uppercase tracking-wide">
                   Turnier erstellen
