@@ -45,6 +45,61 @@ resolve_backend_service() {
   return 1
 }
 
+resolve_nginx_service() {
+  local configured="${NGINX_SERVICE_NAME:-}"
+  local name=""
+  local unit_files=""
+
+  if [ -n "$configured" ]; then
+    echo "$configured"
+    return 0
+  fi
+
+  if $SUDO systemctl cat nginx >/dev/null 2>&1 || $SUDO systemctl cat nginx.service >/dev/null 2>&1; then
+    echo "nginx"
+    return 0
+  fi
+
+  unit_files="$($SUDO systemctl list-unit-files --type=service --no-pager --no-legend 2>/dev/null | awk '{print $1}')"
+  for name in nginx.service nginx-mainline.service; do
+    if printf '%s\n' "$unit_files" | grep -qx "$name"; then
+      echo "$name"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+resolve_nginx_binary() {
+  if command -v nginx >/dev/null 2>&1; then
+    command -v nginx
+    return 0
+  fi
+
+  for p in /usr/sbin/nginx /usr/local/sbin/nginx /sbin/nginx; do
+    if [ -x "$p" ]; then
+      echo "$p"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+collect_untracked_changes() {
+  git ls-files --others --exclude-standard | while IFS= read -r path; do
+    case "$path" in
+      frontend/yarn.lock|frontend/build|frontend/build/*)
+        continue
+        ;;
+      *)
+        echo "$path"
+        ;;
+    esac
+  done
+}
+
 usage() {
   cat << 'EOF'
 Usage: ./update.sh [options]
@@ -100,7 +155,7 @@ fi
 log "Branch: $CURRENT_BRANCH"
 
 TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
-UNTRACKED_CHANGES="$(git ls-files --others --exclude-standard)"
+UNTRACKED_CHANGES="$(collect_untracked_changes || true)"
 
 if [ "$FORCE" -ne 1 ] && [ -n "$TRACKED_CHANGES" ]; then
   warn "Geänderte getrackte Dateien:"
@@ -174,12 +229,18 @@ cd "$SCRIPT_DIR"
 log "Frontend Build aktualisiert"
 
 step "Nginx reload"
-if command -v nginx >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q '^nginx\.service'; then
-  $SUDO nginx -t >/dev/null
-  $SUDO systemctl reload nginx
-  log "Nginx-Konfiguration geprüft und neu geladen"
+NGINX_BIN="$(resolve_nginx_binary || true)"
+NGINX_SERVICE_UNIT="$(resolve_nginx_service || true)"
+if [ -n "$NGINX_BIN" ] && [ -n "$NGINX_SERVICE_UNIT" ]; then
+  $SUDO "$NGINX_BIN" -t >/dev/null
+  $SUDO systemctl reload "$NGINX_SERVICE_UNIT"
+  log "Nginx-Konfiguration geprüft und neu geladen ($NGINX_SERVICE_UNIT)"
 else
-  warn "Nginx nicht gefunden, Reload übersprungen"
+  if [ -z "$NGINX_BIN" ]; then
+    warn "Nginx-Binary nicht gefunden, Reload übersprungen"
+  else
+    warn "Nginx-Service nicht gefunden, Reload übersprungen"
+  fi
 fi
 
 echo ""

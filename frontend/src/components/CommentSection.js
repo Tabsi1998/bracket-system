@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { motion } from "framer-motion";
@@ -19,14 +19,14 @@ export default function CommentSection({ targetType, targetId }) {
     ? `${API}/tournaments/${targetId}/comments`
     : `${API}/matches/${targetId}/comments`;
 
-  const fetchComments = async () => {
+  const fetchComments = useCallback(async () => {
     try {
       const res = await axios.get(endpoint);
       setComments(res.data);
     } catch { /* ignore */ }
-  };
+  }, [endpoint]);
 
-  useEffect(() => { fetchComments(); }, [targetId]);
+  useEffect(() => { fetchComments(); }, [fetchComments]);
 
   const handleSubmit = async () => {
     if (!message.trim()) return;
