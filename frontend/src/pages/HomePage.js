@@ -80,6 +80,7 @@ export default function HomePage() {
                   Turnier erstellen
                 </Button>
               </Link>
+              )}
             </div>
           </motion.div>
         </div>
