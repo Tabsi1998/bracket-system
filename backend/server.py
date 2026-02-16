@@ -596,7 +596,8 @@ async def update_game(request: Request, game_id: str, body: GameCreate):
     return game
 
 @api_router.delete("/games/{game_id}")
-async def delete_game(game_id: str):
+async def delete_game(request: Request, game_id: str):
+    await require_admin(request)
     result = await db.games.delete_one({"id": game_id})
     if result.deleted_count == 0:
         raise HTTPException(404, "Game not found")
