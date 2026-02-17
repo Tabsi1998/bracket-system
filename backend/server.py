@@ -4973,6 +4973,9 @@ async def generate_bracket(request: Request, tournament_id: str):
 async def submit_match_score(request: Request, tournament_id: str, match_id: str, body: ScoreSubmission):
     """Teams/leaders submit their score. If both agree, auto-confirm."""
     user = await require_auth(request)
+    log_info("match.score.submit.start", "Score submission",
+             tournament_id=tournament_id, match_id=match_id,
+             user_id=user.get("id",""), score=f"{body.score1}:{body.score2}")
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     if not t or not t.get("bracket"):
         raise HTTPException(404, "Turnier oder Bracket nicht gefunden")
