@@ -287,20 +287,25 @@ export default function MatchDetailPage() {
             )}
             {!schedule.scheduled_for && (
               <div className="text-xs text-amber-400">
-                Termin ist noch offen. Bitte im Team abstimmen und Vorschlag akzeptieren.
+                {canInteract 
+                  ? "Termin ist noch offen. Bitte im Team abstimmen und Vorschlag akzeptieren."
+                  : "Termin ist noch offen."}
               </div>
             )}
-            <div className="flex gap-2">
-              <Input
-                type="datetime-local"
-                value={proposalTime}
-                onChange={(e) => setProposalTime(e.target.value)}
-                className="bg-zinc-900 border-white/10 text-white"
-              />
-              <Button className="bg-yellow-500 text-black hover:bg-yellow-400" onClick={submitScheduleProposal}>
-                Vorschlagen
-              </Button>
-            </div>
+            {canInteract && (
+              <div className="flex gap-2">
+                <Input
+                  data-testid="schedule-proposal-input"
+                  type="datetime-local"
+                  value={proposalTime}
+                  onChange={(e) => setProposalTime(e.target.value)}
+                  className="bg-zinc-900 border-white/10 text-white"
+                />
+                <Button data-testid="schedule-propose-btn" className="bg-yellow-500 text-black hover:bg-yellow-400" onClick={submitScheduleProposal}>
+                  Vorschlagen
+                </Button>
+              </div>
+            )}
             <div className="space-y-2 max-h-56 overflow-y-auto">
               {scheduleItems.map((s) => (
                 <div key={s.id} className="rounded-lg border border-white/5 p-3 bg-zinc-900/40">
