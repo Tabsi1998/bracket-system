@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 eSports Tournament System - Backend API Testing
-Testing Sub-Games, Maps, Map-Veto System, and CoD BO6 4v4 S&D Liga
+Testing SMTP endpoints, Team tournaments, Sub-Games logic, and comprehensive API coverage
 """
 
 import requests
@@ -16,9 +16,13 @@ class eSportsTournamentTester:
         self.tests_run = 0
         self.tests_passed = 0
         self.cod_game_id = None
+        self.fifa_game_id = None
+        self.cs2_game_id = None
+        self.valorant_game_id = None
         self.cod_bo6_sub_game_id = None
         self.cod_tournament_id = None
         self.test_match_id = None
+        self.test_team_id = None
 
     def run_test(self, name, method, endpoint, expected_status, data=None, headers=None):
         """Run a single API test"""
