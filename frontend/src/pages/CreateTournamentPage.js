@@ -31,10 +31,15 @@ export default function CreateTournamentPage() {
   const { isAdmin } = useAuth();
   const [games, setGames] = useState([]);
   const [selectedGame, setSelectedGame] = useState(null);
+  const [subGames, setSubGames] = useState([]);
+  const [selectedSubGame, setSelectedSubGame] = useState(null);
+  const [availableMaps, setAvailableMaps] = useState([]);
   const [form, setForm] = useState({
     name: "",
     game_id: "",
     game_mode: "",
+    sub_game_id: "",
+    sub_game_name: "",
     participant_mode: "team",
     team_size: 1,
     max_participants: 8,
@@ -61,6 +66,11 @@ export default function CreateTournamentPage() {
     points_draw: 1,
     points_loss: 0,
     tiebreakers: "points,score_diff,score_for,team_name",
+    map_pool: [],
+    map_ban_enabled: true,
+    map_ban_count: 2,
+    map_vote_enabled: true,
+    map_pick_order: "ban_ban_pick",
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -71,16 +81,46 @@ export default function CreateTournamentPage() {
   const handleGameSelect = (gameId) => {
     const game = games.find(g => g.id === gameId);
     setSelectedGame(game);
-    setForm({ ...form, game_id: gameId, game_mode: "", team_size: 1 });
+    setSubGames(game?.sub_games || []);
+    setSelectedSubGame(null);
+    setAvailableMaps([]);
+    setForm({ ...form, game_id: gameId, game_mode: "", team_size: 1, sub_game_id: "", sub_game_name: "", map_pool: [] });
+  };
+
+  const handleSubGameSelect = (subGameId) => {
+    const sg = subGames.find(s => s.id === subGameId);
+    setSelectedSubGame(sg);
+    const maps = sg?.maps || [];
+    setAvailableMaps(maps);
+    // Auto-select all maps for the selected mode
+    const selectedMode = form.game_mode;
+    const compatibleMaps = selectedMode 
+      ? maps.filter(m => m.game_modes?.includes(selectedMode)).map(m => m.id)
+      : maps.map(m => m.id);
+    setForm({ ...form, sub_game_id: subGameId, sub_game_name: sg?.name || "", map_pool: compatibleMaps });
   };
 
   const handleModeSelect = (modeName) => {
     const mode = selectedGame?.modes?.find(m => m.name === modeName);
+    // Filter maps for this mode
+    const compatibleMaps = availableMaps
+      .filter(m => m.game_modes?.includes(modeName))
+      .map(m => m.id);
     setForm({
       ...form,
       game_mode: modeName,
       team_size: form.participant_mode === "solo" ? 1 : (mode?.team_size || 1),
+      map_pool: compatibleMaps.length > 0 ? compatibleMaps : form.map_pool,
     });
+  };
+
+  const toggleMapInPool = (mapId) => {
+    const current = form.map_pool || [];
+    if (current.includes(mapId)) {
+      setForm({ ...form, map_pool: current.filter(m => m !== mapId) });
+    } else {
+      setForm({ ...form, map_pool: [...current, mapId] });
+    }
   };
 
   const handleSubmit = async () => {
