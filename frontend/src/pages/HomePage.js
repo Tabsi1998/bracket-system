@@ -182,9 +182,9 @@ export default function HomePage() {
         </h2>
         <div className="grid md:grid-cols-3 gap-8">
           {[
-            { step: "01", title: "Turnier erstellen", desc: "Wähle ein Spiel, konfiguriere die Parameter und starte dein Turnier in Sekunden." },
-            { step: "02", title: "Spieler registrieren", desc: "Teile den Link. Spieler registrieren sich mit Name und E-Mail (Login erforderlich)." },
-            { step: "03", title: "Bracket generieren", desc: "Generiere den Bracket automatisch. Live-Updates und Animationen inklusive." },
+            { step: "01", title: "Registrieren & Team beitreten", desc: "Erstelle einen Account und tritt einem bestehenden Team bei oder gründe dein eigenes Team." },
+            { step: "02", title: "Turnier finden & anmelden", desc: "Durchsuche aktive Turniere, finde das passende für dein Spiel und melde dich mit deinem Team an." },
+            { step: "03", title: "Check-in & Spielen", desc: "Check ein wenn das Turnier startet, stimme Termine mit Gegnern ab und trage Ergebnisse ein." },
           ].map((item, i) => (
             <motion.div
               key={item.step}
