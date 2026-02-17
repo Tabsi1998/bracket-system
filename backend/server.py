@@ -7331,7 +7331,6 @@ async def startup():
                         if not bracket_data:
                             continue
                         
-                        now = datetime.now(timezone.utc)
                         tournament = await db.tournaments.find_one({"id": t["id"]}, {"_id": 0})
                         if not tournament:
                             continue
