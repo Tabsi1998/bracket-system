@@ -4710,10 +4710,14 @@ async def update_sub_game(request: Request, game_id: str, sub_game_id: str, body
     found = False
     for sg in sub_games:
         if sg.get("id") == sub_game_id:
-            if body.name is not None: sg["name"] = body.name
-            if body.short_name is not None: sg["short_name"] = body.short_name
-            if body.release_year is not None: sg["release_year"] = body.release_year
-            if body.active is not None: sg["active"] = body.active
+            if body.name is not None:
+                sg["name"] = body.name
+            if body.short_name is not None:
+                sg["short_name"] = body.short_name
+            if body.release_year is not None:
+                sg["release_year"] = body.release_year
+            if body.active is not None:
+                sg["active"] = body.active
             found = True
             break
     if not found:
