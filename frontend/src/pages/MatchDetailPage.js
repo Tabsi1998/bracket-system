@@ -294,6 +294,125 @@ export default function MatchDetailPage() {
 
           <div className="glass rounded-xl border border-white/5 p-5 space-y-4">
             <h2 className="font-['Barlow_Condensed'] text-xl text-white uppercase flex items-center gap-2">
+              <Settings2 className="w-4 h-4 text-cyan-400" />Map Veto
+            </h2>
+            {mapVetoState?.map_pool?.length > 0 ? (
+              <>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-zinc-400">Status:</span>
+                  <Badge className={mapVetoState?.status === "completed" ? "bg-green-500/10 text-green-400" : mapVetoState?.status === "in_progress" ? "bg-blue-500/10 text-blue-400" : "bg-amber-500/10 text-amber-400"}>
+                    {mapVetoState?.status === "completed" ? "Abgeschlossen" : mapVetoState?.status === "in_progress" ? "Läuft" : "Ausstehend"}
+                  </Badge>
+                </div>
+                
+                {mapVetoState?.status !== "completed" && (
+                  <div className="p-3 rounded-lg bg-zinc-900/50 border border-white/5">
+                    <p className="text-xs text-zinc-400 mb-2">
+                      Aktueller Zug: <span className="text-white font-semibold">{mapVetoState?.current_turn === "team1" ? mapVetoState?.team1_name : mapVetoState?.team2_name}</span>
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Aktion: <span className={mapVetoState?.current_action === "ban" ? "text-red-400" : "text-green-400"}>
+                        {mapVetoState?.current_action === "ban" ? "Map bannen" : "Map picken"}
+                      </span>
+                    </p>
+                  </div>
+                )}
+                
+                <div className="space-y-2">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider">Map-Pool</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {mapVetoState?.map_pool?.map((mapId) => {
+                      const isBanned = mapVetoState?.banned_maps?.includes(mapId);
+                      const isPicked = mapVetoState?.picked_maps?.includes(mapId);
+                      const isAvailable = !isBanned && !isPicked;
+                      
+                      return (
+                        <div
+                          key={mapId}
+                          className={`rounded-lg p-3 border transition-all ${
+                            isBanned ? "bg-red-500/5 border-red-500/20 opacity-50" :
+                            isPicked ? "bg-green-500/10 border-green-500/30" :
+                            "bg-zinc-900/50 border-white/5 hover:border-yellow-500/30"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className={`text-sm ${isBanned ? "line-through text-zinc-600" : isPicked ? "text-green-400 font-semibold" : "text-white"}`}>
+                              {mapId.split("-").pop()?.replace(/_/g, " ") || mapId}
+                            </span>
+                            {isBanned && <Badge className="text-[9px] bg-red-500/10 text-red-400">Gebannt</Badge>}
+                            {isPicked && <Badge className="text-[9px] bg-green-500/10 text-green-400">Gepickt</Badge>}
+                          </div>
+                          {isAvailable && mapVetoState?.status !== "completed" && (
+                            <div className="flex gap-1 mt-2">
+                              {mapVetoState?.current_action === "ban" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-[10px] h-6 border-red-500/30 text-red-400 hover:bg-red-500/10"
+                                  onClick={() => handleMapVetoAction("ban", mapId)}
+                                  disabled={mapVetoLoading}
+                                >
+                                  Bannen
+                                </Button>
+                              )}
+                              {mapVetoState?.current_action === "pick" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-[10px] h-6 border-green-500/30 text-green-400 hover:bg-green-500/10"
+                                  onClick={() => handleMapVetoAction("pick", mapId)}
+                                  disabled={mapVetoLoading}
+                                >
+                                  Picken
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                {mapVetoState?.picked_maps?.length > 0 && (
+                  <div className="border-t border-white/5 pt-3">
+                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Ausgewählte Maps</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {mapVetoState.picked_maps.map((mapId, idx) => (
+                        <Badge key={mapId} className="bg-green-500/10 text-green-400 border border-green-500/20">
+                          Map {idx + 1}: {mapId.split("-").pop()?.replace(/_/g, " ") || mapId}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {mapVetoState?.history?.length > 0 && (
+                  <div className="border-t border-white/5 pt-3">
+                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Veto-Verlauf</p>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {mapVetoState.history.map((entry, idx) => (
+                        <div key={idx} className="text-[11px] text-zinc-500">
+                          <span className="text-zinc-400">{entry.user_name || entry.team}</span>
+                          {" "}
+                          <span className={entry.action === "ban" ? "text-red-400" : "text-green-400"}>
+                            {entry.action === "ban" ? "bannte" : "pickte"}
+                          </span>
+                          {" "}
+                          <span className="text-white">{entry.map_id.split("-").pop() || entry.map_id}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-zinc-500">Kein Map-Pool für dieses Turnier definiert.</p>
+            )}
+          </div>
+
+          <div className="glass rounded-xl border border-white/5 p-5 space-y-4">
+            <h2 className="font-['Barlow_Condensed'] text-xl text-white uppercase flex items-center gap-2">
               <Settings2 className="w-4 h-4 text-yellow-500" />Match Setup
             </h2>
             <div className="text-sm text-zinc-400">
