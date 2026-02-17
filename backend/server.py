@@ -2249,6 +2249,30 @@ async def list_sub_teams(request: Request, team_id: str):
         merged_subs.append(s)
     return merged_subs
 
+@api_router.get("/teams/{team_id}/tournaments")
+async def get_team_tournaments(team_id: str):
+    """Get all tournaments this team has participated in (public endpoint)."""
+    team = await db.teams.find_one({"id": team_id}, {"_id": 0, "id": 1, "name": 1})
+    if not team:
+        raise HTTPException(404, "Team nicht gefunden")
+    
+    # Find all registrations for this team
+    regs = await db.registrations.find(
+        {"$or": [{"team_id": team_id}, {"sub_team_id": team_id}]},
+        {"_id": 0, "tournament_id": 1}
+    ).to_list(100)
+    
+    tournament_ids = list({r["tournament_id"] for r in regs})
+    if not tournament_ids:
+        return []
+    
+    tournaments = await db.tournaments.find(
+        {"id": {"$in": tournament_ids}},
+        {"_id": 0, "id": 1, "name": 1, "game_name": 1, "bracket_type": 1, "status": 1, "start_date": 1}
+    ).to_list(100)
+    
+    return tournaments
+
 # --- Game Endpoints ---
 
 @api_router.get("/games")
