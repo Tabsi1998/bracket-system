@@ -3638,10 +3638,8 @@ def generate_round_robin(
 
             scheduled_for = ""
             window_start = None
-            window_end = None
             if base_start:
                 window_start = base_start + timedelta(days=interval_days * round_idx)
-                window_end = window_start + timedelta(days=max(1, int(window_days or 7)))
                 scheduled_for = window_start.isoformat()
 
             round_matches.append(
