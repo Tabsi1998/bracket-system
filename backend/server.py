@@ -6032,7 +6032,7 @@ class PayPalOrderCreate(BaseModel):
     registration_id: str
 
 @api_router.post("/payments/paypal/create-order")
-async def create_paypal_order(request: Request, body: PayPalOrderCreate):
+async def create_paypal_order_v2(request: Request, body: PayPalOrderCreate):
     """Create a PayPal order for tournament entry fee."""
     user = await require_auth(request)
     
