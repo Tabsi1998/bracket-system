@@ -51,6 +51,7 @@ function MainLayout() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/teams" element={<TeamsPage />} />
+        <Route path="/teams/:id" element={<TeamDetailPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/profile/:userId" element={<ProfilePage />} />
       </Routes>
