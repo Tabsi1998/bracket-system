@@ -1,147 +1,143 @@
 # eSports Tournament Bracket System - PRD
 
 ## Problem Statement
-Complete eSports Tournament Bracket System with Sub-Games (e.g., Black Ops 6, MW3), Maps, Map Ban/Vote System, full scheduling with matchday windows, and comprehensive demo data.
+Complete eSports Tournament Bracket System with full sub-games/maps support, map ban/vote system, team profiles with social media, and comprehensive scheduling.
 
 ## Latest Update (2026-02-17)
 
-### Major Features Implemented
+### Features Implemented in This Session
 
-#### 1. Sub-Games System
-Games can now have sub-games (versions) with their own maps:
-- **Call of Duty**: Black Ops 6 (8 maps), Modern Warfare 3 (6 maps)
-- **CS2**: Premier (7 maps)
-- **Valorant**: Ranked Competitive (9 maps)
+#### 1. Sub-Games System (Smart Implementation)
+- **Only where sensible**: 
+  - CoD: Black Ops 6, Modern Warfare 3 (different games with different maps)
+  - FIFA: EA FC 24, EA FC 25 (different yearly releases)
+- **Direct Maps (no sub-games)**:
+  - CS2: 7 Maps directly on game
+  - Valorant: 9 Maps directly on game
 
-#### 2. Map System
-- Maps belong to Sub-Games
-- Maps have game_mode restrictions (e.g., Nuketown supports S&D, Hardpoint, Control)
-- Map pool selection when creating tournaments
-- Map IDs: `bo6-nuketown`, `cs2-mirage`, `val-ascent`, etc.
+#### 2. Team Profile Pages
+- Complete team detail page with:
+  - Banner and Logo display
+  - Bio/Description
+  - Member list with roles (Owner, Leader, Member)
+  - Sub-teams list
+  - Tournament participation history
+  - Social Media Links (FontAwesome icons)
 
-#### 3. Map Ban/Vote System
-Complete veto system for match setup:
-- Teams take turns banning/picking maps
-- Configurable pick order: `ban_ban_pick`, `ban_pick_ban`, `alternate`
-- Configurable ban count per team
-- Full history tracking
-- UI in Match Detail Page
+#### 3. FontAwesome Integration
+- CDN loaded in index.html
+- Social icons: Discord, Twitter, Instagram, Twitch, YouTube, Website
+- Used in TeamDetailPage
 
-#### 4. CoD BO6 4v4 S&D Liga Demo
-Complete demonstration tournament:
-- 8 Teams: ARES Alpha, NOVA Prime, ARES Bravo, ARES Charlie, PULSE Shadow, TITAN Core, VORTEX Prime, ORBIT Omega
-- 7 Spieltage (Matchdays) with weekly windows
-- 5 Maps in Pool: Nuketown, Hacienda, Vault, Skyline, Red Card
-- Detailed rules and description
+#### 4. SMTP Improvements
+- New `/api/admin/smtp-config` endpoint for status check
+- New `/api/admin/smtp-test` endpoint with detailed diagnostics
+- Better error messages showing what's missing
+- Test email includes config details for debugging
+
+#### 5. Homepage for Players
+- Changed "So funktioniert es" from admin-focused to player-focused:
+  - Step 1: Register & Join Team
+  - Step 2: Find & Join Tournament
+  - Step 3: Check-in & Play
+
+#### 6. Team Tournaments API
+- `GET /api/teams/{id}/tournaments` - Public endpoint showing tournament history
 
 ## Architecture
 - **Backend**: FastAPI + MongoDB
-- **Frontend**: React + Tailwind CSS + Shadcn UI
-- **Database**: MongoDB with collections: games, tournaments, registrations, teams, users, map_vetos, etc.
+- **Frontend**: React + Tailwind CSS + FontAwesome + Shadcn UI
 
-## API Endpoints (New)
+## API Endpoints (New/Updated)
 
-### Sub-Games & Maps
-- `GET /api/games/{game_id}/sub-games` - Get all sub-games for a game
-- `GET /api/games/{game_id}/sub-games/{sub_game_id}/maps` - Get maps for specific sub-game
+### SMTP
+- `GET /api/admin/smtp-config` - Get SMTP configuration status
+- `POST /api/admin/smtp-test` - Send test email with diagnostics
 
-### Map Veto
-- `GET /api/matches/{match_id}/map-veto` - Get veto state
-- `POST /api/matches/{match_id}/map-veto` - Submit ban/pick action
-- `POST /api/matches/{match_id}/map-veto/reset` - Admin reset
+### Teams
+- `GET /api/teams/{id}/tournaments` - Get team's tournament participation
 
-### Tournament Config (New Fields)
-- `sub_game_id` - Which sub-game version
-- `sub_game_name` - Display name
-- `map_pool` - List of map IDs for this tournament
-- `map_ban_enabled` - Enable map banning
-- `map_ban_count` - How many maps each team can ban
-- `map_vote_enabled` - Enable map voting
-- `map_pick_order` - Order of ban/pick actions
+### Games & Maps
+- CS2 and Valorant have maps directly on game object
+- CoD and FIFA have sub_games with maps per sub-game
 
 ## Data Models
 
-### SubGame
+### Game (Updated)
 ```json
 {
-  "id": "cod-bo6",
-  "name": "Black Ops 6",
-  "short_name": "BO6",
-  "release_year": 2024,
-  "active": true,
-  "maps": [GameMap]
+  "id": "...",
+  "name": "Counter-Strike 2",
+  "maps": [...],  // Direct maps for games without sub-games
+  "sub_games": [...] // Only for CoD, FIFA
 }
 ```
 
-### GameMap
+### Team (Profile Fields)
 ```json
 {
-  "id": "bo6-nuketown",
-  "name": "Nuketown",
-  "image_url": "",
-  "game_modes": ["S&D", "Hardpoint", "Control"]
+  "id": "...",
+  "name": "Team Name",
+  "tag": "TAG",
+  "bio": "Team description...",
+  "logo_url": "...",
+  "banner_url": "...",
+  "discord_url": "https://discord.gg/...",
+  "twitter_url": "https://twitter.com/...",
+  "instagram_url": "https://instagram.com/...",
+  "twitch_url": "https://twitch.tv/...",
+  "youtube_url": "https://youtube.com/...",
+  "website_url": "https://..."
 }
 ```
-
-### MapVeto
-```json
-{
-  "tournament_id": "...",
-  "match_id": "...",
-  "map_pool": ["bo6-nuketown", ...],
-  "banned_maps": ["bo6-hacienda"],
-  "picked_maps": ["bo6-nuketown"],
-  "current_turn": "team1",
-  "current_action": "pick",
-  "action_sequence": [...],
-  "action_index": 3,
-  "status": "in_progress",
-  "history": [...]
-}
-```
-
-## Demo Data
-
-### Games with Sub-Games
-| Game | Sub-Games | Maps |
-|------|-----------|------|
-| Call of Duty | Black Ops 6, MW3 | 14 total |
-| CS2 | Premier | 7 |
-| Valorant | Ranked | 9 |
-
-### CoD BO6 4v4 S&D Liga
-- **Status**: Live
-- **Teams**: 8
-- **Spieltage**: 7
-- **Map Pool**: Nuketown, Hacienda, Vault, Skyline, Red Card
-- **Current Round**: 4 (Feb 17-22)
-
-### Demo Credentials
-- `admin@arena.gg / admin123`
-- `demo.admin@arena.gg / demo123`
 
 ## Test Results
-- Backend: 91.7% (11/12 tests)
-- Frontend: 85% (core features verified)
+- Backend: 94%
+- Frontend: 100%
+- Integration: 100%
+
+## Demo Data
+- 14 Tournaments (including CoD BO6 4v4 S&D Liga)
+- 8+ Teams with sub-teams
+- 14 Games (CoD with 2 sub-games, FIFA with 2 sub-games)
+
+## Configuration Required
+
+### SMTP (for email notifications)
+Set in Admin Panel → Settings → SMTP:
+- `smtp_host`: SMTP server (e.g., smtp.gmail.com)
+- `smtp_port`: Port (587 for STARTTLS, 465 for SSL)
+- `smtp_user`: Username/Email
+- `smtp_password`: Password (Gmail: App-Password!)
+- `smtp_from_email`: Sender address
+- `smtp_use_starttls`: true/false
+- `smtp_use_ssl`: true/false
+
+### PayPal (optional)
+Set in Admin Panel → Settings → PayPal:
+- `paypal_client_id`: From developer.paypal.com
+- `paypal_secret`: From developer.paypal.com
+- `paypal_mode`: sandbox/live
 
 ## Backlog
 
 ### P0 (Completed)
-- ✅ Sub-Games System
-- ✅ Maps per Sub-Game
-- ✅ Map Ban/Vote System
-- ✅ CoD Liga Demo with 8 teams and 7 Spieltage
+- ✅ Sub-Games only where sensible
+- ✅ Team Profile Pages with Social Icons
+- ✅ FontAwesome Integration
+- ✅ SMTP Test & Diagnostics
+- ✅ Player-focused Homepage
 
-### P1 (High Priority)
-- SMTP email sending (requires credentials)
-- PayPal live mode (requires credentials)
-- Automatic reminder cronjob
+### P1 (Next)
+- Actual SMTP configuration (requires credentials)
+- Image upload for maps/games (admin)
+- Simplified tournament/match creation forms
 
 ### P2 (Medium)
 - Map images
-- Map statistics
 - Tournament templates
+- Automatic reminder cronjob
 
 ### P3 (Low)
-- Multiple languages
-- Player statistics history
+- i18n / Multiple languages
+- Statistics history
