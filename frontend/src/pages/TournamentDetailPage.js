@@ -556,6 +556,39 @@ export default function TournamentDetailPage() {
               <Play className="w-4 h-4 mr-2" />Bracket generieren
             </Button>
           )}
+          {isAdmin && tournament.status === "live" && tournament.bracket && (
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
+                onClick={async () => {
+                  try {
+                    const res = await axios.post(`${API}/tournaments/${id}/auto-schedule-unscheduled`);
+                    toast.success(res.data?.message || "Auto-Scheduling ausgeführt");
+                    fetchData();
+                  } catch (e) {
+                    toast.error(e.response?.data?.detail || "Fehler beim Auto-Scheduling");
+                  }
+                }}
+              >
+                <CalendarRange className="w-4 h-4 mr-2" />Auto-Termine
+              </Button>
+              <Button 
+                variant="outline" 
+                className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                onClick={async () => {
+                  try {
+                    const res = await axios.post(`${API}/tournaments/${id}/send-scheduling-reminders`);
+                    toast.success(res.data?.message || "Erinnerungen gesendet");
+                  } catch (e) {
+                    toast.error(e.response?.data?.detail || "Fehler beim Senden");
+                  }
+                }}
+              >
+                <Zap className="w-4 h-4 mr-2" />Erinnerungen senden
+              </Button>
+            </div>
+          )}
           {/* Everyone: Registration */}
           {canRegister && !isFull && (
             <Dialog open={regOpen} onOpenChange={setRegOpen}>
