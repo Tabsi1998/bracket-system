@@ -384,6 +384,59 @@ export default function CreateTournamentPage() {
                         className="bg-zinc-900 border-white/10 text-white mt-1"
                       />
                     </div>
+                    <div className="sm:col-span-2 border-t border-white/5 pt-4 mt-2">
+                      <h3 className="text-sm text-cyan-400 font-semibold mb-3">🕐 Automatische Terminvergabe</h3>
+                      <p className="text-[11px] text-zinc-500 mb-3">
+                        Wenn Teams sich nicht auf einen Termin einigen, wird automatisch ein Standard-Termin gesetzt.
+                      </p>
+                      <div className="grid sm:grid-cols-3 gap-4">
+                        <div>
+                          <Label className="text-zinc-400 text-sm">Standard-Tag</Label>
+                          <Select value={form.default_match_day} onValueChange={v => setForm({ ...form, default_match_day: v })}>
+                            <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-zinc-950 border-white/10">
+                              <SelectItem value="monday">Montag</SelectItem>
+                              <SelectItem value="tuesday">Dienstag</SelectItem>
+                              <SelectItem value="wednesday">Mittwoch</SelectItem>
+                              <SelectItem value="thursday">Donnerstag</SelectItem>
+                              <SelectItem value="friday">Freitag</SelectItem>
+                              <SelectItem value="saturday">Samstag</SelectItem>
+                              <SelectItem value="sunday">Sonntag</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-zinc-400 text-sm">Standard-Uhrzeit</Label>
+                          <Select value={String(form.default_match_hour)} onValueChange={v => setForm({ ...form, default_match_hour: parseInt(v, 10) })}>
+                            <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-zinc-950 border-white/10">
+                              {[17, 18, 19, 20, 21, 22].map(h => (
+                                <SelectItem key={h} value={String(h)}>{h}:00 Uhr</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-zinc-400 text-sm">Auto-Terminvergabe</Label>
+                          <Select 
+                            value={String(form.auto_schedule_on_window_end)} 
+                            onValueChange={v => setForm({ ...form, auto_schedule_on_window_end: v === "true" })}
+                          >
+                            <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-zinc-950 border-white/10">
+                              <SelectItem value="true">Aktiviert</SelectItem>
+                              <SelectItem value="false">Deaktiviert</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
                   </>
                 )}
               </div>
