@@ -241,6 +241,29 @@ function SubGameSection({ game, subGame, isAdmin, onRefresh }) {
                 className="bg-zinc-900 border-white/10 text-white mt-1"
               />
             </div>
+            <div>
+              <Label className="text-zinc-400 text-sm">Map-Bild</Label>
+              {newMap.image_url ? (
+                <div className="mt-2 relative">
+                  <img src={newMap.image_url.startsWith("/api") ? `${process.env.REACT_APP_BACKEND_URL}${newMap.image_url}` : newMap.image_url} alt="Preview" className="w-full h-32 object-cover rounded-lg" />
+                  <button onClick={() => setNewMap({ ...newMap, image_url: "" })} className="absolute top-1 right-1 p-1 bg-black/70 rounded text-zinc-400 hover:text-white">
+                    <XIcon className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <label className="mt-2 flex items-center justify-center gap-2 p-4 border border-dashed border-white/10 rounded-lg cursor-pointer hover:border-cyan-500/30 transition-colors">
+                  <Upload className="w-4 h-4 text-zinc-500" />
+                  <span className="text-xs text-zinc-500">{uploading ? "Wird hochgeladen..." : "Bild hochladen"}</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploading} />
+                </label>
+              )}
+              <Input
+                value={newMap.image_url}
+                onChange={e => setNewMap({ ...newMap, image_url: e.target.value })}
+                placeholder="oder URL eingeben: https://..."
+                className="bg-zinc-900 border-white/10 text-white mt-2 text-xs"
+              />
+            </div>
             {modes.length > 0 && (
               <div>
                 <Label className="text-zinc-400 text-sm">Unterstützte Modi</Label>
