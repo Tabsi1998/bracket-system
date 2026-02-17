@@ -124,11 +124,30 @@ def log_critical(event: str, message: str, exc_info: bool = False, **context: An
 
 # --- Pydantic Models ---
 
+class GameMap(BaseModel):
+    id: str = ""
+    name: str
+    image_url: str = ""
+    game_modes: List[str] = Field(default_factory=list)  # Which modes this map supports
+
 class GameMode(BaseModel):
     name: str
     team_size: int
     description: str = ""
     settings_template: Dict[str, Any] = Field(default_factory=dict)
+    default_map_pool: List[str] = Field(default_factory=list)  # Default maps for this mode
+    best_of_options: List[int] = Field(default_factory=lambda: [1, 3, 5])
+    map_ban_enabled: bool = True
+    map_vote_enabled: bool = True
+    special_rules: str = ""
+
+class SubGame(BaseModel):
+    id: str = ""
+    name: str  # e.g. "Black Ops 6", "Black Ops Cold War"
+    short_name: str = ""
+    release_year: int = 0
+    maps: List[GameMap] = Field(default_factory=list)
+    active: bool = True
 
 class GameCreate(BaseModel):
     name: str
@@ -136,6 +155,7 @@ class GameCreate(BaseModel):
     category: str = "other"
     image_url: str = ""
     modes: List[GameMode] = Field(default_factory=list)
+    sub_games: List[SubGame] = Field(default_factory=list)  # e.g. Black Ops 6, MW3, etc.
     platforms: List[str] = Field(default_factory=list)
 
 class TournamentCreate(BaseModel):
