@@ -838,6 +838,7 @@ async def send_email_notification_detailed(to_email: str, subject: str, body_tex
     """Send email with detailed error message for diagnostics/admin test endpoint."""
     import smtplib
     from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
     from email.utils import formataddr
 
     smtp_config, config_error = await get_smtp_config_detailed()
@@ -850,29 +851,63 @@ async def send_email_notification_detailed(to_email: str, subject: str, body_tex
     if not is_valid_email(normalized_to):
         return False, f"Empfänger-Adresse ungültig: {normalized_to}"
 
-    msg = MIMEText(body_text, "plain", "utf-8")
+    msg = MIMEMultipart("alternative")
     msg["Subject"] = str(subject or "").strip() or "ARENA Benachrichtigung"
     msg["From"] = formataddr((smtp_config["from_name"], smtp_config["from_email"]))
     msg["To"] = normalized_to
     if smtp_config["reply_to"]:
         msg["Reply-To"] = smtp_config["reply_to"]
+    msg.attach(MIMEText(body_text, "plain", "utf-8"))
 
-    try:
-        if smtp_config["use_ssl"]:
-            with smtplib.SMTP_SSL(smtp_config["host"], smtp_config["port"], timeout=15) as server:
-                server.ehlo()
-                if smtp_config["user"]:
-                    server.login(smtp_config["user"], smtp_config["password"])
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(smtp_config["host"], smtp_config["port"], timeout=15) as server:
-                server.ehlo()
-                if smtp_config["use_starttls"]:
-                    server.starttls(context=ssl.create_default_context())
+    # Run SMTP in thread to avoid blocking the event loop
+    import concurrent.futures
+    def _send_sync():
+        timeout = 30  # Increased timeout for slow SMTP servers
+        try:
+            if smtp_config["use_ssl"]:
+                ctx = ssl.create_default_context()
+                with smtplib.SMTP_SSL(smtp_config["host"], smtp_config["port"], timeout=timeout, context=ctx) as server:
                     server.ehlo()
-                if smtp_config["user"]:
-                    server.login(smtp_config["user"], smtp_config["password"])
-                server.send_message(msg)
+                    if smtp_config["user"]:
+                        server.login(smtp_config["user"], smtp_config["password"])
+                    server.send_message(msg)
+            else:
+                with smtplib.SMTP(smtp_config["host"], smtp_config["port"], timeout=timeout) as server:
+                    server.ehlo()
+                    if smtp_config["use_starttls"]:
+                        server.starttls(context=ssl.create_default_context())
+                        server.ehlo()
+                    if smtp_config["user"]:
+                        server.login(smtp_config["user"], smtp_config["password"])
+                    server.send_message(msg)
+            return True, "E-Mail erfolgreich versendet."
+        except smtplib.SMTPAuthenticationError as e:
+            decoded = ""
+            try:
+                decoded = (e.smtp_error or b"").decode("utf-8", errors="ignore").strip()
+            except Exception:
+                pass
+            return False, f"SMTP Auth fehlgeschlagen ({e.smtp_code}). {decoded}".strip()
+        except smtplib.SMTPConnectError as e:
+            return False, f"SMTP Verbindung fehlgeschlagen ({e.smtp_code}): {e.smtp_error}"
+        except smtplib.SMTPServerDisconnected:
+            return False, "SMTP Server hat die Verbindung unerwartet geschlossen."
+        except ConnectionRefusedError:
+            return False, f"Verbindung zu {smtp_config['host']}:{smtp_config['port']} verweigert. Host/Port prüfen."
+        except TimeoutError:
+            return False, f"Timeout bei Verbindung zu {smtp_config['host']}:{smtp_config['port']}. Server nicht erreichbar oder Port blockiert."
+        except OSError as e:
+            return False, f"Netzwerkfehler: {e}"
+        except smtplib.SMTPException as e:
+            return False, f"SMTP Fehler: {e}"
+        except Exception as e:
+            return False, f"Unerwarteter Fehler: {type(e).__name__}: {e}"
+
+    loop = asyncio.get_event_loop()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        success, detail = await loop.run_in_executor(pool, _send_sync)
+
+    if success:
         log_info(
             "smtp.send.success",
             "Email sent successfully",
@@ -882,32 +917,16 @@ async def send_email_notification_detailed(to_email: str, subject: str, body_tex
             ssl=bool(smtp_config["use_ssl"]),
             starttls=bool(smtp_config["use_starttls"]),
         )
-        return True, "E-Mail erfolgreich versendet."
-    except smtplib.SMTPAuthenticationError as e:
-        decoded = ""
-        try:
-            decoded = (e.smtp_error or b"").decode("utf-8", errors="ignore").strip()
-        except Exception:
-            decoded = ""
-        detail = f"SMTP Auth fehlgeschlagen ({e.smtp_code}). {decoded}".strip()
-    except smtplib.SMTPConnectError as e:
-        detail = f"SMTP Verbindung fehlgeschlagen ({e.smtp_code}): {e.smtp_error}"
-    except smtplib.SMTPServerDisconnected:
-        detail = "SMTP Server hat die Verbindung unerwartet geschlossen."
-    except smtplib.SMTPException as e:
-        detail = f"SMTP Fehler: {e}"
-    except Exception as e:
-        detail = f"SMTP Fehler: {e}"
-
-    log_warning(
-        "smtp.send.failed",
-        "Email send failed",
-        to=normalized_to,
-        host=smtp_config.get("host", ""),
-        port=smtp_config.get("port", 0),
-        detail=detail,
-    )
-    return False, detail
+    else:
+        log_warning(
+            "smtp.send.failed",
+            "Email send failed",
+            to=normalized_to,
+            host=smtp_config.get("host", ""),
+            port=smtp_config.get("port", 0),
+            detail=detail,
+        )
+    return success, detail
 
 async def get_user_team_role(user_id: str, team_id: str):
     """Returns 'owner', 'leader', 'member', or None."""
