@@ -1,149 +1,147 @@
 # eSports Tournament Bracket System - PRD
 
 ## Problem Statement
-Complete eSports Tournament Bracket System with full access control (admin/player roles), dynamic animated brackets, payment integration (Stripe + PayPal), scheduling system with auto-reminders, pre-built game database, user accounts, team management, score submission, and comprehensive FAQ.
+Complete eSports Tournament Bracket System with Sub-Games (e.g., Black Ops 6, MW3), Maps, Map Ban/Vote System, full scheduling with matchday windows, and comprehensive demo data.
 
 ## Latest Update (2026-02-17)
 
-### New Features Implemented
-1. **Automatic Scheduling Reminder System**
-   - POST `/api/tournaments/{id}/send-scheduling-reminders` - Send reminders to teams with unscheduled matches
-   - Email notifications 24h before scheduling window ends
-   - In-app notifications for team owners
-   - Default time warning in emails (e.g., "Wednesday 19:00 will be used")
+### Major Features Implemented
 
-2. **PayPal Payment Integration**
-   - POST `/api/payments/paypal/create-order` - Create PayPal payment order
-   - POST `/api/payments/paypal/capture-order` - Capture approved payment
-   - GET `/api/payments/paypal/config` - Frontend configuration
-   - Admin Panel: PayPal setup help with developer.paypal.com link
+#### 1. Sub-Games System
+Games can now have sub-games (versions) with their own maps:
+- **Call of Duty**: Black Ops 6 (8 maps), Modern Warfare 3 (6 maps)
+- **CS2**: Premier (7 maps)
+- **Valorant**: Ranked Competitive (9 maps)
 
-3. **Extended FAQ System (10 Detailed Entries)**
-   - How to use the system as new user
-   - Team vs Solo tournaments
-   - Matchday scheduling process
-   - Payment and check-in help
-   - Scheduling workflow explanation
-   - Sub-teams explanation
-   - Check-in process
-   - Tournament formats overview
-   - Score submission guide
-   - Notification system
+#### 2. Map System
+- Maps belong to Sub-Games
+- Maps have game_mode restrictions (e.g., Nuketown supports S&D, Hardpoint, Control)
+- Map pool selection when creating tournaments
+- Map IDs: `bo6-nuketown`, `cs2-mirage`, `val-ascent`, etc.
 
-4. **Admin Panel Improvements**
-   - PayPal configuration help section
-   - SMTP configuration help (Gmail, Outlook, custom server)
-   - Auto-Termine button on tournament detail page
-   - Erinnerungen senden button for scheduling reminders
+#### 3. Map Ban/Vote System
+Complete veto system for match setup:
+- Teams take turns banning/picking maps
+- Configurable pick order: `ban_ban_pick`, `ban_pick_ban`, `alternate`
+- Configurable ban count per team
+- Full history tracking
+- UI in Match Detail Page
 
-5. **Auto-Scheduling System**
-   - Default match day/hour settings per tournament
-   - Auto-assign default times when teams don't agree
-   - POST `/api/tournaments/{id}/auto-schedule-unscheduled`
-   - GET `/api/tournaments/{id}/scheduling-status`
+#### 4. CoD BO6 4v4 S&D Liga Demo
+Complete demonstration tournament:
+- 8 Teams: ARES Alpha, NOVA Prime, ARES Bravo, ARES Charlie, PULSE Shadow, TITAN Core, VORTEX Prime, ORBIT Omega
+- 7 Spieltage (Matchdays) with weekly windows
+- 5 Maps in Pool: Nuketown, Hacienda, Vault, Skyline, Red Card
+- Detailed rules and description
 
 ## Architecture
-- **Backend**: FastAPI + MongoDB (server.py)
-- **Frontend**: React + Tailwind CSS + Shadcn UI + Framer Motion
-- **Database**: MongoDB
-- **Payment**: Stripe (integrated) + PayPal (integrated)
-- **E-Mail**: SMTP (configurable in Admin Panel)
-
-## User Personas
-1. **Admin** - Full control over tournaments, settings, payments
-2. **Team Owner** - Create teams, manage members, schedule matches
-3. **Team Leader** - Submit scores, propose match times
-4. **Player** - Join teams, participate in tournaments
-
-## Core Features (Implemented)
-
-### Tournament System
-- Multiple bracket types: Single/Double Elimination, Round Robin, League, Group Stage, Swiss, Battle Royale
-- Configurable matchday intervals and windows
-- Auto-scheduling with default day/hour settings
-- Scoring system with customizable points
-
-### Team Management
-- Main teams with sub-teams
-- Join codes for membership
-- Owner/Leader/Member roles
-
-### Match Scheduling System
-- Teams propose times via Match Hub
-- Accept/counter-propose workflow
-- Default time applied if no agreement
-- Admin can send reminders and auto-schedule
-
-### Payment System
-- **Stripe**: Credit card payments
-- **PayPal**: Alternative payment method
-- Entry fee management
-- Payment status tracking
-
-### Admin Panel
-- User/Team/Tournament management
-- SMTP configuration with provider guides
-- PayPal/Stripe setup with help sections
-- FAQ management
+- **Backend**: FastAPI + MongoDB
+- **Frontend**: React + Tailwind CSS + Shadcn UI
+- **Database**: MongoDB with collections: games, tournaments, registrations, teams, users, map_vetos, etc.
 
 ## API Endpoints (New)
 
-### Scheduling
-- `GET /api/tournaments/{id}/scheduling-status` - Overview of scheduled/unscheduled matches
-- `POST /api/tournaments/{id}/auto-schedule-unscheduled` - Auto-assign default times
-- `POST /api/tournaments/{id}/send-scheduling-reminders` - Send reminder emails
+### Sub-Games & Maps
+- `GET /api/games/{game_id}/sub-games` - Get all sub-games for a game
+- `GET /api/games/{game_id}/sub-games/{sub_game_id}/maps` - Get maps for specific sub-game
 
-### PayPal
-- `POST /api/payments/paypal/create-order` - Create payment order
-- `POST /api/payments/paypal/capture-order` - Capture approved payment
-- `GET /api/payments/paypal/config` - Frontend configuration
+### Map Veto
+- `GET /api/matches/{match_id}/map-veto` - Get veto state
+- `POST /api/matches/{match_id}/map-veto` - Submit ban/pick action
+- `POST /api/matches/{match_id}/map-veto/reset` - Admin reset
 
-### Tournament Config
-- `default_match_day` - Default day for auto-scheduling
-- `default_match_hour` - Default hour (0-23)
-- `auto_schedule_on_window_end` - Enable auto-scheduling
+### Tournament Config (New Fields)
+- `sub_game_id` - Which sub-game version
+- `sub_game_name` - Display name
+- `map_pool` - List of map IDs for this tournament
+- `map_ban_enabled` - Enable map banning
+- `map_ban_count` - How many maps each team can ban
+- `map_vote_enabled` - Enable map voting
+- `map_pick_order` - Order of ban/pick actions
+
+## Data Models
+
+### SubGame
+```json
+{
+  "id": "cod-bo6",
+  "name": "Black Ops 6",
+  "short_name": "BO6",
+  "release_year": 2024,
+  "active": true,
+  "maps": [GameMap]
+}
+```
+
+### GameMap
+```json
+{
+  "id": "bo6-nuketown",
+  "name": "Nuketown",
+  "image_url": "",
+  "game_modes": ["S&D", "Hardpoint", "Control"]
+}
+```
+
+### MapVeto
+```json
+{
+  "tournament_id": "...",
+  "match_id": "...",
+  "map_pool": ["bo6-nuketown", ...],
+  "banned_maps": ["bo6-hacienda"],
+  "picked_maps": ["bo6-nuketown"],
+  "current_turn": "team1",
+  "current_action": "pick",
+  "action_sequence": [...],
+  "action_index": 3,
+  "status": "in_progress",
+  "history": [...]
+}
+```
 
 ## Demo Data
-- 13 Tournament Types
-- 8 Main Teams with Sub-Teams
-- 18 Demo Users
-- 14 Games
+
+### Games with Sub-Games
+| Game | Sub-Games | Maps |
+|------|-----------|------|
+| Call of Duty | Black Ops 6, MW3 | 14 total |
+| CS2 | Premier | 7 |
+| Valorant | Ranked | 9 |
+
+### CoD BO6 4v4 S&D Liga
+- **Status**: Live
+- **Teams**: 8
+- **Spieltage**: 7
+- **Map Pool**: Nuketown, Hacienda, Vault, Skyline, Red Card
+- **Current Round**: 4 (Feb 17-22)
 
 ### Demo Credentials
-- `admin@arena.gg / admin123` - Main admin
-- `demo.admin@arena.gg / demo123` - Demo admin
+- `admin@arena.gg / admin123`
+- `demo.admin@arena.gg / demo123`
 
-## Prioritized Backlog
+## Test Results
+- Backend: 91.7% (11/12 tests)
+- Frontend: 85% (core features verified)
+
+## Backlog
 
 ### P0 (Completed)
-- ✅ Auto-Scheduling System
-- ✅ Scheduling Reminder Emails
-- ✅ PayPal Integration
-- ✅ Extended FAQ (10 entries)
-- ✅ Admin Panel Improvements
+- ✅ Sub-Games System
+- ✅ Maps per Sub-Game
+- ✅ Map Ban/Vote System
+- ✅ CoD Liga Demo with 8 teams and 7 Spieltage
 
-### P1 (High Priority - Next)
-- SMTP actual sending (requires user's SMTP credentials)
-- PayPal Live Mode (requires user's PayPal credentials)
-- WebSocket real-time updates
+### P1 (High Priority)
+- SMTP email sending (requires credentials)
+- PayPal live mode (requires credentials)
+- Automatic reminder cronjob
 
 ### P2 (Medium)
-- Tournament seeding management
-- Export bracket as image/PDF
+- Map images
+- Map statistics
 - Tournament templates
 
 ### P3 (Low)
-- Multiple languages (i18n)
+- Multiple languages
 - Player statistics history
-- Leaderboards
-
-## Technical Notes
-- All timestamps in UTC ISO format
-- MongoDB ObjectId exclusion in API responses
-- JWT authentication with 7-day expiry
-- PayPal sandbox mode by default
-
-## Configuration Required
-1. **SMTP**: Set in Admin Panel → Settings → SMTP
-2. **PayPal**: Set in Admin Panel → Settings → PayPal (Client ID + Secret from developer.paypal.com)
-3. **Stripe**: Already configured via environment variables
