@@ -35,6 +35,17 @@ export default function MatchDetailPage() {
   const [resolveJson, setResolveJson] = useState("{}");
   const [resolveNote, setResolveNote] = useState("");
   const [scoreForm, setScoreForm] = useState({ score1: 0, score2: 0 });
+  const [mapVetoState, setMapVetoState] = useState(null);
+  const [mapVetoLoading, setMapVetoLoading] = useState(false);
+
+  const fetchMapVeto = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/matches/${matchId}/map-veto`);
+      setMapVetoState(res.data);
+    } catch {
+      setMapVetoState(null);
+    }
+  }, [matchId]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -61,16 +72,35 @@ export default function MatchDetailPage() {
         score1: Number(match.score1 || 0),
         score2: Number(match.score2 || 0),
       });
+      
+      // Fetch map veto state
+      fetchMapVeto();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Match konnte nicht geladen werden");
     } finally {
       setLoading(false);
     }
-  }, [matchId]);
+  }, [matchId, fetchMapVeto]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleMapVetoAction = async (action, mapId) => {
+    setMapVetoLoading(true);
+    try {
+      const res = await axios.post(`${API}/matches/${matchId}/map-veto`, {
+        action,
+        map_id: mapId,
+      });
+      setMapVetoState(res.data);
+      toast.success(`Map ${action === "ban" ? "gebannt" : "gepickt"}: ${mapId}`);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Aktion fehlgeschlagen");
+    } finally {
+      setMapVetoLoading(false);
+    }
+  };
 
   const parsedSetup = useMemo(() => {
     try {
