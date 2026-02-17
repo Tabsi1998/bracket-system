@@ -7301,6 +7301,95 @@ async def startup():
     await ensure_indexes()
     await seed_games()
     await seed_admin()
+    
+    # Setup cron job for daily reminders
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        scheduler = AsyncIOScheduler()
+        
+        async def daily_reminder_job():
+            """Run daily at 10:00 UTC - send scheduling reminders for all active tournaments."""
+            log_info("cron.reminders.start", "Running daily reminder job")
+            try:
+                active_tournaments = await db.tournaments.find(
+                    {"status": "in_progress", "bracket": {"$ne": None}},
+                    {"_id": 0, "id": 1, "name": 1}
+                ).to_list(100)
+                
+                total_sent = 0
+                for t in active_tournaments:
+                    try:
+                        # Simulate an admin request context for the reminder function
+                        bracket = (await db.tournaments.find_one({"id": t["id"]}, {"_id": 0, "bracket": 1})) or {}
+                        bracket_data = bracket.get("bracket", {})
+                        if not bracket_data:
+                            continue
+                        
+                        now = datetime.now(timezone.utc)
+                        tournament = await db.tournaments.find_one({"id": t["id"]}, {"_id": 0})
+                        if not tournament:
+                            continue
+                        
+                        # Find unscheduled matches and send reminders
+                        matches_to_check = []
+                        bracket_type = bracket_data.get("type", "")
+                        if bracket_type == "league":
+                            for md in bracket_data.get("matchdays", []):
+                                matches_to_check.extend(md.get("matches", []))
+                        else:
+                            for rnd in bracket_data.get("rounds", []):
+                                matches_to_check.extend(rnd.get("matches", []))
+                        
+                        teams_notified = set()
+                        for match in matches_to_check:
+                            if match.get("scheduled_for") or match.get("status") == "completed":
+                                continue
+                            if not match.get("team1_id") or not match.get("team2_id"):
+                                continue
+                            
+                            for team_id in [match.get("team1_id"), match.get("team2_id")]:
+                                if team_id and team_id not in teams_notified:
+                                    team = await db.teams.find_one({"id": team_id}, {"_id": 0, "name": 1, "owner_id": 1})
+                                    if team and team.get("owner_id"):
+                                        owner = await db.users.find_one({"id": team["owner_id"]}, {"_id": 0, "email": 1, "username": 1})
+                                        if owner and owner.get("email"):
+                                            notif = {
+                                                "id": str(uuid.uuid4()),
+                                                "user_id": team["owner_id"],
+                                                "type": "scheduling_reminder",
+                                                "title": "Termin-Erinnerung",
+                                                "message": f"Match für '{team.get('name', '')}' in '{tournament.get('name', '')}' hat noch keinen Termin!",
+                                                "read": False,
+                                                "created_at": now_iso(),
+                                                "tournament_id": t["id"],
+                                                "match_id": match.get("id", ""),
+                                            }
+                                            await db.notifications.insert_one(notif)
+                                            teams_notified.add(team_id)
+                                            total_sent += 1
+                                            
+                                            # Try sending email (non-blocking)
+                                            try:
+                                                await send_email_notification_detailed(
+                                                    owner["email"],
+                                                    "Termin-Erinnerung - ARENA eSports",
+                                                    f"Hallo {owner.get('username', 'Team-Owner')},\n\nDein Team \"{team.get('name', '')}\" hat ein Match ohne Termin im Turnier \"{tournament.get('name', '')}\".\n\nBitte stimmt euch im Match-Hub ab!\n\nMit sportlichen Grüßen,\nDas ARENA Team"
+                                                )
+                                            except Exception:
+                                                pass  # Email failure shouldn't stop the job
+                    except Exception as ex:
+                        log_warning("cron.reminders.tournament_error", f"Error processing tournament {t.get('id','')}", error=str(ex))
+                
+                log_info("cron.reminders.done", f"Daily reminder job complete. Sent {total_sent} reminders for {len(active_tournaments)} tournaments.")
+            except Exception as ex:
+                log_warning("cron.reminders.error", "Daily reminder job failed", error=str(ex))
+        
+        scheduler.add_job(daily_reminder_job, 'cron', hour=10, minute=0, id='daily_reminders')
+        scheduler.start()
+        logger.info("Cron job scheduler started (daily reminders at 10:00 UTC)")
+    except Exception as e:
+        logger.warning(f"Could not start cron scheduler: {e}")
+    
     logger.info("eSports Tournament System started")
 
 @app.on_event("shutdown")
