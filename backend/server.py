@@ -317,6 +317,28 @@ class MatchSetupResolve(BaseModel):
     settings: Dict[str, Any] = Field(default_factory=dict)
     note: str = ""
 
+class SubGameCreate(BaseModel):
+    name: str
+    short_name: str = ""
+    release_year: int = 0
+    active: bool = True
+
+class SubGameUpdate(BaseModel):
+    name: Optional[str] = None
+    short_name: Optional[str] = None
+    release_year: Optional[int] = None
+    active: Optional[bool] = None
+
+class MapCreate(BaseModel):
+    name: str
+    image_url: str = ""
+    game_modes: List[str] = Field(default_factory=list)
+
+class MapUpdate(BaseModel):
+    name: Optional[str] = None
+    image_url: Optional[str] = None
+    game_modes: Optional[List[str]] = None
+
 class MapBanAction(BaseModel):
     map_id: str
     action: str = "ban"  # "ban" or "pick"
