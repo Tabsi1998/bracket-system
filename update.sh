@@ -410,6 +410,10 @@ if [ -n "$BACKEND_SERVICE_UNIT" ]; then
   $SUDO systemctl restart "$BACKEND_SERVICE_UNIT"
   $SUDO systemctl is-active --quiet "$BACKEND_SERVICE_UNIT" || err "Service $BACKEND_SERVICE_UNIT konnte nicht gestartet werden"
   log "Service $BACKEND_SERVICE_UNIT neu gestartet"
+  backend_service_user="$($SUDO systemctl show -p User --value "$BACKEND_SERVICE_UNIT" 2>/dev/null || true)"
+  if [ -z "$backend_service_user" ] || [ "$backend_service_user" = "root" ]; then
+    warn "Sicherheit: $BACKEND_SERVICE_UNIT läuft als root. Empfehlung: bei Neuinstallation install.sh verwenden (dedizierter User 'arena')."
+  fi
 else
   warn "Kein passender Backend-Service gefunden."
   warn "Setze optional BACKEND_SERVICE_NAME, z. B.: BACKEND_SERVICE_NAME=arena-backend ./update.sh"

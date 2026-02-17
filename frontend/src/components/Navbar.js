@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Trophy, Gamepad2, Plus, Menu, X, Users, Shield, LogIn, LogOut, User } from "lucide-react";
+import { Trophy, Gamepad2, Plus, Menu, X, Users, Shield, LogIn, LogOut, User, CircleHelp } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
@@ -14,6 +14,7 @@ export default function Navbar() {
   const links = [
     { to: "/tournaments", label: "Turniere", icon: Trophy },
     { to: "/games", label: "Spiele", icon: Gamepad2 },
+    { to: "/faq", label: "FAQ", icon: CircleHelp },
     ...(user ? [{ to: "/teams", label: "Teams", icon: Users }] : []),
     ...(isAdmin ? [{ to: "/admin", label: "Admin", icon: Shield }] : []),
   ];

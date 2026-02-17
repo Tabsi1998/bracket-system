@@ -174,6 +174,7 @@ export default function MatchDetailPage() {
 
   const match = matchData.match || {};
   const tournament = matchData.tournament || {};
+  const context = matchData.context || {};
   const viewer = matchData.viewer || {};
   const schedule = matchData.schedule || {};
   const setupStatus = setupState?.status || "pending";
@@ -190,6 +191,10 @@ export default function MatchDetailPage() {
               {match.team1_name || "TBD"} vs {match.team2_name || "TBD"}
             </h1>
             <p className="text-sm text-zinc-400 mt-1">{tournament.name}</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {match.round_name || context.round_name || `Runde ${match.round || "-"}`}
+              {match.matchday ? ` | Spieltag ${match.matchday}` : ""}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Badge className="bg-zinc-900 border border-white/10 text-zinc-300 text-xs">{match.status || "pending"}</Badge>
@@ -207,6 +212,18 @@ export default function MatchDetailPage() {
             <div className="text-sm text-zinc-400">
               Geplanter Termin: {schedule.scheduled_for ? new Date(schedule.scheduled_for).toLocaleString("de-DE") : "Noch offen"}
             </div>
+            {(schedule.window_start || schedule.window_end) && (
+              <div className="text-xs text-zinc-500">
+                Spieltagsfenster: {schedule.window_start ? new Date(schedule.window_start).toLocaleDateString("de-DE") : "?"}
+                {" - "}
+                {schedule.window_end ? new Date(schedule.window_end).toLocaleDateString("de-DE") : "?"}
+              </div>
+            )}
+            {!schedule.scheduled_for && (
+              <div className="text-xs text-amber-400">
+                Termin ist noch offen. Bitte im Team abstimmen und Vorschlag akzeptieren.
+              </div>
+            )}
             <div className="flex gap-2">
               <Input
                 type="datetime-local"

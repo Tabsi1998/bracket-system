@@ -275,6 +275,10 @@ function RoundRobinView({ bracket, tournamentId }) {
               </div>
             ))}
           </div>
+          <div className="text-[11px] text-zinc-600 mt-3">
+            Termin offen: {Math.max(0, (round.matches || []).length - (round.matches || []).filter((m) => m?.scheduled_for).length)}
+            /{(round.matches || []).length} (im Match-Hub abstimmen)
+          </div>
         </div>
       ))}
       <div className="text-[11px] text-zinc-600 px-1">

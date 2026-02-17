@@ -2,6 +2,8 @@ from fastapi import FastAPI, APIRouter, HTTPException, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ASCENDING
+from pymongo.errors import DuplicateKeyError, OperationFailure
 import os
 import asyncio
 import logging
@@ -9,6 +11,7 @@ import math
 import re
 import json
 import base64
+import ssl
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -300,9 +303,19 @@ class UserPasswordUpdate(BaseModel):
     current_password: str
     new_password: str
 
+class FAQEntry(BaseModel):
+    id: Optional[str] = None
+    question: str
+    answer: str
+
+class FAQUpdate(BaseModel):
+    items: List[FAQEntry] = Field(default_factory=list)
+
 # --- JWT Auth ---
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "arena-esports-secret-2026-xk9m2")
+JWT_SECRET = str(os.environ.get("JWT_SECRET", "") or "").strip()
+if len(JWT_SECRET) < 32:
+    raise RuntimeError("JWT_SECRET fehlt oder ist zu kurz (min. 32 Zeichen). Bitte backend/.env setzen.")
 JWT_ALGORITHM = "HS256"
 
 SUPPORTED_BRACKET_TYPES = {
@@ -343,6 +356,55 @@ ALLOWED_TIEBREAKERS = {
     "played",
     "team_name",
 }
+
+try:
+    PAYMENT_RESERVATION_MINUTES = max(5, int(str(os.environ.get("PAYMENT_RESERVATION_MINUTES", "30")).strip() or "30"))
+except ValueError:
+    PAYMENT_RESERVATION_MINUTES = 30
+
+FAQ_SETTINGS_KEY = "faq_items_json"
+DEFAULT_FAQ_ITEMS: List[Dict[str, str]] = [
+    {
+        "id": "faq-overview",
+        "question": "Was ist ARENA und wie starte ich?",
+        "answer": "ARENA ist ein eSports-Turniersystem für Teams und Solo-Spieler. Starte mit Registrierung/Login, erstelle oder joine ein Team (bei Team-Turnieren ein Sub-Team), wähle ein Turnier und registriere dich.",
+    },
+    {
+        "id": "faq-team-vs-solo",
+        "question": "Wann nutze ich Team und wann Solo?",
+        "answer": "Bei Turnieren mit participant_mode=team registrierst du ein Sub-Team. Bei participant_mode=solo meldet sich dein Benutzer direkt als Teilnehmer an, ohne Team-Auswahl.",
+    },
+    {
+        "id": "faq-subteams",
+        "question": "Warum sind Sub-Teams wichtig?",
+        "answer": "Main-Teams sind die organisatorische Basis. Für Turniere werden Sub-Teams verwendet. Sub-Teams erben bei leeren Feldern Logo/Banner/Tag vom Main-Team.",
+    },
+    {
+        "id": "faq-registration",
+        "question": "Wie läuft die Turnierregistrierung ab?",
+        "answer": "Öffne das Turnier, klicke auf Registrieren und wähle dein passendes Sub-Team (oder solo). Nach erfolgreicher Registrierung siehst du deinen Status in der Teilnehmerliste.",
+    },
+    {
+        "id": "faq-payments",
+        "question": "Wie funktionieren Zahlungen und Retry?",
+        "answer": "Bei kostenpflichtigen Turnieren wird ein Checkout (Stripe/PayPal) gestartet. Wenn die Zahlung fehlschlägt, bleibt die Registrierung als pending/failed sichtbar und du kannst den Checkout erneut starten (Retry).",
+    },
+    {
+        "id": "faq-checkin",
+        "question": "Warum kann ich nicht einchecken?",
+        "answer": "Check-in ist nur im Check-in-Zeitfenster möglich. Bei kostenpflichtigen Turnieren muss payment_status=paid sein, sonst wird der Check-in blockiert.",
+    },
+    {
+        "id": "faq-match-hub",
+        "question": "Was mache ich im Match-Hub?",
+        "answer": "Im Match-Hub kannst du Termine vorschlagen/akzeptieren, Match-Setup bestätigen, Kommentare schreiben und Ergebnisse einreichen. Bei Konflikten kann ein Admin final entscheiden.",
+    },
+    {
+        "id": "faq-admin",
+        "question": "Was kann ein Admin verwalten?",
+        "answer": "Admins verwalten Benutzerrollen, Teams, Spiele, Turniere, SMTP/Payment-Settings, PayPal-Validierung und können Konflikte bei Setups/Scores auflösen.",
+    },
+]
 
 CATEGORY_SETTINGS_TEMPLATE_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "fps": {
@@ -621,46 +683,8 @@ def generate_join_code():
     return ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
 
 async def send_email_notification(to_email: str, subject: str, body_text: str):
-    """Send email if SMTP is configured in admin settings."""
-    try:
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.utils import formataddr
-
-        smtp_config = await get_smtp_config()
-        if not smtp_config:
-            logger.info("SMTP config incomplete, skipping email notification")
-            return False
-
-        to_email = normalize_email(to_email)
-        if not is_valid_email(to_email):
-            logger.warning(f"Invalid recipient email: {to_email}")
-            return False
-
-        msg = MIMEText(body_text, "plain", "utf-8")
-        msg["Subject"] = str(subject or "").strip() or "ARENA Benachrichtigung"
-        msg["From"] = formataddr((smtp_config["from_name"], smtp_config["from_email"]))
-        msg["To"] = to_email
-        if smtp_config["reply_to"]:
-            msg["Reply-To"] = smtp_config["reply_to"]
-
-        if smtp_config["use_ssl"]:
-            with smtplib.SMTP_SSL(smtp_config["host"], smtp_config["port"], timeout=12) as server:
-                if smtp_config["user"]:
-                    server.login(smtp_config["user"], smtp_config["password"])
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(smtp_config["host"], smtp_config["port"], timeout=12) as server:
-                if smtp_config["use_starttls"]:
-                    server.starttls()
-                if smtp_config["user"]:
-                    server.login(smtp_config["user"], smtp_config["password"])
-                server.send_message(msg)
-        logger.info(f"Email sent to {to_email}")
-        return True
-    except Exception as e:
-        logger.warning(f"Email send failed: {e}")
-        return False
+    ok, _detail = await send_email_notification_detailed(to_email, subject, body_text)
+    return ok
 
 def to_bool(value: Any, default: bool = False) -> bool:
     if value is None:
@@ -677,48 +701,149 @@ async def get_admin_setting_value(key: str, default: str = "") -> str:
     value = str((row or {}).get("value", "")).strip()
     return value if value else default
 
-async def get_smtp_config() -> Optional[Dict[str, Any]]:
-    host = await get_admin_setting_value("smtp_host")
-    port_raw = await get_admin_setting_value("smtp_port", "587")
-    user = await get_admin_setting_value("smtp_user")
-    password = await get_admin_setting_value("smtp_password")
+async def get_setting_value_with_env_fallback(
+    setting_key: str,
+    default: str = "",
+    env_keys: Optional[List[str]] = None,
+) -> str:
+    for env_key in (env_keys or []):
+        env_value = str(os.environ.get(env_key, "") or "").strip()
+        if env_value:
+            return env_value
+    return await get_admin_setting_value(setting_key, default)
 
-    # Optional sender overrides
-    from_name = await get_admin_setting_value("smtp_from_name", "ARENA eSports")
-    from_email = await get_admin_setting_value("smtp_from_email", user)
-    reply_to = await get_admin_setting_value("smtp_reply_to", "")
-    use_starttls = to_bool(await get_admin_setting_value("smtp_use_starttls", "true"), default=True)
-    use_ssl = to_bool(await get_admin_setting_value("smtp_use_ssl", "false"), default=False)
+async def get_smtp_config_detailed() -> Tuple[Optional[Dict[str, Any]], str]:
+    host = await get_setting_value_with_env_fallback("smtp_host", env_keys=["SMTP_HOST"])
+    port_raw = await get_setting_value_with_env_fallback("smtp_port", "587", env_keys=["SMTP_PORT"])
+    user = await get_setting_value_with_env_fallback("smtp_user", env_keys=["SMTP_USER", "SMTP_USERNAME"])
+    password = await get_setting_value_with_env_fallback("smtp_password", env_keys=["SMTP_PASSWORD"])
 
-    if not host or not port_raw:
-        return None
+    from_name = await get_setting_value_with_env_fallback("smtp_from_name", "ARENA eSports", env_keys=["SMTP_FROM_NAME"])
+    default_from_email = user if is_valid_email(user) else ""
+    from_email = await get_setting_value_with_env_fallback("smtp_from_email", default_from_email, env_keys=["SMTP_FROM_EMAIL"])
+    reply_to = await get_setting_value_with_env_fallback("smtp_reply_to", "", env_keys=["SMTP_REPLY_TO"])
+    use_starttls = to_bool(
+        await get_setting_value_with_env_fallback("smtp_use_starttls", "true", env_keys=["SMTP_USE_STARTTLS"]),
+        default=True,
+    )
+    use_ssl = to_bool(
+        await get_setting_value_with_env_fallback("smtp_use_ssl", "false", env_keys=["SMTP_USE_SSL"]),
+        default=False,
+    )
+
+    if not host:
+        return None, "SMTP Host fehlt (smtp_host oder SMTP_HOST)."
+    if not port_raw:
+        return None, "SMTP Port fehlt (smtp_port oder SMTP_PORT)."
     try:
-        port = int(port_raw)
+        port = int(str(port_raw).strip())
     except ValueError:
-        logger.warning("SMTP port invalid")
-        return None
-
+        return None, f"SMTP Port ist ungültig: {port_raw}"
+    if port < 1 or port > 65535:
+        return None, f"SMTP Port außerhalb des gültigen Bereichs: {port}"
     if user and not password:
-        logger.warning("SMTP user set but password missing")
-        return None
-    if from_email and not is_valid_email(from_email):
-        logger.warning("SMTP from_email invalid")
-        return None
+        return None, "SMTP Benutzer ist gesetzt, aber smtp_password fehlt."
+
+    from_email = normalize_email(from_email)
+    if not from_email:
+        return None, "SMTP Absender-Adresse fehlt (smtp_from_email oder SMTP_FROM_EMAIL)."
+    if not is_valid_email(from_email):
+        return None, f"SMTP Absender-Adresse ungültig: {from_email}"
+
+    reply_to = normalize_email(reply_to)
     if reply_to and not is_valid_email(reply_to):
-        logger.warning("SMTP reply_to invalid")
-        reply_to = ""
+        return None, f"SMTP Reply-To ungültig: {reply_to}"
 
     return {
         "host": host,
         "port": port,
         "user": user,
         "password": password,
-        "from_name": from_name,
-        "from_email": from_email or user,
+        "from_name": str(from_name or "ARENA eSports").strip() or "ARENA eSports",
+        "from_email": from_email,
         "reply_to": reply_to,
         "use_starttls": use_starttls and not use_ssl,
         "use_ssl": use_ssl,
-    }
+    }, ""
+
+async def get_smtp_config() -> Optional[Dict[str, Any]]:
+    config, _detail = await get_smtp_config_detailed()
+    return config
+
+async def send_email_notification_detailed(to_email: str, subject: str, body_text: str) -> Tuple[bool, str]:
+    """Send email with detailed error message for diagnostics/admin test endpoint."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.utils import formataddr
+
+    smtp_config, config_error = await get_smtp_config_detailed()
+    if not smtp_config:
+        detail = config_error or "SMTP Konfiguration unvollständig."
+        log_warning("smtp.send.skipped", "Skipping email send due to invalid SMTP config", detail=detail)
+        return False, detail
+
+    normalized_to = normalize_email(to_email)
+    if not is_valid_email(normalized_to):
+        return False, f"Empfänger-Adresse ungültig: {normalized_to}"
+
+    msg = MIMEText(body_text, "plain", "utf-8")
+    msg["Subject"] = str(subject or "").strip() or "ARENA Benachrichtigung"
+    msg["From"] = formataddr((smtp_config["from_name"], smtp_config["from_email"]))
+    msg["To"] = normalized_to
+    if smtp_config["reply_to"]:
+        msg["Reply-To"] = smtp_config["reply_to"]
+
+    try:
+        if smtp_config["use_ssl"]:
+            with smtplib.SMTP_SSL(smtp_config["host"], smtp_config["port"], timeout=15) as server:
+                server.ehlo()
+                if smtp_config["user"]:
+                    server.login(smtp_config["user"], smtp_config["password"])
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(smtp_config["host"], smtp_config["port"], timeout=15) as server:
+                server.ehlo()
+                if smtp_config["use_starttls"]:
+                    server.starttls(context=ssl.create_default_context())
+                    server.ehlo()
+                if smtp_config["user"]:
+                    server.login(smtp_config["user"], smtp_config["password"])
+                server.send_message(msg)
+        log_info(
+            "smtp.send.success",
+            "Email sent successfully",
+            to=normalized_to,
+            host=smtp_config["host"],
+            port=smtp_config["port"],
+            ssl=bool(smtp_config["use_ssl"]),
+            starttls=bool(smtp_config["use_starttls"]),
+        )
+        return True, "E-Mail erfolgreich versendet."
+    except smtplib.SMTPAuthenticationError as e:
+        decoded = ""
+        try:
+            decoded = (e.smtp_error or b"").decode("utf-8", errors="ignore").strip()
+        except Exception:
+            decoded = ""
+        detail = f"SMTP Auth fehlgeschlagen ({e.smtp_code}). {decoded}".strip()
+    except smtplib.SMTPConnectError as e:
+        detail = f"SMTP Verbindung fehlgeschlagen ({e.smtp_code}): {e.smtp_error}"
+    except smtplib.SMTPServerDisconnected:
+        detail = "SMTP Server hat die Verbindung unerwartet geschlossen."
+    except smtplib.SMTPException as e:
+        detail = f"SMTP Fehler: {e}"
+    except Exception as e:
+        detail = f"SMTP Fehler: {e}"
+
+    log_warning(
+        "smtp.send.failed",
+        "Email send failed",
+        to=normalized_to,
+        host=smtp_config.get("host", ""),
+        port=smtp_config.get("port", 0),
+        detail=detail,
+    )
+    return False, detail
 
 async def get_user_team_role(user_id: str, team_id: str):
     """Returns 'owner', 'leader', 'member', or None."""
@@ -889,6 +1014,49 @@ async def save_admin_setting_value(key: str, value: str) -> None:
         {"$set": {"key": key, "value": value, "updated_at": now_iso()}},
         upsert=True,
     )
+
+def normalize_faq_items(items_raw: Any) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    seen_questions: Set[str] = set()
+    if not isinstance(items_raw, list):
+        return out
+
+    for item in items_raw:
+        if not isinstance(item, dict):
+            continue
+        question = normalize_optional_text(item.get("question"), max_len=260)
+        answer = normalize_optional_text(item.get("answer"), max_len=7000)
+        if not question or not answer:
+            continue
+        key = question.lower()
+        if key in seen_questions:
+            continue
+        seen_questions.add(key)
+        item_id = normalize_optional_text(item.get("id"), max_len=100) or str(uuid.uuid4())
+        out.append({"id": item_id, "question": question, "answer": answer})
+        if len(out) >= 120:
+            break
+    return out
+
+def clone_default_faq_items() -> List[Dict[str, str]]:
+    return [dict(item) for item in DEFAULT_FAQ_ITEMS]
+
+async def get_faq_payload() -> Dict[str, Any]:
+    setting = await db.admin_settings.find_one({"key": FAQ_SETTINGS_KEY}, {"_id": 0, "value": 1, "updated_at": 1})
+    updated_at = str((setting or {}).get("updated_at", "") or "")
+    raw_value = str((setting or {}).get("value", "") or "").strip()
+
+    custom_items: List[Dict[str, str]] = []
+    if raw_value:
+        try:
+            parsed = json.loads(raw_value)
+        except Exception:
+            parsed = []
+        custom_items = normalize_faq_items(parsed)
+
+    if custom_items:
+        return {"items": custom_items, "source": "custom", "updated_at": updated_at}
+    return {"items": clone_default_faq_items(), "source": "default", "updated_at": updated_at}
 
 async def validate_paypal_configuration(force_live: bool = True, persist_result: bool = True) -> Dict[str, Any]:
     client_id = await get_paypal_client_id()
@@ -1142,6 +1310,7 @@ def sanitize_registration(reg: Dict, include_private: bool = False, include_play
     if include_private:
         doc["user_id"] = reg.get("user_id")
         doc["payment_session_id"] = reg.get("payment_session_id")
+        doc["payment_expires_at"] = reg.get("payment_expires_at", "")
 
     return doc
 
@@ -1456,10 +1625,9 @@ async def seed_admin():
         logger.warning("Invalid ADMIN_EMAIL in environment, falling back to admin@arena.gg")
         admin_email = "admin@arena.gg"
 
-    admin_password = str(os.environ.get("ADMIN_PASSWORD", "admin123") or "").strip()
+    admin_password = str(os.environ.get("ADMIN_PASSWORD", "") or "").strip()
     if not admin_password:
-        logger.warning("Empty ADMIN_PASSWORD in environment, falling back to admin123")
-        admin_password = "admin123"
+        logger.warning("ADMIN_PASSWORD is empty; startup will not create/reset admin passwords without explicit value.")
 
     default_username = os.environ.get("ADMIN_USERNAME", admin_email.split("@")[0] or "admin").strip()
     username = default_username or "admin"
@@ -1477,12 +1645,18 @@ async def seed_admin():
         existing_hash = str(existing_with_email.get("password_hash", "") or "").strip()
         legacy_password = str(existing_with_email.get("password", "") or "").strip()
         if force_password_reset:
+            if not admin_password:
+                raise RuntimeError("ADMIN_FORCE_PASSWORD_RESET=true benötigt ein gesetztes ADMIN_PASSWORD.")
             update_doc["password_hash"] = hash_password(admin_password)
         elif not existing_hash:
             if legacy_password:
                 update_doc["password_hash"] = hash_password(legacy_password)
-            else:
+            elif admin_password:
                 update_doc["password_hash"] = hash_password(admin_password)
+            else:
+                raise RuntimeError(
+                    "Admin-User ohne Passwort-Hash erkannt. Setze ADMIN_PASSWORD oder führe ./update.sh --admin-reset aus."
+                )
         if not existing_with_email.get("id"):
             update_doc["id"] = str(uuid.uuid4())
         if not existing_with_email.get("username"):
@@ -1507,6 +1681,11 @@ async def seed_admin():
 
     if await db.users.find_one({"username": exact_ci_regex(username, allow_outer_whitespace=True)}, {"_id": 0}):
         username = f"{username}_{uuid.uuid4().hex[:6]}"
+
+    if not admin_password:
+        raise RuntimeError(
+            "ADMIN_PASSWORD fehlt für die initiale Admin-Erstellung. Setze ADMIN_PASSWORD in backend/.env."
+        )
 
     admin_doc = {
         "id": str(uuid.uuid4()), "username": username, "email": admin_email,
@@ -2219,13 +2398,46 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
             status=str(t.get("status", "") or ""),
         )
         raise HTTPException(400, "Registration is closed")
-    reg_count = await db.registrations.count_documents({"tournament_id": tournament_id})
-    if reg_count >= t["max_participants"]:
+    now_dt = datetime.now(timezone.utc)
+    entry_fee = float(t.get("entry_fee", 0) or 0)
+    paid_tournament = entry_fee > 0
+    capacity_regs = []
+    capacity_cursor = db.registrations.find(
+        {"tournament_id": tournament_id},
+        {"_id": 0, "id": 1, "payment_status": 1, "payment_expires_at": 1, "created_at": 1},
+    )
+    async for row in capacity_cursor:
+        capacity_regs.append(row)
+
+    if paid_tournament:
+        expired_pending_ids = []
+        for existing_reg in capacity_regs:
+            if str(existing_reg.get("payment_status", "")).strip().lower() != "pending":
+                continue
+            if is_pending_registration_active(existing_reg, reference_time=now_dt):
+                continue
+            reg_id = str(existing_reg.get("id", "") or "").strip()
+            if reg_id:
+                expired_pending_ids.append(reg_id)
+        if expired_pending_ids:
+            expired_pending_set = set(expired_pending_ids)
+            await db.registrations.update_many(
+                {"id": {"$in": expired_pending_ids}},
+                {"$set": {"payment_status": "failed", "updated_at": now_iso()}},
+            )
+            capacity_regs = [r for r in capacity_regs if str(r.get("id", "") or "").strip() not in expired_pending_set]
+
+    active_reg_count = sum(
+        1
+        for existing_reg in capacity_regs
+        if registration_counts_against_capacity(existing_reg, paid_tournament=paid_tournament, reference_time=now_dt)
+    )
+    if active_reg_count >= t["max_participants"]:
         log_warning(
             "tournament.registration.full",
             "Registration blocked because participant limit is reached",
             tournament_id=tournament_id,
-            registered_count=reg_count,
+            registered_count=active_reg_count,
             max_participants=int(t.get("max_participants", 0) or 0),
         )
         raise HTTPException(400, "Tournament is full")
@@ -2298,7 +2510,14 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
             if not team_tag:
                 team_tag = str((parent or {}).get("tag", "") or "")
 
-    payment_status = "free" if t["entry_fee"] <= 0 else "pending"
+    payment_status = "free" if entry_fee <= 0 else "pending"
+    next_seed = 1
+    latest_seed_row = await db.registrations.find(
+        {"tournament_id": tournament_id},
+        {"_id": 0, "seed": 1},
+    ).sort("seed", -1).to_list(1)
+    if latest_seed_row:
+        next_seed = parse_int_or_default(latest_seed_row[0].get("seed"), 0) + 1
     doc = {
         "id": str(uuid.uuid4()),
         "tournament_id": tournament_id,
@@ -2313,8 +2532,9 @@ async def register_for_tournament(request: Request, tournament_id: str, body: Re
         "participant_mode": participant_mode,
         "checked_in": False,
         "payment_status": payment_status,
+        "payment_expires_at": compute_payment_reservation_expiry_iso(now_dt) if payment_status == "pending" else "",
         "payment_session_id": None,
-        "seed": reg_count + 1,
+        "seed": next_seed,
         "created_at": now_iso(),
     }
     await db.registrations.insert_one(doc)
@@ -2548,7 +2768,7 @@ def resolve_matchday_anchor(
         if scheduled:
             return scheduled
     day_index = max(1, int(day_doc.get("matchday", 1) or 1))
-    anchor = fallback_start or datetime.now(timezone.utc)
+    anchor = fallback_start or datetime(2000, 1, 1, tzinfo=timezone.utc)
     return anchor + timedelta(days=max(1, int(interval_days or 1)) * (day_index - 1))
 
 def enrich_matchdays_with_calendar(
@@ -2559,13 +2779,30 @@ def enrich_matchdays_with_calendar(
         return []
     cfg = get_tournament_matchday_config(tournament or {})
     tournament_start = parse_optional_datetime(str((tournament or {}).get("start_date", "") or ""))
+    fallback_start = tournament_start
+    if fallback_start is None:
+        anchors: List[datetime] = []
+        for day in matchdays:
+            window_start = parse_optional_datetime(str(day.get("window_start", "") or ""))
+            if window_start:
+                anchors.append(window_start)
+                continue
+            for match in day.get("matches", []) or []:
+                scheduled = parse_optional_datetime(str(match.get("scheduled_for", "") or ""))
+                if scheduled:
+                    anchors.append(scheduled)
+                    break
+        if anchors:
+            fallback_start = min(anchors)
+        else:
+            fallback_start = datetime(2000, 1, 1, tzinfo=timezone.utc)
     out = []
     for day in sorted(matchdays, key=lambda x: int(x.get("matchday", 0) or 0)):
         doc = dict(day or {})
         status = normalize_matchday_status(doc.get("status"))
         anchor = resolve_matchday_anchor(
             doc,
-            fallback_start=tournament_start,
+            fallback_start=fallback_start,
             interval_days=cfg["interval_days"],
         )
         iso = anchor.isocalendar()
@@ -2729,9 +2966,15 @@ def build_tournament_matchdays(tournament: Dict[str, Any]) -> List[Dict[str, Any
             }
         return matchday_map[day_key]
 
-    def append_round_matches(round_doc: Dict[str, Any], group_doc: Optional[Dict[str, Any]] = None):
+    def append_round_matches(
+        round_doc: Dict[str, Any],
+        group_doc: Optional[Dict[str, Any]] = None,
+        *,
+        day_offset: int = 0,
+    ):
         round_index = int(round_doc.get("round") or round_doc.get("matchday") or 1)
-        matchday_index = int(round_doc.get("matchday") or round_index or 1)
+        base_matchday_index = int(round_doc.get("matchday") or round_index or 1)
+        matchday_index = max(1, base_matchday_index + max(0, int(day_offset or 0)))
         target = ensure_matchday(matchday_index)
         target["name"] = str(round_doc.get("name", f"Spieltag {matchday_index}") or f"Spieltag {matchday_index}")
         if round_doc.get("window_start"):
@@ -2739,10 +2982,11 @@ def build_tournament_matchdays(tournament: Dict[str, Any]) -> List[Dict[str, Any
         if round_doc.get("window_end"):
             target["window_end"] = str(round_doc.get("window_end", "") or "")
         for match in round_doc.get("matches", []) or []:
+            item_matchday = int(match.get("matchday") or base_matchday_index or 1)
             item = {
                 "id": match.get("id"),
                 "round": match.get("round", round_index),
-                "matchday": int(match.get("matchday") or matchday_index),
+                "matchday": max(1, item_matchday + max(0, int(day_offset or 0))),
                 "position": int(match.get("position", 0) or 0),
                 "team1_id": match.get("team1_id"),
                 "team1_name": match.get("team1_name", ""),
@@ -2767,13 +3011,22 @@ def build_tournament_matchdays(tournament: Dict[str, Any]) -> List[Dict[str, Any
         for round_doc in (bracket.get("rounds", []) or []):
             append_round_matches(round_doc)
     elif bracket_type in {"group_stage", "group_playoffs"}:
+        playoffs_matchday_offset = 0
         for group_doc in (bracket.get("groups", []) or []):
             for round_doc in (group_doc.get("rounds", []) or []):
                 append_round_matches(round_doc, group_doc=group_doc)
+                playoffs_matchday_offset = max(
+                    playoffs_matchday_offset,
+                    int(round_doc.get("matchday") or round_doc.get("round") or 1),
+                )
         if bracket_type == "group_playoffs":
             playoffs = (bracket.get("playoffs") or {}).get("rounds", []) or []
             for round_doc in playoffs:
-                append_round_matches(round_doc, group_doc={"id": "playoffs", "name": "Playoffs"})
+                append_round_matches(
+                    round_doc,
+                    group_doc={"id": "playoffs", "name": "Playoffs"},
+                    day_offset=playoffs_matchday_offset,
+                )
 
     result = []
     for day in sorted(matchday_map):
@@ -3028,6 +3281,43 @@ def parse_optional_datetime(value: str) -> Optional[datetime]:
         return dt.astimezone(timezone.utc)
     except ValueError:
         return None
+
+def compute_payment_reservation_expiry_iso(reference_time: Optional[datetime] = None) -> str:
+    base = reference_time or datetime.now(timezone.utc)
+    return (base + timedelta(minutes=PAYMENT_RESERVATION_MINUTES)).isoformat()
+
+def get_registration_payment_expiry(registration: Dict[str, Any]) -> Optional[datetime]:
+    direct_expiry = parse_optional_datetime(str((registration or {}).get("payment_expires_at", "") or ""))
+    if direct_expiry:
+        return direct_expiry
+    created_at = parse_optional_datetime(str((registration or {}).get("created_at", "") or ""))
+    if created_at:
+        return created_at + timedelta(minutes=PAYMENT_RESERVATION_MINUTES)
+    return None
+
+def is_pending_registration_active(registration: Dict[str, Any], *, reference_time: Optional[datetime] = None) -> bool:
+    if str((registration or {}).get("payment_status", "") or "").strip().lower() != "pending":
+        return False
+    expires_at = get_registration_payment_expiry(registration)
+    if not expires_at:
+        return False
+    now_ref = reference_time or datetime.now(timezone.utc)
+    return expires_at > now_ref
+
+def registration_counts_against_capacity(
+    registration: Dict[str, Any],
+    *,
+    paid_tournament: bool,
+    reference_time: Optional[datetime] = None,
+) -> bool:
+    if not paid_tournament:
+        return True
+    status = str((registration or {}).get("payment_status", "") or "").strip().lower()
+    if status in {"paid", "free"}:
+        return True
+    if status == "pending":
+        return is_pending_registration_active(registration, reference_time=reference_time)
+    return False
 
 def chunked(items: List[Any], size: int) -> List[List[Any]]:
     size = max(1, int(size or 1))
@@ -3560,28 +3850,108 @@ def find_match_in_bracket(bracket: Dict, match_id: str):
             return gf
     return None
 
+def find_match_round_context(bracket: Dict[str, Any], match_id: str) -> Dict[str, Any]:
+    if not bracket or not match_id:
+        return {}
+
+    def _extract(round_doc: Dict[str, Any], match_doc: Dict[str, Any], group_doc: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return {
+            "round": int(round_doc.get("round") or match_doc.get("round") or 1),
+            "matchday": int(match_doc.get("matchday") or round_doc.get("matchday") or round_doc.get("round") or 1),
+            "round_name": str(round_doc.get("name", "") or ""),
+            "window_start": str(round_doc.get("window_start", "") or ""),
+            "window_end": str(round_doc.get("window_end", "") or ""),
+            "group_id": str((group_doc or {}).get("id", "") or ""),
+            "group_name": str((group_doc or {}).get("name", "") or ""),
+        }
+
+    def _scan_rounds(rounds: List[Dict[str, Any]], group_doc: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        for round_doc in rounds or []:
+            for match_doc in round_doc.get("matches", []) or []:
+                if str(match_doc.get("id", "")).strip() == match_id:
+                    return _extract(round_doc, match_doc, group_doc=group_doc)
+        return {}
+
+    bracket_type = str((bracket or {}).get("type", "")).strip().lower()
+    if bracket_type in {"single_elimination", "round_robin", "league", "swiss_system", "ladder_system", "king_of_the_hill", "battle_royale"}:
+        return _scan_rounds((bracket or {}).get("rounds", []) or [])
+    if bracket_type == "double_elimination":
+        for section_name in ("winners_bracket", "losers_bracket"):
+            section_ctx = _scan_rounds(((bracket or {}).get(section_name) or {}).get("rounds", []) or [])
+            if section_ctx:
+                section_ctx["bracket_section"] = section_name
+                return section_ctx
+        gf = (bracket or {}).get("grand_final")
+        if gf and str(gf.get("id", "")).strip() == match_id:
+            return {
+                "round": int(gf.get("round", 0) or 0),
+                "matchday": int(gf.get("matchday", 0) or 0),
+                "round_name": "Grand Final",
+                "window_start": "",
+                "window_end": "",
+                "group_id": "",
+                "group_name": "",
+                "bracket_section": "grand_final",
+            }
+        return {}
+    if bracket_type == "group_stage":
+        for group_doc in (bracket or {}).get("groups", []) or []:
+            ctx = _scan_rounds((group_doc or {}).get("rounds", []) or [], group_doc=group_doc)
+            if ctx:
+                return ctx
+        return {}
+    if bracket_type == "group_playoffs":
+        for group_doc in (bracket or {}).get("groups", []) or []:
+            ctx = _scan_rounds((group_doc or {}).get("rounds", []) or [], group_doc=group_doc)
+            if ctx:
+                return ctx
+        playoffs_ctx = _scan_rounds(((bracket or {}).get("playoffs") or {}).get("rounds", []) or [], group_doc={"id": "playoffs", "name": "Playoffs"})
+        if playoffs_ctx:
+            return playoffs_ctx
+    return {}
+
+def build_match_lookup_query(match_id: str) -> Dict[str, Any]:
+    target = str(match_id or "").strip()
+    if not target:
+        return {"_id": {"$exists": False}}
+    return {
+        "$or": [
+            {"bracket.rounds.matches.id": target},
+            {"bracket.winners_bracket.rounds.matches.id": target},
+            {"bracket.losers_bracket.rounds.matches.id": target},
+            {"bracket.grand_final.id": target},
+            {"bracket.groups.rounds.matches.id": target},
+            {"bracket.playoffs.rounds.matches.id": target},
+        ]
+    }
+
 async def find_tournament_and_match_by_match_id(match_id: str):
-    tournaments = await db.tournaments.find(
-        {"bracket": {"$ne": None}},
-        {
-            "_id": 0,
-            "id": 1,
-            "name": 1,
-            "status": 1,
-            "game_id": 1,
-            "game_name": 1,
-            "game_mode": 1,
-            "participant_mode": 1,
-            "start_date": 1,
-            "matchday_interval_days": 1,
-            "matchday_window_days": 1,
-            "bracket": 1,
-        },
-    ).to_list(400)
-    for t in tournaments:
-        match = find_match_in_bracket(t.get("bracket"), match_id)
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "name": 1,
+        "status": 1,
+        "game_id": 1,
+        "game_name": 1,
+        "game_mode": 1,
+        "participant_mode": 1,
+        "start_date": 1,
+        "matchday_interval_days": 1,
+        "matchday_window_days": 1,
+        "bracket": 1,
+    }
+
+    targeted = await db.tournaments.find_one(build_match_lookup_query(match_id), projection)
+    if targeted:
+        targeted_match = find_match_in_bracket(targeted.get("bracket"), match_id)
+        if targeted_match:
+            return targeted, targeted_match
+
+    cursor = db.tournaments.find({"bracket": {"$ne": None}}, projection)
+    async for tournament in cursor:
+        match = find_match_in_bracket(tournament.get("bracket"), match_id)
         if match:
-            return t, match
+            return tournament, match
     return None, None
 
 async def can_user_manage_match(user: Dict, match_data: Dict) -> bool:
@@ -3706,6 +4076,12 @@ async def get_match_detail(request: Request, match_id: str):
     )
 
     mode_template = await get_tournament_mode_settings_template(tournament)
+    round_context = find_match_round_context(tournament.get("bracket") or {}, match_id)
+    match_payload = dict(match or {})
+    if not match_payload.get("matchday") and round_context.get("matchday"):
+        match_payload["matchday"] = int(round_context.get("matchday") or 0)
+    if round_context.get("round_name") and not match_payload.get("round_name"):
+        match_payload["round_name"] = str(round_context.get("round_name", "") or "")
 
     return {
         "tournament": {
@@ -3716,13 +4092,16 @@ async def get_match_detail(request: Request, match_id: str):
             "game_mode": tournament.get("game_mode", ""),
             "participant_mode": tournament.get("participant_mode", "team"),
         },
-        "match": match,
+        "match": match_payload,
         "team1_registration": sanitize_registration(team1_reg) if team1_reg else None,
         "team2_registration": sanitize_registration(team2_reg) if team2_reg else None,
         "setup": prepare_match_setup_response(setup_doc, match_id=match_id, tournament_id=tournament["id"]),
         "setup_template": mode_template,
+        "context": round_context,
         "schedule": {
             "scheduled_for": str(match.get("scheduled_for", "") or ""),
+            "window_start": str(round_context.get("window_start", "") or ""),
+            "window_end": str(round_context.get("window_end", "") or ""),
             "accepted": accepted_schedule,
             "proposal_count": int(schedule_count or 0),
         },
@@ -4629,6 +5008,7 @@ async def create_checkout(request: Request, body: PaymentRequest):
 
     currency = str(t.get("currency", "usd") or "usd").lower()
     unit_amount = int(round(float(entry_fee) * 100))
+    reservation_expires_at = compute_payment_reservation_expiry_iso()
     if unit_amount <= 0:
         log_warning("payments.checkout.invalid_amount", "Checkout blocked because computed amount is invalid", tournament_id=body.tournament_id, entry_fee=float(entry_fee or 0))
         raise HTTPException(400, "Invalid entry fee")
@@ -4674,7 +5054,17 @@ async def create_checkout(request: Request, body: PaymentRequest):
             "created_at": now_iso(),
         }
         await db.payment_transactions.insert_one(payment_doc)
-        await db.registrations.update_one({"id": body.registration_id}, {"$set": {"payment_session_id": order_id}})
+        await db.registrations.update_one(
+            {"id": body.registration_id},
+            {
+                "$set": {
+                    "payment_session_id": order_id,
+                    "payment_status": "pending",
+                    "payment_expires_at": reservation_expires_at,
+                    "updated_at": now_iso(),
+                }
+            },
+        )
         log_info(
             "payments.checkout.paypal.success",
             "PayPal checkout created",
@@ -4732,7 +5122,17 @@ async def create_checkout(request: Request, body: PaymentRequest):
         "created_at": now_iso(),
     }
     await db.payment_transactions.insert_one(payment_doc)
-    await db.registrations.update_one({"id": body.registration_id}, {"$set": {"payment_session_id": session.id}})
+    await db.registrations.update_one(
+        {"id": body.registration_id},
+        {
+            "$set": {
+                "payment_session_id": session.id,
+                "payment_status": "pending",
+                "payment_expires_at": reservation_expires_at,
+                "updated_at": now_iso(),
+            }
+        },
+    )
     log_info(
         "payments.checkout.stripe.success",
         "Stripe checkout created",
@@ -4781,7 +5181,7 @@ async def check_payment_status(request: Request, session_id: str):
 
         if order_status == "COMPLETED":
             payment_status = "paid"
-        elif order_status in {"VOIDED", "CANCELLED", "DECLINED", "FAILED"}:
+        elif order_status in {"VOIDED", "CANCELLED", "DECLINED", "FAILED", "EXPIRED"}:
             payment_status = "failed"
 
         amount_total = 0
@@ -4801,7 +5201,15 @@ async def check_payment_status(request: Request, session_id: str):
             {"$set": {"payment_status": payment_status, "status": order_status, "updated_at": now_iso()}},
         )
         if payment_status == "paid":
-            await db.registrations.update_one({"id": existing["registration_id"]}, {"$set": {"payment_status": "paid"}})
+            await db.registrations.update_one(
+                {"id": existing["registration_id"]},
+                {"$set": {"payment_status": "paid", "payment_expires_at": "", "updated_at": now_iso()}},
+            )
+        elif payment_status == "failed":
+            await db.registrations.update_one(
+                {"id": existing["registration_id"]},
+                {"$set": {"payment_status": "failed", "payment_expires_at": "", "updated_at": now_iso()}},
+            )
 
         log_info(
             "payments.status.paypal.result",
@@ -4829,21 +5237,42 @@ async def check_payment_status(request: Request, session_id: str):
         log_error("payments.status.stripe.error", "Stripe status request failed", session_id=session_id, error=str(e))
         raise HTTPException(404, "Payment session not found")
 
-    payment_status = str(getattr(session, "payment_status", "") or "")
-    session_status = str(getattr(session, "status", "") or "")
-    if existing.get("payment_status") != "paid":
-        await db.payment_transactions.update_one(
-            {"session_id": session_id},
-            {"$set": {"payment_status": payment_status, "status": session_status, "updated_at": now_iso()}},
+    stripe_payment_status_raw = str(getattr(session, "payment_status", "") or "").strip().lower()
+    session_status = str(getattr(session, "status", "") or "").strip().lower()
+    payment_status = "pending"
+    if stripe_payment_status_raw == "paid":
+        payment_status = "paid"
+    elif session_status in {"expired"} or stripe_payment_status_raw in {"unpaid", "canceled", "cancelled"}:
+        payment_status = "failed"
+
+    await db.payment_transactions.update_one(
+        {"session_id": session_id},
+        {
+            "$set": {
+                "payment_status": payment_status,
+                "status": session_status,
+                "provider_payment_status": stripe_payment_status_raw,
+                "updated_at": now_iso(),
+            }
+        },
+    )
+    if payment_status == "paid":
+        await db.registrations.update_one(
+            {"id": existing["registration_id"]},
+            {"$set": {"payment_status": "paid", "payment_expires_at": "", "updated_at": now_iso()}},
         )
-        if payment_status == "paid":
-            await db.registrations.update_one({"id": existing["registration_id"]}, {"$set": {"payment_status": "paid"}})
+    elif payment_status == "failed":
+        await db.registrations.update_one(
+            {"id": existing["registration_id"]},
+            {"$set": {"payment_status": "failed", "payment_expires_at": "", "updated_at": now_iso()}},
+        )
     log_info(
         "payments.status.stripe.result",
         "Resolved Stripe payment status",
         session_id=session_id,
         payment_status=payment_status,
         status=session_status,
+        provider_payment_status=stripe_payment_status_raw,
     )
     return {
         "provider": "stripe",
@@ -4882,7 +5311,7 @@ async def stripe_webhook(request: Request):
                 )
                 await db.registrations.update_one(
                     {"id": existing["registration_id"]},
-                    {"$set": {"payment_status": "paid"}},
+                    {"$set": {"payment_status": "paid", "payment_expires_at": "", "updated_at": now_iso()}},
                 )
         return {"status": "processed"}
     except Exception as e:
@@ -5131,6 +5560,10 @@ async def get_widget_data(tournament_id: str, view: Optional[str] = None, matchd
     )
     return payload
 
+@api_router.get("/faq")
+async def get_faq():
+    return await get_faq_payload()
+
 # --- Comment Endpoints ---
 
 @api_router.get("/tournaments/{tournament_id}/comments")
@@ -5328,6 +5761,20 @@ async def update_admin_setting(request: Request, body: AdminSettingUpdate):
     )
     return {"status": "ok"}
 
+@api_router.get("/admin/faq")
+async def admin_get_faq(request: Request):
+    await require_admin(request)
+    return await get_faq_payload()
+
+@api_router.put("/admin/faq")
+async def admin_update_faq(request: Request, body: FAQUpdate):
+    await require_admin(request)
+    raw_items = [item.model_dump() for item in (body.items or [])]
+    normalized_items = normalize_faq_items(raw_items)
+    await save_admin_setting_value(FAQ_SETTINGS_KEY, json.dumps(normalized_items, ensure_ascii=False))
+    payload = await get_faq_payload()
+    return {"status": "ok", **payload}
+
 @api_router.get("/admin/payments/providers/status")
 async def admin_get_payment_provider_status(request: Request):
     await require_admin(request)
@@ -5361,14 +5808,14 @@ async def admin_send_test_email(request: Request, body: AdminEmailTest):
     to_email = normalize_email(body.email)
     if not to_email or not is_valid_email(to_email):
         raise HTTPException(400, "Ungültige E-Mail-Adresse")
-    ok = await send_email_notification(
+    ok, detail = await send_email_notification_detailed(
         to_email,
         "ARENA SMTP Test",
         "Dies ist eine Testnachricht aus dem ARENA Adminbereich.",
     )
     if not ok:
-        raise HTTPException(400, "SMTP Versand fehlgeschlagen. Bitte SMTP Einstellungen prüfen.")
-    return {"status": "sent", "email": to_email}
+        raise HTTPException(400, detail or "SMTP Versand fehlgeschlagen. Bitte SMTP Einstellungen prüfen.")
+    return {"status": "sent", "email": to_email, "detail": detail}
 
 @api_router.post("/admin/reminders/checkin/{tournament_id}")
 async def admin_send_checkin_reminders(request: Request, tournament_id: str):
@@ -5577,6 +6024,138 @@ async def get_stats():
         "total_games": total_games,
     }
 
+async def _safe_create_index(collection_name: str, keys: List[Tuple[str, int]], **options: Any) -> None:
+    index_name = str(options.get("name", "") or "")
+    try:
+        await db[collection_name].create_index(keys, **options)
+    except (OperationFailure, DuplicateKeyError) as e:
+        log_warning(
+            "db.index.ensure.failed",
+            "Index creation skipped",
+            collection=collection_name,
+            index=index_name,
+            error=str(e),
+        )
+    except Exception as e:
+        log_error(
+            "db.index.ensure.error",
+            "Unexpected error during index creation",
+            collection=collection_name,
+            index=index_name,
+            error=str(e),
+            exc_info=True,
+        )
+
+async def ensure_indexes() -> None:
+    log_info("db.index.ensure.start", "Ensuring MongoDB indexes")
+
+    index_specs: List[Tuple[str, List[Tuple[List[Tuple[str, int]], Dict[str, Any]]]]] = [
+        (
+            "users",
+            [
+                ([("id", ASCENDING)], {"name": "users_id_unique", "unique": True}),
+                ([("email", ASCENDING)], {"name": "users_email_unique", "unique": True}),
+                ([("role", ASCENDING)], {"name": "users_role_idx"}),
+            ],
+        ),
+        (
+            "teams",
+            [
+                ([("id", ASCENDING)], {"name": "teams_id_unique", "unique": True}),
+                ([("owner_id", ASCENDING)], {"name": "teams_owner_idx"}),
+                ([("parent_team_id", ASCENDING)], {"name": "teams_parent_idx"}),
+                ([("member_ids", ASCENDING)], {"name": "teams_members_idx"}),
+            ],
+        ),
+        (
+            "games",
+            [
+                ([("id", ASCENDING)], {"name": "games_id_unique", "unique": True}),
+                ([("name", ASCENDING)], {"name": "games_name_idx"}),
+            ],
+        ),
+        (
+            "tournaments",
+            [
+                ([("id", ASCENDING)], {"name": "tournaments_id_unique", "unique": True}),
+                ([("status", ASCENDING)], {"name": "tournaments_status_idx"}),
+                ([("bracket.rounds.matches.id", ASCENDING)], {"name": "tournaments_round_matches_idx"}),
+                ([("bracket.winners_bracket.rounds.matches.id", ASCENDING)], {"name": "tournaments_wb_matches_idx"}),
+                ([("bracket.losers_bracket.rounds.matches.id", ASCENDING)], {"name": "tournaments_lb_matches_idx"}),
+                ([("bracket.groups.rounds.matches.id", ASCENDING)], {"name": "tournaments_group_matches_idx"}),
+                ([("bracket.playoffs.rounds.matches.id", ASCENDING)], {"name": "tournaments_playoff_matches_idx"}),
+                ([("bracket.grand_final.id", ASCENDING)], {"name": "tournaments_gf_match_idx"}),
+            ],
+        ),
+        (
+            "registrations",
+            [
+                ([("id", ASCENDING)], {"name": "registrations_id_unique", "unique": True}),
+                ([("tournament_id", ASCENDING)], {"name": "registrations_tournament_idx"}),
+                (
+                    [("tournament_id", ASCENDING), ("team_id", ASCENDING)],
+                    {
+                        "name": "registrations_tournament_team_unique",
+                        "unique": True,
+                        "partialFilterExpression": {"team_id": {"$exists": True, "$type": "string", "$ne": ""}},
+                    },
+                ),
+                (
+                    [("tournament_id", ASCENDING), ("payment_status", ASCENDING), ("payment_expires_at", ASCENDING)],
+                    {"name": "registrations_payment_reservation_idx"},
+                ),
+            ],
+        ),
+        (
+            "payment_transactions",
+            [
+                ([("id", ASCENDING)], {"name": "payments_id_unique", "unique": True}),
+                ([("session_id", ASCENDING)], {"name": "payments_session_unique", "unique": True}),
+                ([("registration_id", ASCENDING)], {"name": "payments_registration_idx"}),
+            ],
+        ),
+        (
+            "schedule_proposals",
+            [
+                ([("id", ASCENDING)], {"name": "schedule_id_unique", "unique": True}),
+                ([("match_id", ASCENDING)], {"name": "schedule_match_idx"}),
+            ],
+        ),
+        (
+            "match_setups",
+            [
+                ([("id", ASCENDING)], {"name": "match_setups_id_unique", "unique": True}),
+                ([("tournament_id", ASCENDING), ("match_id", ASCENDING)], {"name": "match_setups_tournament_match_unique", "unique": True}),
+            ],
+        ),
+        (
+            "admin_settings",
+            [
+                ([("key", ASCENDING)], {"name": "admin_settings_key_unique", "unique": True}),
+            ],
+        ),
+        (
+            "notifications",
+            [
+                ([("id", ASCENDING)], {"name": "notifications_id_unique", "unique": True}),
+                ([("user_id", ASCENDING), ("read", ASCENDING)], {"name": "notifications_user_read_idx"}),
+            ],
+        ),
+        (
+            "comments",
+            [
+                ([("id", ASCENDING)], {"name": "comments_id_unique", "unique": True}),
+                ([("target_type", ASCENDING), ("target_id", ASCENDING), ("created_at", ASCENDING)], {"name": "comments_target_created_idx"}),
+            ],
+        ),
+    ]
+
+    for collection_name, indexes in index_specs:
+        for keys, options in indexes:
+            await _safe_create_index(collection_name, keys, **options)
+
+    log_info("db.index.ensure.done", "MongoDB index ensure finished")
+
 # --- App Setup ---
 
 app.include_router(api_router)
@@ -5597,6 +6176,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
+    await ensure_indexes()
     await seed_games()
     await seed_admin()
     logger.info("eSports Tournament System started")

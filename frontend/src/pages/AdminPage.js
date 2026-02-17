@@ -4,14 +4,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Shield, Users, Trophy, Gamepad2, Settings, CreditCard, Trash2, Eye, Mail } from "lucide-react";
+import { Shield, Users, Trophy, Gamepad2, Settings, CreditCard, Trash2, Eye, Mail, Plus, CircleHelp } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
+
+const createFaqRow = () => ({
+  id: `faq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  question: "",
+  answer: "",
+});
 
 export default function AdminPage() {
   const { user, isAdmin } = useAuth();
@@ -25,10 +32,15 @@ export default function AdminPage() {
   const [smtpTestEmail, setSmtpTestEmail] = useState("");
   const [paymentProviders, setPaymentProviders] = useState(null);
   const [paypalValidating, setPaypalValidating] = useState(false);
+  const [faqItems, setFaqItems] = useState([]);
+  const [faqLoading, setFaqLoading] = useState(true);
+  const [faqSaving, setFaqSaving] = useState(false);
+  const [faqSource, setFaqSource] = useState("default");
+  const [faqUpdatedAt, setFaqUpdatedAt] = useState("");
 
   const fetchAdminData = useCallback(async () => {
     try {
-      const [dashboardRes, usersRes, teamsRes, tournamentsRes, gamesRes, settingsRes, providersRes] = await Promise.all([
+      const [dashboardRes, usersRes, teamsRes, tournamentsRes, gamesRes, settingsRes, providersRes, faqRes] = await Promise.all([
         axios.get(`${API}/admin/dashboard`),
         axios.get(`${API}/admin/users`),
         axios.get(`${API}/admin/teams`),
@@ -36,6 +48,7 @@ export default function AdminPage() {
         axios.get(`${API}/games`),
         axios.get(`${API}/admin/settings`),
         axios.get(`${API}/admin/payments/providers/status`).catch(() => ({ data: null })),
+        axios.get(`${API}/admin/faq`).catch(() => ({ data: { items: [] } })),
       ]);
       setDashboard(dashboardRes.data || {});
       setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
@@ -44,8 +57,17 @@ export default function AdminPage() {
       setGames(Array.isArray(gamesRes.data) ? gamesRes.data : []);
       setSettings(Array.isArray(settingsRes.data) ? settingsRes.data : []);
       setPaymentProviders(providersRes?.data || null);
+      const loadedFaqItems = Array.isArray(faqRes?.data?.items) ? faqRes.data.items : [];
+      setFaqItems(loadedFaqItems.length ? loadedFaqItems : [createFaqRow()]);
+      setFaqSource(String(faqRes?.data?.source || "default"));
+      setFaqUpdatedAt(String(faqRes?.data?.updated_at || ""));
     } catch {
       toast.error("Admin-Daten konnten nicht geladen werden");
+      setFaqItems([createFaqRow()]);
+      setFaqSource("default");
+      setFaqUpdatedAt("");
+    } finally {
+      setFaqLoading(false);
     }
   }, []);
 
@@ -178,6 +200,50 @@ export default function AdminPage() {
       toast.error(e.response?.data?.detail || "PayPal Validierung fehlgeschlagen");
     } finally {
       setPaypalValidating(false);
+    }
+  };
+
+  const setFaqField = (index, field, value) => {
+    setFaqItems((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+  };
+
+  const addFaqItem = () => {
+    setFaqItems((prev) => [...prev, createFaqRow()]);
+  };
+
+  const removeFaqItem = (index) => {
+    setFaqItems((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      return next.length ? next : [createFaqRow()];
+    });
+  };
+
+  const saveFaqItems = async () => {
+    const normalized = (faqItems || [])
+      .map((item) => ({
+        id: String(item?.id || "").trim(),
+        question: String(item?.question || "").trim(),
+        answer: String(item?.answer || "").trim(),
+      }))
+      .filter((item) => item.question && item.answer);
+
+    if (!normalized.length) {
+      toast.error("Bitte mindestens eine Frage mit Antwort ausfüllen");
+      return;
+    }
+
+    setFaqSaving(true);
+    try {
+      const res = await axios.put(`${API}/admin/faq`, { items: normalized });
+      const savedItems = Array.isArray(res.data?.items) ? res.data.items : normalized;
+      setFaqItems(savedItems.length ? savedItems : [createFaqRow()]);
+      setFaqSource(String(res.data?.source || "custom"));
+      setFaqUpdatedAt(String(res.data?.updated_at || ""));
+      toast.success("FAQ gespeichert");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "FAQ konnte nicht gespeichert werden");
+    } finally {
+      setFaqSaving(false);
     }
   };
 
@@ -396,6 +462,84 @@ export default function AdminPage() {
           {/* Settings Tab */}
           <TabsContent value="settings" className="mt-6">
             <div className="space-y-6">
+              {/* FAQ Settings */}
+              <div className="glass rounded-xl p-6 border border-white/5">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-white uppercase flex items-center gap-2">
+                    <CircleHelp className="w-5 h-5 text-yellow-500" />FAQ verwalten
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-zinc-800 text-zinc-300 text-xs">
+                      Quelle: {faqSource === "custom" ? "Custom" : "Default"}
+                    </Badge>
+                    {faqUpdatedAt ? (
+                      <Badge className="bg-zinc-800 text-zinc-500 text-xs">
+                        Update: {new Date(faqUpdatedAt).toLocaleString("de-DE")}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+                <p className="text-xs text-zinc-500 mb-4">
+                  Diese Einträge werden auf der öffentlichen FAQ-Seite angezeigt.
+                </p>
+
+                {faqLoading ? (
+                  <p className="text-sm text-zinc-500">FAQ wird geladen...</p>
+                ) : (
+                  <div className="space-y-4">
+                    {faqItems.map((item, idx) => (
+                      <div key={item.id || `faq-row-${idx}`} className="rounded-lg border border-white/10 p-4 bg-zinc-900/40 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-zinc-500 font-mono">Eintrag #{idx + 1}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-500 hover:text-red-400"
+                            onClick={() => removeFaqItem(idx)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <div>
+                          <Label className="text-zinc-400 text-sm">Frage</Label>
+                          <Input
+                            value={item.question || ""}
+                            onChange={(e) => setFaqField(idx, "question", e.target.value)}
+                            placeholder="z. B. Wie registriere ich ein Team?"
+                            className="bg-zinc-900 border-white/10 text-white mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-zinc-400 text-sm">Antwort</Label>
+                          <Textarea
+                            value={item.answer || ""}
+                            onChange={(e) => setFaqField(idx, "answer", e.target.value)}
+                            placeholder="Antwort zur Frage..."
+                            className="bg-zinc-900 border-white/10 text-white mt-1 min-h-[110px]"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        className="border-white/20 text-zinc-300 hover:bg-white/5"
+                        onClick={addFaqItem}
+                      >
+                        <Plus className="w-4 h-4 mr-2" />Eintrag hinzufügen
+                      </Button>
+                      <Button
+                        className="bg-yellow-500 text-black hover:bg-yellow-400"
+                        onClick={saveFaqItems}
+                        disabled={faqSaving}
+                      >
+                        {faqSaving ? "Speichert..." : "FAQ speichern"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Payment Settings */}
               <div className="glass rounded-xl p-6 border border-white/5">
                 <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-white uppercase mb-4 flex items-center gap-2">
@@ -495,8 +639,8 @@ export default function AdminPage() {
                           return;
                         }
                         try {
-                          await axios.post(`${API}/admin/email/test`, { email: smtpTestEmail.trim() });
-                          toast.success("Testmail wurde versendet");
+                          const res = await axios.post(`${API}/admin/email/test`, { email: smtpTestEmail.trim() });
+                          toast.success(res.data?.detail || "Testmail wurde versendet");
                         } catch (e) {
                           toast.error(e.response?.data?.detail || "SMTP Test fehlgeschlagen");
                         }

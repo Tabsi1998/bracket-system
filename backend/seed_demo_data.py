@@ -141,6 +141,14 @@ def seed_demo_data(reset: bool = False) -> None:
         {"key": "nova2", "username": "NovaTwo", "email": "demo.nova2@arena.gg", "role": "user"},
         {"key": "charlie1", "username": "CharlieOne", "email": "demo.charlie1@arena.gg", "role": "user"},
         {"key": "charlie2", "username": "CharlieTwo", "email": "demo.charlie2@arena.gg", "role": "user"},
+        {"key": "delta1", "username": "DeltaOne", "email": "demo.delta1@arena.gg", "role": "user"},
+        {"key": "delta2", "username": "DeltaTwo", "email": "demo.delta2@arena.gg", "role": "user"},
+        {"key": "echo1", "username": "EchoOne", "email": "demo.echo1@arena.gg", "role": "user"},
+        {"key": "echo2", "username": "EchoTwo", "email": "demo.echo2@arena.gg", "role": "user"},
+        {"key": "foxtrot1", "username": "FoxtrotOne", "email": "demo.foxtrot1@arena.gg", "role": "user"},
+        {"key": "foxtrot2", "username": "FoxtrotTwo", "email": "demo.foxtrot2@arena.gg", "role": "user"},
+        {"key": "gamma1", "username": "GammaOne", "email": "demo.gamma1@arena.gg", "role": "user"},
+        {"key": "gamma2", "username": "GammaTwo", "email": "demo.gamma2@arena.gg", "role": "user"},
     ]
 
     users: Dict[str, Dict] = {}
@@ -251,6 +259,102 @@ def seed_demo_data(reset: bool = False) -> None:
             "logo_url": "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?w=300",
             "banner_url": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=1400",
         },
+        {
+            "key": "pulse_main",
+            "name": "PULSE Collective",
+            "tag": "PULSE",
+            "owner_key": "delta1",
+            "leaders": ["delta1"],
+            "members": ["delta1", "delta2"],
+            "parent_key": None,
+            "join_code": "PULS01",
+            "logo_url": "https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1466604332514-9f74e9f16f1c?w=1400",
+        },
+        {
+            "key": "pulse_shadow",
+            "name": "PULSE Shadow",
+            "tag": "P-S",
+            "owner_key": "delta1",
+            "leaders": ["delta1"],
+            "members": ["delta1", "delta2"],
+            "parent_key": "pulse_main",
+            "join_code": "PULS11",
+            "logo_url": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1400",
+        },
+        {
+            "key": "titan_main",
+            "name": "TITAN Command",
+            "tag": "TITAN",
+            "owner_key": "echo1",
+            "leaders": ["echo1"],
+            "members": ["echo1", "echo2"],
+            "parent_key": None,
+            "join_code": "TITA01",
+            "logo_url": "https://images.unsplash.com/photo-1484417894907-623942c8ee29?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=1400",
+        },
+        {
+            "key": "titan_core",
+            "name": "TITAN Core",
+            "tag": "T-C",
+            "owner_key": "echo1",
+            "leaders": ["echo1"],
+            "members": ["echo1", "echo2"],
+            "parent_key": "titan_main",
+            "join_code": "TITA11",
+            "logo_url": "https://images.unsplash.com/photo-1507146426996-ef05306b995a?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1400",
+        },
+        {
+            "key": "vortex_main",
+            "name": "VORTEX Syndicate",
+            "tag": "VRTX",
+            "owner_key": "foxtrot1",
+            "leaders": ["foxtrot1"],
+            "members": ["foxtrot1", "foxtrot2"],
+            "parent_key": None,
+            "join_code": "VRTX01",
+            "logo_url": "https://images.unsplash.com/photo-1518773553398-650c184e0bb3?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1516117172878-fd2c41f4a759?w=1400",
+        },
+        {
+            "key": "vortex_prime",
+            "name": "VORTEX Prime",
+            "tag": "V-P",
+            "owner_key": "foxtrot1",
+            "leaders": ["foxtrot1"],
+            "members": ["foxtrot1", "foxtrot2"],
+            "parent_key": "vortex_main",
+            "join_code": "VRTX11",
+            "logo_url": "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1522252234503-e356532cafd5?w=1400",
+        },
+        {
+            "key": "orbit_main",
+            "name": "ORBIT Network",
+            "tag": "ORBIT",
+            "owner_key": "gamma1",
+            "leaders": ["gamma1"],
+            "members": ["gamma1", "gamma2"],
+            "parent_key": None,
+            "join_code": "ORBT01",
+            "logo_url": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1531297484001-80022131f5a1?w=1400",
+        },
+        {
+            "key": "orbit_omega",
+            "name": "ORBIT Omega",
+            "tag": "O-O",
+            "owner_key": "gamma1",
+            "leaders": ["gamma1"],
+            "members": ["gamma1", "gamma2"],
+            "parent_key": "orbit_main",
+            "join_code": "ORBT11",
+            "logo_url": "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=300",
+            "banner_url": "https://images.unsplash.com/photo-1517180102446-f3ece451e9d8?w=1400",
+        },
     ]
 
     teams: Dict[str, Dict] = {}
@@ -359,8 +463,8 @@ def seed_demo_data(reset: bool = False) -> None:
             "game": game_league,
             "team_size": 2,
             "max_participants": 8,
-            "start_days": -7,
-            "checkin_days": -8,
+            "start_days": -14,
+            "checkin_days": -15,
         },
         {
             "key": "live_groups",
@@ -527,6 +631,10 @@ def seed_demo_data(reset: bool = False) -> None:
         {"key": "live_league_bravo", "tournament_key": "live_league", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 2},
         {"key": "live_league_nova", "tournament_key": "live_league", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 3},
         {"key": "live_league_charlie", "tournament_key": "live_league", "team_key": "ares_charlie", "user_key": "charlie1", "checked_in": True, "seed": 4},
+        {"key": "live_league_pulse", "tournament_key": "live_league", "team_key": "pulse_shadow", "user_key": "delta1", "checked_in": True, "seed": 5},
+        {"key": "live_league_titan", "tournament_key": "live_league", "team_key": "titan_core", "user_key": "echo1", "checked_in": True, "seed": 6},
+        {"key": "live_league_vortex", "tournament_key": "live_league", "team_key": "vortex_prime", "user_key": "foxtrot1", "checked_in": True, "seed": 7},
+        {"key": "live_league_orbit", "tournament_key": "live_league", "team_key": "orbit_omega", "user_key": "gamma1", "checked_in": True, "seed": 8},
         {"key": "live_groups_alpha", "tournament_key": "live_groups", "team_key": "ares_alpha", "user_key": "alpha1", "checked_in": True, "seed": 1},
         {"key": "live_groups_nova", "tournament_key": "live_groups", "team_key": "nova_prime", "user_key": "nova1", "checked_in": True, "seed": 2},
         {"key": "live_groups_bravo", "tournament_key": "live_groups", "team_key": "ares_bravo", "user_key": "bravo1", "checked_in": True, "seed": 3},
@@ -630,12 +738,15 @@ def seed_demo_data(reset: bool = False) -> None:
         winner: str = "",
         round_num: int = 1,
         position: int = 0,
+        matchday: int | None = None,
+        scheduled_for: str = "",
     ) -> Dict:
         r1 = registrations[reg1]
         r2 = registrations[reg2]
         return {
             "id": demo_id(f"match:{key}"),
             "round": round_num,
+            "matchday": int(matchday if matchday is not None else round_num),
             "position": position,
             "team1_id": r1["id"],
             "team1_name": r1["team_name"],
@@ -650,6 +761,7 @@ def seed_demo_data(reset: bool = False) -> None:
             "winner_id": winner or None,
             "status": status,
             "best_of": 1,
+            "scheduled_for": scheduled_for,
             "disqualified": None,
         }
 
@@ -723,57 +835,114 @@ def seed_demo_data(reset: bool = False) -> None:
         "total_rounds": 1,
     }
 
-    league_rounds = [
-        {
-            "round": 1,
-            "name": "Spieltag 1",
-            "matches": [
-                match_from_regs(
-                    "league-r1-m1",
-                    "live_league_alpha",
-                    "live_league_bravo",
-                    status="completed",
-                    score1=2,
-                    score2=1,
-                    winner=registrations["live_league_alpha"]["id"],
-                ),
-                match_from_regs(
-                    "league-r1-m2",
-                    "live_league_nova",
-                    "live_league_charlie",
-                    status="completed",
-                    score1=1,
-                    score2=1,
-                    winner="",
-                ),
-            ],
-        },
-        {
-            "round": 2,
-            "name": "Spieltag 2",
-            "matches": [
-                match_from_regs("league-r2-m1", "live_league_alpha", "live_league_nova"),
-                match_from_regs(
-                    "league-r2-m2",
-                    "live_league_bravo",
-                    "live_league_charlie",
-                    status="completed",
-                    score1=0,
-                    score2=2,
-                    winner=registrations["live_league_charlie"]["id"],
-                ),
-            ],
-        },
-        {
-            "round": 3,
-            "name": "Spieltag 3",
-            "matches": [
-                match_from_regs("league-r3-m1", "live_league_alpha", "live_league_charlie"),
-                match_from_regs("league-r3-m2", "live_league_bravo", "live_league_nova"),
-            ],
-        },
+    def build_league_rounds(
+        reg_keys: List[str],
+        *,
+        start_dt: datetime,
+        interval_days: int = 7,
+        window_days: int = 7,
+    ) -> List[Dict]:
+        rotation = list(reg_keys)
+        if len(rotation) % 2 != 0:
+            rotation.append(None)
+        if len(rotation) < 2:
+            return []
+
+        rounds: List[Dict] = []
+        total_rounds = len(rotation) - 1
+        for round_idx in range(total_rounds):
+            day_index = round_idx + 1
+            window_start_dt = start_dt + timedelta(days=interval_days * round_idx)
+            window_end_dt = window_start_dt + timedelta(days=max(1, int(window_days)) - 1, hours=23, minutes=59)
+            matches: List[Dict] = []
+
+            for position in range(len(rotation) // 2):
+                home_key = rotation[position]
+                away_key = rotation[-(position + 1)]
+                if not home_key or not away_key:
+                    continue
+
+                status = "pending"
+                score1 = 0
+                score2 = 0
+                winner = ""
+                scheduled_for = ""
+
+                # Demo flow: Spieltag 1 vollständig gespielt, Spieltag 2 teils gespielt,
+                # danach gemischt aus terminierten/offenen Matches.
+                if round_idx == 0:
+                    score1 = 2 if position % 2 == 0 else 1
+                    score2 = 1 if position % 2 == 0 else 2
+                    status = "completed"
+                    winner = registrations[home_key]["id"] if score1 > score2 else registrations[away_key]["id"]
+                    scheduled_for = (window_start_dt + timedelta(days=1, hours=19 + position)).isoformat()
+                elif round_idx == 1:
+                    if position in {0, 1}:
+                        score1 = 2
+                        score2 = 0 if position == 0 else 1
+                        status = "completed"
+                        winner = registrations[home_key]["id"]
+                        scheduled_for = (window_start_dt + timedelta(days=2, hours=19 + position)).isoformat()
+                    else:
+                        scheduled_for = (window_start_dt + timedelta(days=3 + position, hours=20)).isoformat()
+                elif round_idx == 2 and position < 2:
+                    scheduled_for = (window_start_dt + timedelta(days=4 + position, hours=20)).isoformat()
+
+                matches.append(
+                    match_from_regs(
+                        f"league-r{day_index}-m{position + 1}",
+                        home_key,
+                        away_key,
+                        status=status,
+                        score1=score1,
+                        score2=score2,
+                        winner=winner,
+                        round_num=day_index,
+                        position=position,
+                        matchday=day_index,
+                        scheduled_for=scheduled_for,
+                    )
+                )
+
+            rounds.append(
+                {
+                    "round": day_index,
+                    "matchday": day_index,
+                    "name": f"Spieltag {day_index}",
+                    "window_start": window_start_dt.isoformat(),
+                    "window_end": window_end_dt.isoformat(),
+                    "matches": matches,
+                }
+            )
+
+            fixed = rotation[0]
+            rest = rotation[1:]
+            rest = [rest[-1]] + rest[:-1]
+            rotation = [fixed] + rest
+
+        return rounds
+
+    league_reg_keys = [
+        "live_league_alpha",
+        "live_league_bravo",
+        "live_league_nova",
+        "live_league_charlie",
+        "live_league_pulse",
+        "live_league_titan",
+        "live_league_vortex",
+        "live_league_orbit",
     ]
-    live_league_bracket = {"type": "league", "rounds": league_rounds, "total_rounds": 3}
+    try:
+        league_start_dt = datetime.fromisoformat(str(tournaments["live_league"]["start_date"]))
+    except Exception:
+        league_start_dt = now_utc() - timedelta(days=14)
+    league_rounds = build_league_rounds(
+        league_reg_keys,
+        start_dt=league_start_dt,
+        interval_days=int(tournaments["live_league"].get("matchday_interval_days", 7)),
+        window_days=int(tournaments["live_league"].get("matchday_window_days", 7)),
+    )
+    live_league_bracket = {"type": "league", "rounds": league_rounds, "total_rounds": len(league_rounds)}
 
     groups_bracket = {
         "type": "group_stage",

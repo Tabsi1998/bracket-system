@@ -717,25 +717,33 @@ export default function TournamentDetailPage() {
                               </Badge>
                             </div>
                             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                              {(week.matchdays || []).map((day) => (
-                                <div key={`week-${week.id}-day-${day.matchday}`} className="rounded-md border border-white/5 bg-zinc-900/40 p-3">
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <span className="text-sm text-white font-medium">
-                                      {day.name || `Spieltag ${day.matchday}`}
-                                    </span>
-                                    <Badge className={`text-[10px] ${matchdayStatusBadgeClass(day.status)}`}>
-                                      {day.status_label}
-                                    </Badge>
+                              {(week.matchdays || []).map((day) => {
+                                const totalMatches = Number(day.total_matches || 0);
+                                const scheduledMatches = Number(day.scheduled_matches || 0);
+                                const unscheduledMatches = Math.max(0, totalMatches - scheduledMatches);
+                                return (
+                                  <div key={`week-${week.id}-day-${day.matchday}`} className="rounded-md border border-white/5 bg-zinc-900/40 p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className="text-sm text-white font-medium">
+                                        {day.name || `Spieltag ${day.matchday}`}
+                                      </span>
+                                      <Badge className={`text-[10px] ${matchdayStatusBadgeClass(day.status)}`}>
+                                        {day.status_label}
+                                      </Badge>
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-zinc-500 flex items-center gap-1">
+                                      <CalendarRange className="w-3 h-3" />
+                                      <span>{day.window_label || "-"}</span>
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-zinc-600">
+                                      Abgeschlossen: {day.completed_matches}/{day.total_matches}
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-zinc-600">
+                                      Termin offen: {unscheduledMatches}/{totalMatches} (im Match-Hub abstimmen)
+                                    </div>
                                   </div>
-                                  <div className="mt-1 text-[11px] text-zinc-500 flex items-center gap-1">
-                                    <CalendarRange className="w-3 h-3" />
-                                    <span>{day.window_label || "-"}</span>
-                                  </div>
-                                  <div className="mt-1 text-[11px] text-zinc-600">
-                                    Abgeschlossen: {day.completed_matches}/{day.total_matches}
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         ))}

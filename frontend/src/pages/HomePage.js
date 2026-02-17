@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
-import { Trophy, Users, Gamepad2, Zap, ArrowRight, ChevronRight } from "lucide-react";
+import { Trophy, Users, Gamepad2, Zap, ArrowRight, ChevronRight, CircleHelp } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
@@ -72,6 +72,12 @@ export default function HomePage() {
                 <Button className="bg-yellow-500 text-black hover:bg-yellow-400 h-12 px-8 text-base font-bold uppercase tracking-wide active:scale-95 transition-transform">
                   Turniere entdecken
                   <ArrowRight className="w-5 h-5 ml-2" />
+                </Button>
+              </Link>
+              <Link to="/faq" data-testid="hero-faq-btn">
+                <Button variant="outline" className="h-12 px-8 text-base border-white/20 text-white hover:bg-white/5 uppercase tracking-wide">
+                  <CircleHelp className="w-4 h-4 mr-2" />
+                  FAQ & Guide
                 </Button>
               </Link>
               {isAdmin && (
@@ -197,6 +203,12 @@ export default function HomePage() {
               <p className="text-sm text-zinc-500 leading-relaxed">{item.desc}</p>
             </motion.div>
           ))}
+        </div>
+        <div className="mt-8 text-center">
+          <Link to="/faq" className="inline-flex items-center gap-2 text-sm text-yellow-500 hover:text-yellow-400">
+            <CircleHelp className="w-4 h-4" />
+            Vollständige FAQ öffnen
+          </Link>
         </div>
       </section>
     </div>

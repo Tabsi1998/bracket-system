@@ -82,11 +82,13 @@ INSTALL_DIR_DEFAULT="$SCRIPT_DIR"
 INSTALL_DIR="$INSTALL_DIR_DEFAULT"
 DOMAIN=""
 ADMIN_EMAIL="admin@arena.gg"
-ADMIN_PASSWORD="admin123"
+ADMIN_PASSWORD=""
+ADMIN_PASSWORD_AUTO_GENERATED=0
 MONGO_DB_NAME="arena_esports"
 JWT_SECRET=$(openssl rand -hex 32)
 BACKEND_PORT=8001
 FRONTEND_PORT=3000
+APP_USER="arena"
 IMPORT_DEMO_DATA="n"
 RESET_DEMO_DATA="n"
 
@@ -101,11 +103,12 @@ ADMIN_EMAIL="$(normalize_email "$ADMIN_EMAIL")"
 if [[ -z "$ADMIN_EMAIL" || ! "$ADMIN_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
   err "Ungültige Admin-E-Mail"
 fi
-read -rsp "Admin Passwort [$ADMIN_PASSWORD]: " input && ADMIN_PASSWORD="${input:-$ADMIN_PASSWORD}"
+read -rsp "Admin Passwort (Pflichtfeld, Enter = automatisch generieren): " input && ADMIN_PASSWORD="${input:-$ADMIN_PASSWORD}"
 echo ""
 if [ -z "$ADMIN_PASSWORD" ]; then
-  warn "Leeres Admin-Passwort erkannt, setze Fallback auf admin123"
-  ADMIN_PASSWORD="admin123"
+  ADMIN_PASSWORD="$(openssl rand -base64 36 | tr -dc 'A-Za-z0-9' | head -c 22)"
+  ADMIN_PASSWORD_AUTO_GENERATED=1
+  warn "Kein Admin-Passwort eingegeben. Ein sicheres Passwort wurde automatisch generiert."
 fi
 read -rp "MongoDB Datenbankname [$MONGO_DB_NAME]: " input && MONGO_DB_NAME="${input:-$MONGO_DB_NAME}"
 read -rp "Stripe Secret Key (optional, Enter zum Überspringen): " STRIPE_KEY
@@ -197,6 +200,11 @@ else
   log "Bereits im Installationsverzeichnis"
 fi
 
+if ! id -u "$APP_USER" >/dev/null 2>&1; then
+  useradd --system --home "$INSTALL_DIR" --shell /usr/sbin/nologin "$APP_USER"
+  log "System-User '$APP_USER' erstellt"
+fi
+
 # ═══════════════════════════════════════════════════
 # 3. Backend – Python Environment
 # ═══════════════════════════════════════════════════
@@ -208,6 +216,7 @@ source venv/bin/activate
 pip install --upgrade pip -q
 pip install -r requirements.prod.txt -q 2>/dev/null || pip install -r requirements.txt -q 2>/dev/null
 deactivate
+chown -R "$APP_USER":"$APP_USER" "$INSTALL_DIR/backend"
 log "Python-Abhängigkeiten installiert"
 
 # Backend .env
@@ -250,9 +259,11 @@ Wants=mongod.service
 
 [Service]
 Type=simple
-User=root
+User=${APP_USER}
+Group=${APP_USER}
 WorkingDirectory=${INSTALL_DIR}/backend
 Environment=PATH=${INSTALL_DIR}/backend/venv/bin:/usr/local/bin:/usr/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=${INSTALL_DIR}/backend/venv/bin/uvicorn server:app --host 0.0.0.0 --port ${BACKEND_PORT}
 Restart=always
 RestartSec=5
@@ -375,6 +386,9 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo -e "  ${BOLD}URL:${NC}           http://${DOMAIN}"
 echo -e "  ${BOLD}Admin Login:${NC}   ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
+if [ "$ADMIN_PASSWORD_AUTO_GENERATED" -eq 1 ]; then
+  echo -e "  ${YELLOW}Hinweis:${NC}       Passwort wurde automatisch generiert. Bitte nach dem ersten Login sofort ändern."
+fi
 echo -e "  ${BOLD}Backend API:${NC}   http://${DOMAIN}/api/stats"
 echo ""
 echo -e "  ${CYAN}Befehle:${NC}"

@@ -35,7 +35,7 @@ ARENA deckt den kompletten Flow ab:
 | Team-System (Main/Sub, Join-Code, Leader) | ✅ |
 | Öffentliche Teamliste mit Team Finder | ✅ |
 | Turniere (Create/Update/Delete/Register/Check-in + Matchday/Punkte-Config) | ✅ |
-| Brackets (11 Formate) | ✅ |
+| Brackets (10 Formate) | ✅ |
 | Tabellen/Standings API (konfigurierbares Punktesystem) | ✅ |
 | Matchday-API (Spieltage + Statusaggregation) | ✅ |
 | Match-Scheduling (Vorschläge/Accept + Bracket `scheduled_for` Sync) | ✅ |
@@ -146,10 +146,12 @@ sudo bash install.sh
 - MongoDB 8.0 installieren/aktivieren
 - Backend-Venv + Dependencies installieren
 - `backend/.env` erzeugen
+- dedizierten System-User `arena` für den Backend-Service anlegen
 - Frontend bauen
 - `arena-backend` systemd-Service anlegen/starten
 - Nginx konfigurieren und reloaden
 - optional Demo-Daten importieren
+- falls kein Admin-Passwort eingegeben wurde: sicheres Passwort automatisch generieren
 
 ### Option B: Manuell
 
@@ -186,7 +188,7 @@ yarn build
 |---|:---:|---|
 | `MONGO_URL` | ✅ | MongoDB URI |
 | `DB_NAME` | ✅ | Datenbankname |
-| `JWT_SECRET` | ✅ | JWT Secret |
+| `JWT_SECRET` | ✅ | JWT Secret (min. 32 Zeichen, Startup bricht sonst ab) |
 | `CORS_ORIGINS` | ✅ | Kommaseparierte Origins |
 | `STRIPE_API_KEY` | Optional | Stripe Secret Key |
 | `STRIPE_WEBHOOK_SECRET` | Optional | Stripe Webhook Secret |
@@ -194,9 +196,10 @@ yarn build
 | `PAYPAL_SECRET` | Optional | PayPal Secret |
 | `PAYPAL_MODE` | Optional | `sandbox` oder `live` |
 | `ADMIN_EMAIL` | Optional | Seed/Admin-Ensure E-Mail (Default `admin@arena.gg`) |
-| `ADMIN_PASSWORD` | Optional | Seed/Admin-Ensure Passwort (Default `admin123`) |
+| `ADMIN_PASSWORD` | Optional | Seed/Admin-Ensure Passwort. Für initiale Admin-Erstellung erforderlich, wenn noch kein Admin existiert |
 | `ADMIN_USERNAME` | Optional | Seed/Admin-Ensure Username |
 | `ADMIN_FORCE_PASSWORD_RESET` | Optional | `true` setzt Admin-Passwort beim Startup neu |
+| `PAYMENT_RESERVATION_MINUTES` | Optional | Reservierungsdauer für unbezahlte Registrierungen (Default `30`, Min `5`) |
 | `DEMO_USER_PASSWORD` | Optional | Passwort für Demo-User in `seed_demo_data.py` |
 
 ### Frontend `.env`
@@ -332,12 +335,13 @@ Der Match-Hub (`/tournaments/:id/matches/:matchId`) bündelt:
 - Bei PayPal wird vor Checkout aktiv validiert (Credentials + Mode).
 - Bei ungültiger PayPal-Konfiguration wird Checkout blockiert (z. B. `invalid_client`).
 - Pending-Registrierungen können Checkout erneut starten (Retry ohne Neuregistrierung).
+- Kostenpflichtige Registrierungen reservieren einen Slot nur zeitlich begrenzt (`PAYMENT_RESERVATION_MINUTES`); abgelaufene Pending-Slots werden automatisch freigegeben.
 
 ### Status
 
 - Endpoint: `GET /api/payments/status/{session_id}`
 - Auth erforderlich.
-- Setzt bei Erfolg `registrations.payment_status = paid`.
+- Setzt `registrations.payment_status` konsistent auf `paid`, `pending` oder `failed`.
 
 ### Check-in-Hardening
 
