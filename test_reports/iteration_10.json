@@ -1,0 +1,61 @@
+{
+  "summary": "Completed testing of CRITICAL SECURITY FIX for Match Permission System. The fix ensures that only match participants and admins see action controls, while guests and non-participants see read-only match info. All 12 backend API tests passed. All 4 UI permission scenarios verified via Playwright.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "GUEST: /api/matches/{id}/public returns can_manage_match: false, is_admin: false, side: null",
+    "GUEST: UI shows 'Nur-Lesen-Ansicht' banner with guest-specific message",
+    "GUEST: No schedule proposal input, no propose button, no score inputs visible",
+    "NON-PARTICIPANT: /api/matches/{id} returns 200 with can_manage_match: false (not 403)",
+    "NON-PARTICIPANT: UI shows 'Du bist kein Teilnehmer dieses Matches' banner",
+    "NON-PARTICIPANT: No action controls visible (schedule, score, setup)",
+    "NON-PARTICIPANT: POST /schedule returns 403 - cannot propose",
+    "NON-PARTICIPANT: POST /map-veto returns 403 - cannot ban/pick",
+    "PARTICIPANT: /api/matches/{id} returns can_manage_match: true, side: team1/team2",
+    "PARTICIPANT: UI shows schedule proposal input with 'Vorschlagen' button",
+    "PARTICIPANT: UI shows setup textarea with 'Setup einreichen' button",
+    "PARTICIPANT: UI shows score input fields",
+    "ADMIN: /api/matches/{id} returns can_manage_match: true, is_admin: true",
+    "ADMIN: UI shows 'Setup finalisieren (Admin)' button with cyan styling",
+    "ADMIN: UI shows Admin Resolve JSON textarea",
+    "ADMIN: Can access /api/matches/{id}/setup endpoint"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_match_permissions.py",
+    "/app/test_reports/pytest/pytest_results_iter10.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_match_permissions.py"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 tests passed)",
+    "frontend": "100% (All 4 permission scenarios verified)"
+  },
+  "test_credentials": {
+    "admin": "admin@arena.gg / admin123",
+    "participant": "demo.alpha1@arena.gg / demo123 (ARES Alpha owner)",
+    "non_participant": "demo.charlie1@arena.gg / demo123 (CharlieOne)"
+  },
+  "seed_data_creation": "None - used existing Demo Live Knockout tournament and ARES vs NOVA match",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Match permission security fix verified. Key components: MatchDetailPage.js Lines 252-260 define isParticipant, canManage, canInteract, canEditSetup, canScore, isReadOnly. Backend get_match_detail returns viewer.can_manage_match (true/false) instead of 403. Public endpoint /api/matches/{id}/public for guest access. Tournament ID: 039182cb-ea39-565a-982f-15142fb386bf, Match ID: 4c6fe761-6aa0-5fe1-b259-afcb1c268d50. Data-testids: readonly-banner, schedule-proposal-input, schedule-propose-btn, score-team1-input, score-team2-input, score-submit-btn.",
+  "mocked_api": {
+    "PayPal": "MOCKED - PayPal integration is mocked"
+  },
+  "verified_security_scenarios": {
+    "guest": "Shows read-only banner with 'Als Gast...' message, no action buttons",
+    "non_participant": "Shows read-only banner with 'Du bist kein Teilnehmer...' message, no action buttons",
+    "participant": "No banner, sees schedule/setup/score controls",
+    "admin": "No banner, sees all controls plus 'Setup finalisieren (Admin)' button"
+  }
+}
