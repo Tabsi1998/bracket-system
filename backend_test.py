@@ -618,8 +618,28 @@ def main():
         return 1
     
     print("\n" + "="*60)
-    print("🎮 TESTING SUB-GAMES AND MAPS SYSTEM")
+    print("📧 TESTING SMTP ENDPOINTS")
     print("="*60)
+    
+    # Test SMTP config endpoint
+    tester.test_smtp_config_endpoint()
+    
+    # Test SMTP test endpoint
+    tester.test_smtp_test_endpoint()
+    
+    print("\n" + "="*60)
+    print("👥 TESTING TEAM TOURNAMENTS ENDPOINT")
+    print("="*60)
+    
+    # Test team tournaments endpoint
+    tester.test_team_tournaments_endpoint()
+    
+    print("\n" + "="*60)
+    print("🎮 TESTING SUB-GAMES LOGIC")
+    print("="*60)
+    
+    # Test sub-games logic (CoD/FIFA should have, CS2/Valorant should not)
+    tester.test_sub_games_logic()
     
     # Test games with sub-games
     tester.test_games_with_sub_games()
