@@ -6428,6 +6428,100 @@ Das ARENA eSports Team
         "message": f"{reminders_sent} Erinnerungen an {len(teams_notified)} Teams gesendet"
     }
 
+# --- SMTP Test Endpoint ---
+
+@api_router.post("/admin/smtp-test")
+async def test_smtp_config(request: Request, test_email: str = Body(..., embed=True)):
+    """Test SMTP configuration by sending a test email."""
+    admin = await require_admin(request)
+    
+    # Validate email
+    if not is_valid_email(test_email):
+        raise HTTPException(400, f"Ungültige E-Mail-Adresse: {test_email}")
+    
+    # Get SMTP config
+    smtp_config, config_error = await get_smtp_config_detailed()
+    
+    if not smtp_config:
+        return {
+            "success": False,
+            "error": config_error or "SMTP nicht konfiguriert",
+            "config_status": "invalid",
+            "details": {
+                "host": "nicht gesetzt",
+                "port": "nicht gesetzt",
+                "user": "nicht gesetzt",
+            }
+        }
+    
+    # Show config (without password)
+    config_details = {
+        "host": smtp_config.get("host", ""),
+        "port": smtp_config.get("port", ""),
+        "user": smtp_config.get("user", ""),
+        "from_email": smtp_config.get("from_email", ""),
+        "use_ssl": smtp_config.get("use_ssl", False),
+        "use_starttls": smtp_config.get("use_starttls", False),
+    }
+    
+    # Try to send test email
+    test_subject = "ARENA SMTP Test"
+    test_body = f"""Hallo!
+
+Dies ist eine Test-E-Mail von der ARENA eSports Platform.
+
+Wenn du diese E-Mail siehst, funktioniert die SMTP-Konfiguration korrekt.
+
+Konfiguration:
+- Host: {smtp_config.get("host", "N/A")}
+- Port: {smtp_config.get("port", "N/A")}
+- SSL: {smtp_config.get("use_ssl", False)}
+- STARTTLS: {smtp_config.get("use_starttls", False)}
+
+Gesendet von Admin: {admin.get("email", "N/A")}
+
+Mit sportlichen Grüßen,
+ARENA System
+"""
+    
+    success, detail = await send_email_notification_detailed(test_email, test_subject, test_body)
+    
+    return {
+        "success": success,
+        "error": None if success else detail,
+        "config_status": "valid",
+        "details": config_details,
+        "sent_to": test_email,
+    }
+
+@api_router.get("/admin/smtp-config")
+async def get_smtp_config_status(request: Request):
+    """Get current SMTP configuration status (admin only)."""
+    await require_admin(request)
+    
+    smtp_config, config_error = await get_smtp_config_detailed()
+    
+    if not smtp_config:
+        return {
+            "configured": False,
+            "error": config_error,
+            "details": None,
+        }
+    
+    return {
+        "configured": True,
+        "error": None,
+        "details": {
+            "host": smtp_config.get("host", ""),
+            "port": smtp_config.get("port", ""),
+            "user": smtp_config.get("user", "")[:20] + "..." if smtp_config.get("user") else "",
+            "from_email": smtp_config.get("from_email", ""),
+            "from_name": smtp_config.get("from_name", ""),
+            "use_ssl": smtp_config.get("use_ssl", False),
+            "use_starttls": smtp_config.get("use_starttls", False),
+        }
+    }
+
 # --- PayPal Payment Integration ---
 
 class PayPalOrderCreate(BaseModel):
