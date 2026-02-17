@@ -4369,7 +4369,7 @@ async def get_match_detail(request: Request, match_id: str):
         "viewer": {
             "is_admin": bool(user.get("role") == "admin"),
             "side": side,
-            "can_manage_match": True,
+            "can_manage_match": can_manage,
         },
     }
 
