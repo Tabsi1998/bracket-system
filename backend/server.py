@@ -4286,6 +4286,253 @@ async def resolve_match_setup(request: Request, match_id: str, body: MatchSetupR
     await db.match_setups.update_one(query, {"$set": existing}, upsert=True)
     return prepare_match_setup_response(existing, match_id=match_id, tournament_id=tournament["id"])
 
+# --- Map Veto System ---
+
+@api_router.get("/matches/{match_id}/map-veto")
+async def get_map_veto_state(request: Request, match_id: str):
+    """Get current map veto state for a match."""
+    tournament, match_doc = await find_match(match_id)
+    if not tournament or not match_doc:
+        raise HTTPException(404, "Match nicht gefunden")
+    
+    # Get or create veto document
+    veto_doc = await db.map_vetos.find_one(
+        {"tournament_id": tournament["id"], "match_id": match_id}, 
+        {"_id": 0}
+    )
+    
+    if not veto_doc:
+        # Initialize veto state from tournament settings
+        map_pool = list(tournament.get("map_pool", []) or [])
+        veto_doc = {
+            "tournament_id": tournament["id"],
+            "match_id": match_id,
+            "map_pool": map_pool,
+            "banned_maps": [],
+            "picked_maps": [],
+            "current_turn": "team1",  # team1 or team2
+            "current_action": "ban",  # ban or pick
+            "action_sequence": build_action_sequence(tournament),
+            "action_index": 0,
+            "status": "pending",  # pending, in_progress, completed
+            "team1_id": match_doc.get("team1_id", ""),
+            "team2_id": match_doc.get("team2_id", ""),
+            "created_at": now_iso(),
+        }
+    
+    # Add team names for display
+    team1 = await db.teams.find_one({"id": veto_doc.get("team1_id", "")}, {"_id": 0, "name": 1})
+    team2 = await db.teams.find_one({"id": veto_doc.get("team2_id", "")}, {"_id": 0, "name": 1})
+    veto_doc["team1_name"] = match_doc.get("team1_name") or (team1.get("name") if team1 else "Team 1")
+    veto_doc["team2_name"] = match_doc.get("team2_name") or (team2.get("name") if team2 else "Team 2")
+    
+    # Get sub-game maps if available
+    sub_game_id = tournament.get("sub_game_id", "")
+    if sub_game_id:
+        game = await db.games.find_one({"id": tournament.get("game_id", "")}, {"_id": 0, "sub_games": 1})
+        if game:
+            for sg in game.get("sub_games", []):
+                if sg.get("id") == sub_game_id:
+                    veto_doc["available_maps"] = sg.get("maps", [])
+                    break
+    
+    return veto_doc
+
+def build_action_sequence(tournament: Dict) -> List[Dict]:
+    """Build the action sequence for map veto based on tournament settings."""
+    pick_order = str(tournament.get("map_pick_order", "ban_ban_pick") or "ban_ban_pick").lower()
+    ban_count = max(1, int(tournament.get("map_ban_count", 2) or 2))
+    best_of = max(1, int(tournament.get("best_of", 1) or 1))
+    
+    sequence = []
+    
+    if pick_order == "ban_ban_pick":
+        # Team1 bans, Team2 bans, alternate picks
+        for i in range(ban_count):
+            sequence.append({"team": "team1", "action": "ban"})
+            sequence.append({"team": "team2", "action": "ban"})
+        for i in range(best_of):
+            team = "team1" if i % 2 == 0 else "team2"
+            sequence.append({"team": team, "action": "pick"})
+    elif pick_order == "ban_pick_ban":
+        for _ in range(ban_count // 2):
+            sequence.append({"team": "team1", "action": "ban"})
+            sequence.append({"team": "team2", "action": "ban"})
+        for i in range(best_of):
+            team = "team1" if i % 2 == 0 else "team2"
+            sequence.append({"team": team, "action": "pick"})
+        for _ in range((ban_count + 1) // 2):
+            sequence.append({"team": "team2", "action": "ban"})
+            sequence.append({"team": "team1", "action": "ban"})
+    elif pick_order == "alternate":
+        # Simple alternating: ban-ban-ban-ban-pick-pick-pick
+        current_team = "team1"
+        for _ in range(ban_count * 2):
+            sequence.append({"team": current_team, "action": "ban"})
+            current_team = "team2" if current_team == "team1" else "team1"
+        for i in range(best_of):
+            sequence.append({"team": current_team, "action": "pick"})
+            current_team = "team2" if current_team == "team1" else "team1"
+    else:
+        # Default: simple ban-ban-pick
+        sequence.append({"team": "team1", "action": "ban"})
+        sequence.append({"team": "team2", "action": "ban"})
+        sequence.append({"team": "team1", "action": "pick"})
+    
+    return sequence
+
+@api_router.post("/matches/{match_id}/map-veto")
+async def submit_map_veto_action(request: Request, match_id: str, body: MapVetoSubmission):
+    """Submit a map veto action (ban or pick)."""
+    user = await require_auth(request)
+    tournament, match_doc = await find_match(match_id)
+    if not tournament or not match_doc:
+        raise HTTPException(404, "Match nicht gefunden")
+    
+    # Get user's team in this match
+    user_teams = await db.teams.find(
+        {"$or": [{"owner_id": user["id"]}, {"leader_ids": user["id"]}]},
+        {"_id": 0, "id": 1}
+    ).to_list(50)
+    user_team_ids = {t["id"] for t in user_teams}
+    
+    team1_id = match_doc.get("team1_id", "")
+    team2_id = match_doc.get("team2_id", "")
+    
+    user_team = None
+    if team1_id in user_team_ids:
+        user_team = "team1"
+    elif team2_id in user_team_ids:
+        user_team = "team2"
+    
+    if not user_team:
+        raise HTTPException(403, "Du bist nicht Teil eines Teams in diesem Match")
+    
+    # Get or create veto document
+    query = {"tournament_id": tournament["id"], "match_id": match_id}
+    veto_doc = await db.map_vetos.find_one(query, {"_id": 0})
+    
+    if not veto_doc:
+        map_pool = list(tournament.get("map_pool", []) or [])
+        veto_doc = {
+            "tournament_id": tournament["id"],
+            "match_id": match_id,
+            "map_pool": map_pool,
+            "banned_maps": [],
+            "picked_maps": [],
+            "current_turn": "team1",
+            "current_action": "ban",
+            "action_sequence": build_action_sequence(tournament),
+            "action_index": 0,
+            "status": "in_progress",
+            "team1_id": team1_id,
+            "team2_id": team2_id,
+            "history": [],
+            "created_at": now_iso(),
+        }
+    
+    # Check if veto is already completed
+    if veto_doc.get("status") == "completed":
+        raise HTTPException(400, "Map-Veto ist bereits abgeschlossen")
+    
+    # Check if it's this team's turn
+    sequence = veto_doc.get("action_sequence", [])
+    action_index = veto_doc.get("action_index", 0)
+    
+    if action_index >= len(sequence):
+        # Veto complete
+        veto_doc["status"] = "completed"
+        await db.map_vetos.update_one(query, {"$set": veto_doc}, upsert=True)
+        return veto_doc
+    
+    current_step = sequence[action_index]
+    if current_step["team"] != user_team:
+        raise HTTPException(400, f"Es ist nicht dein Zug. {current_step['team']} ist dran.")
+    
+    expected_action = current_step["action"]
+    if body.action != expected_action:
+        raise HTTPException(400, f"Erwartete Aktion: {expected_action}, erhalten: {body.action}")
+    
+    # Validate map
+    map_id = body.map_id
+    available_maps = [m for m in veto_doc.get("map_pool", []) 
+                      if m not in veto_doc.get("banned_maps", []) 
+                      and m not in veto_doc.get("picked_maps", [])]
+    
+    if map_id not in available_maps:
+        raise HTTPException(400, f"Map '{map_id}' ist nicht verfügbar")
+    
+    # Apply action
+    now = now_iso()
+    history_entry = {
+        "team": user_team,
+        "action": body.action,
+        "map_id": map_id,
+        "timestamp": now,
+        "user_id": user["id"],
+        "user_name": user.get("username", ""),
+    }
+    veto_doc.setdefault("history", []).append(history_entry)
+    
+    if body.action == "ban":
+        veto_doc["banned_maps"].append(map_id)
+    elif body.action == "pick":
+        veto_doc["picked_maps"].append(map_id)
+    
+    # Move to next action
+    veto_doc["action_index"] = action_index + 1
+    if veto_doc["action_index"] >= len(sequence):
+        veto_doc["status"] = "completed"
+        veto_doc["completed_at"] = now
+    else:
+        next_step = sequence[veto_doc["action_index"]]
+        veto_doc["current_turn"] = next_step["team"]
+        veto_doc["current_action"] = next_step["action"]
+    
+    veto_doc["updated_at"] = now
+    await db.map_vetos.update_one(query, {"$set": veto_doc}, upsert=True)
+    
+    return veto_doc
+
+@api_router.post("/matches/{match_id}/map-veto/reset")
+async def reset_map_veto(request: Request, match_id: str):
+    """Admin: Reset map veto for a match."""
+    await require_admin(request)
+    tournament, match_doc = await find_match(match_id)
+    if not tournament or not match_doc:
+        raise HTTPException(404, "Match nicht gefunden")
+    
+    await db.map_vetos.delete_one({"tournament_id": tournament["id"], "match_id": match_id})
+    return {"status": "ok", "message": "Map-Veto zurückgesetzt"}
+
+@api_router.get("/games/{game_id}/sub-games")
+async def get_game_sub_games(game_id: str):
+    """Get sub-games and their maps for a game."""
+    game = await db.games.find_one({"id": game_id}, {"_id": 0, "sub_games": 1, "name": 1})
+    if not game:
+        raise HTTPException(404, "Spiel nicht gefunden")
+    return {
+        "game_name": game.get("name", ""),
+        "sub_games": game.get("sub_games", [])
+    }
+
+@api_router.get("/games/{game_id}/sub-games/{sub_game_id}/maps")
+async def get_sub_game_maps(game_id: str, sub_game_id: str):
+    """Get maps for a specific sub-game."""
+    game = await db.games.find_one({"id": game_id}, {"_id": 0, "sub_games": 1})
+    if not game:
+        raise HTTPException(404, "Spiel nicht gefunden")
+    
+    for sg in game.get("sub_games", []):
+        if sg.get("id") == sub_game_id:
+            return {
+                "sub_game_id": sub_game_id,
+                "sub_game_name": sg.get("name", ""),
+                "maps": sg.get("maps", [])
+            }
+    
+    raise HTTPException(404, "Sub-Game nicht gefunden")
+
 @api_router.post("/tournaments/{tournament_id}/generate-bracket")
 async def generate_bracket(request: Request, tournament_id: str):
     admin_user = await require_admin(request)
