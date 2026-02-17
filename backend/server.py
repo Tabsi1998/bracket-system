@@ -5915,6 +5915,232 @@ async def get_scheduling_status(request: Request, tournament_id: str):
     
     return stats
 
+# --- Scheduling Reminder System ---
+
+@api_router.post("/tournaments/{tournament_id}/send-scheduling-reminders")
+async def send_scheduling_reminders(request: Request, tournament_id: str, hours_before_window_end: int = 24):
+    """Send reminder emails to teams with unscheduled matches."""
+    await require_admin(request)
+    tournament = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
+    if not tournament:
+        raise HTTPException(404, "Turnier nicht gefunden")
+    if not tournament.get("bracket"):
+        raise HTTPException(400, "Bracket noch nicht generiert")
+    
+    bracket = tournament["bracket"]
+    bracket_type = bracket.get("type", "")
+    now = datetime.now(timezone.utc)
+    reminder_threshold = timedelta(hours=hours_before_window_end)
+    reminders_sent = 0
+    teams_notified = set()
+    
+    async def process_match_for_reminder(match: Dict, window_end: Optional[datetime]):
+        nonlocal reminders_sent
+        # Skip if already scheduled or completed
+        if match.get("scheduled_for") or match.get("status") == "completed":
+            return
+        if not match.get("team1_id") or not match.get("team2_id"):
+            return
+        
+        # Check if we're within the reminder threshold
+        should_send = False
+        if window_end:
+            time_until_end = window_end - now
+            if timedelta(0) < time_until_end <= reminder_threshold:
+                should_send = True
+        else:
+            # For KO-style, send reminders for any unscheduled match
+            should_send = True
+        
+        if not should_send:
+            return
+        
+        # Get team details and notify
+        for team_id in [match.get("team1_id"), match.get("team2_id")]:
+            if team_id and team_id not in teams_notified:
+                team = await db.teams.find_one({"id": team_id}, {"_id": 0, "name": 1, "owner_id": 1})
+                if team and team.get("owner_id"):
+                    owner = await db.users.find_one({"id": team["owner_id"]}, {"_id": 0, "email": 1, "username": 1})
+                    if owner and owner.get("email"):
+                        # Create notification
+                        notif = {
+                            "id": str(uuid4()),
+                            "user_id": team["owner_id"],
+                            "type": "scheduling_reminder",
+                            "title": "Termin-Erinnerung",
+                            "message": f"Das Match für Team '{team.get('name', 'Unbekannt')}' im Turnier '{tournament.get('name', '')}' hat noch keinen Termin. Bitte stimmt euch im Match-Hub ab!",
+                            "read": False,
+                            "created_at": now_iso(),
+                            "tournament_id": tournament_id,
+                            "match_id": match.get("id", ""),
+                        }
+                        await db.notifications.insert_one(notif)
+                        
+                        # Send email
+                        default_day = tournament.get("default_match_day", "Mittwoch")
+                        default_hour = tournament.get("default_match_hour", 19)
+                        day_map = {"monday": "Montag", "tuesday": "Dienstag", "wednesday": "Mittwoch", "thursday": "Donnerstag", "friday": "Freitag", "saturday": "Samstag", "sunday": "Sonntag"}
+                        day_display = day_map.get(str(default_day).lower(), default_day)
+                        
+                        email_body = f"""Hallo {owner.get('username', 'Team-Owner')},
+
+dies ist eine freundliche Erinnerung: Das Match für Team "{team.get('name', 'Unbekannt')}" im Turnier "{tournament.get('name', '')}" hat noch keinen Termin!
+
+Bitte einigt euch mit eurem Gegner im Match-Hub auf einen Termin.
+
+⚠️ Wichtig: Falls keine Einigung erfolgt, wird automatisch der Standard-Termin verwendet:
+   📅 {day_display}, {default_hour}:00 Uhr
+
+Mit sportlichen Grüßen,
+Das ARENA eSports Team
+"""
+                        await send_email_notification(
+                            owner["email"],
+                            f"[{tournament.get('name', 'Turnier')}] Termin-Erinnerung für {team.get('name', 'dein Team')}",
+                            email_body
+                        )
+                        teams_notified.add(team_id)
+                        reminders_sent += 1
+    
+    # Process all matches based on bracket type
+    if bracket_type in ("league", "round_robin"):
+        for round_doc in bracket.get("rounds", []):
+            window_end = parse_optional_datetime(str(round_doc.get("window_end", "") or ""))
+            for match in round_doc.get("matches", []):
+                await process_match_for_reminder(match, window_end)
+    elif bracket_type in ("group_stage", "group_playoffs"):
+        for group in bracket.get("groups", []):
+            for round_doc in group.get("rounds", []):
+                window_end = parse_optional_datetime(str(round_doc.get("window_end", "") or ""))
+                for match in round_doc.get("matches", []):
+                    await process_match_for_reminder(match, window_end)
+    elif bracket_type in ("single_elimination", "double_elimination", "swiss_system"):
+        for round_doc in bracket.get("rounds", []):
+            for match in round_doc.get("matches", []):
+                await process_match_for_reminder(match, None)
+    
+    return {
+        "status": "ok",
+        "reminders_sent": reminders_sent,
+        "teams_notified": len(teams_notified),
+        "message": f"{reminders_sent} Erinnerungen an {len(teams_notified)} Teams gesendet"
+    }
+
+# --- PayPal Payment Integration ---
+
+class PayPalOrderCreate(BaseModel):
+    registration_id: str
+
+@api_router.post("/payments/paypal/create-order")
+async def create_paypal_order(request: Request, body: PayPalOrderCreate):
+    """Create a PayPal order for tournament entry fee."""
+    user = await require_auth(request)
+    
+    reg = await db.registrations.find_one({"id": body.registration_id}, {"_id": 0})
+    if not reg:
+        raise HTTPException(404, "Registrierung nicht gefunden")
+    
+    tournament = await db.tournaments.find_one({"id": reg["tournament_id"]}, {"_id": 0})
+    if not tournament:
+        raise HTTPException(404, "Turnier nicht gefunden")
+    
+    entry_fee = float(tournament.get("entry_fee", 0))
+    if entry_fee <= 0:
+        raise HTTPException(400, "Turnier ist kostenlos, keine Zahlung erforderlich")
+    
+    # Check if already paid
+    if reg.get("payment_status") == "paid":
+        raise HTTPException(400, "Bereits bezahlt")
+    
+    # Get PayPal config from admin settings
+    paypal_mode = await get_setting_value_with_env_fallback("paypal_mode", "sandbox")
+    paypal_client_id = await get_setting_value_with_env_fallback("paypal_client_id", env_keys=["PAYPAL_CLIENT_ID"])
+    paypal_secret = await get_setting_value_with_env_fallback("paypal_secret", env_keys=["PAYPAL_SECRET"])
+    
+    if not paypal_client_id or not paypal_secret:
+        raise HTTPException(500, "PayPal ist nicht konfiguriert. Bitte Admin kontaktieren.")
+    
+    # Create order record
+    order_id = f"PAYPAL-{uuid4()}"
+    currency = str(tournament.get("currency", "USD")).upper()
+    if currency not in ("USD", "EUR", "GBP"):
+        currency = "USD"
+    
+    order = {
+        "id": order_id,
+        "registration_id": body.registration_id,
+        "tournament_id": tournament["id"],
+        "user_id": user["id"],
+        "amount": entry_fee,
+        "currency": currency,
+        "provider": "paypal",
+        "status": "pending",
+        "created_at": now_iso(),
+    }
+    await db.payment_transactions.insert_one(order)
+    
+    # Return data for frontend to create PayPal order
+    return {
+        "order_id": order_id,
+        "client_id": paypal_client_id,
+        "amount": str(entry_fee),
+        "currency": currency,
+        "mode": paypal_mode,
+        "tournament_name": tournament.get("name", ""),
+        "description": f"Startgebühr: {tournament.get('name', 'Turnier')}",
+    }
+
+@api_router.post("/payments/paypal/capture-order")
+async def capture_paypal_order(request: Request, order_id: str = Body(...), paypal_order_id: str = Body(...)):
+    """Capture a PayPal order after approval."""
+    user = await require_auth(request)
+    
+    # Find our order
+    order = await db.payment_transactions.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Order nicht gefunden")
+    if order.get("user_id") != user["id"]:
+        raise HTTPException(403, "Keine Berechtigung")
+    if order.get("status") == "completed":
+        raise HTTPException(400, "Bereits abgeschlossen")
+    
+    # Update order with PayPal transaction ID and mark as completed
+    await db.payment_transactions.update_one(
+        {"id": order_id},
+        {"$set": {
+            "status": "completed",
+            "paypal_order_id": paypal_order_id,
+            "completed_at": now_iso(),
+        }}
+    )
+    
+    # Update registration as paid
+    await db.registrations.update_one(
+        {"id": order["registration_id"]},
+        {"$set": {
+            "payment_status": "paid",
+            "payment_method": "paypal",
+            "payment_completed_at": now_iso(),
+        }}
+    )
+    
+    return {"status": "success", "message": "Zahlung erfolgreich!"}
+
+@api_router.get("/payments/paypal/config")
+async def get_paypal_config():
+    """Get PayPal client config for frontend."""
+    paypal_mode = await get_setting_value_with_env_fallback("paypal_mode", "sandbox")
+    paypal_client_id = await get_setting_value_with_env_fallback("paypal_client_id", env_keys=["PAYPAL_CLIENT_ID"])
+    
+    if not paypal_client_id:
+        return {"enabled": False}
+    
+    return {
+        "enabled": True,
+        "client_id": paypal_client_id,
+        "mode": paypal_mode,
+    }
+
 # --- Admin Endpoints ---
 
 @api_router.get("/admin/settings")
