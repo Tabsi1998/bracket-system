@@ -236,8 +236,16 @@ export default function MatchDetailPage() {
   const viewer = matchData.viewer || {};
   const schedule = matchData.schedule || {};
   const setupStatus = setupState?.status || "pending";
-  const canEditSetup = Boolean(user && (viewer.side === "team1" || viewer.side === "team2"));
-  const canScore = Boolean(user && match.status !== "completed" && !match.participants);
+  
+  // --- PERMISSION SYSTEM ---
+  // viewer.can_manage_match: true only if user is part of this match (team member/owner/leader) or admin
+  // viewer.side: "team1", "team2", "admin", or null
+  const isParticipant = viewer.side === "team1" || viewer.side === "team2";
+  const canManage = Boolean(viewer.can_manage_match);
+  const canInteract = Boolean(user && canManage); // can propose schedules, ban maps, submit setup
+  const canEditSetup = Boolean(canInteract && isParticipant);
+  const canScore = Boolean(canInteract && match.status !== "completed" && !match.participants);
+  const isReadOnly = !canInteract; // guests + non-participating users
 
   return (
     <div className="pt-20 min-h-screen">
