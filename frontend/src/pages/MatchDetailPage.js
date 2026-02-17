@@ -534,37 +534,62 @@ export default function MatchDetailPage() {
           <h2 className="font-['Barlow_Condensed'] text-xl text-white uppercase flex items-center gap-2">
             <Trophy className="w-4 h-4 text-yellow-500" />Ergebnis
           </h2>
-          <div className="grid sm:grid-cols-[1fr_auto_1fr_auto] gap-3 items-end">
-            <div>
-              <Label className="text-zinc-400 text-xs">{match.team1_name || "Team 1"}</Label>
-              <Input
-                type="number"
-                min="0"
-                value={scoreForm.score1}
-                onChange={(e) => setScoreForm((prev) => ({ ...prev, score1: parseInt(e.target.value, 10) || 0 }))}
-                className="bg-zinc-900 border-white/10 text-white mt-1"
-              />
+          {canScore || isAdmin ? (
+            <>
+              <div className="grid sm:grid-cols-[1fr_auto_1fr_auto] gap-3 items-end">
+                <div>
+                  <Label className="text-zinc-400 text-xs">{match.team1_name || "Team 1"}</Label>
+                  <Input
+                    data-testid="score-team1-input"
+                    type="number"
+                    min="0"
+                    value={scoreForm.score1}
+                    onChange={(e) => setScoreForm((prev) => ({ ...prev, score1: parseInt(e.target.value, 10) || 0 }))}
+                    className="bg-zinc-900 border-white/10 text-white mt-1"
+                  />
+                </div>
+                <div className="text-zinc-500 text-sm pb-2">vs</div>
+                <div>
+                  <Label className="text-zinc-400 text-xs">{match.team2_name || "Team 2"}</Label>
+                  <Input
+                    data-testid="score-team2-input"
+                    type="number"
+                    min="0"
+                    value={scoreForm.score2}
+                    onChange={(e) => setScoreForm((prev) => ({ ...prev, score2: parseInt(e.target.value, 10) || 0 }))}
+                    className="bg-zinc-900 border-white/10 text-white mt-1"
+                  />
+                </div>
+                <Button
+                  data-testid="score-submit-btn"
+                  disabled={match.status === "completed" && !isAdmin}
+                  className="bg-yellow-500 text-black hover:bg-yellow-400 disabled:opacity-50"
+                  onClick={submitScore}
+                >
+                  Speichern
+                </Button>
+              </div>
+              {match.status === "completed" && !isAdmin && <p className="text-xs text-zinc-600">Ergebnis ist bereits abgeschlossen.</p>}
+            </>
+          ) : (
+            <div className="grid sm:grid-cols-[1fr_auto_1fr] gap-4 items-center text-center">
+              <div>
+                <p className="text-xs text-zinc-500 mb-1">{match.team1_name || "Team 1"}</p>
+                <p className="text-3xl font-bold text-white font-['Barlow_Condensed']">{match.score1 ?? "-"}</p>
+              </div>
+              <div className="text-zinc-600 text-lg">:</div>
+              <div>
+                <p className="text-xs text-zinc-500 mb-1">{match.team2_name || "Team 2"}</p>
+                <p className="text-3xl font-bold text-white font-['Barlow_Condensed']">{match.score2 ?? "-"}</p>
+              </div>
             </div>
-            <div className="text-zinc-500 text-sm pb-2">vs</div>
-            <div>
-              <Label className="text-zinc-400 text-xs">{match.team2_name || "Team 2"}</Label>
-              <Input
-                type="number"
-                min="0"
-                value={scoreForm.score2}
-                onChange={(e) => setScoreForm((prev) => ({ ...prev, score2: parseInt(e.target.value, 10) || 0 }))}
-                className="bg-zinc-900 border-white/10 text-white mt-1"
-              />
-            </div>
-            <Button
-              disabled={!canScore}
-              className="bg-yellow-500 text-black hover:bg-yellow-400 disabled:opacity-50"
-              onClick={submitScore}
-            >
-              Speichern
-            </Button>
-          </div>
-          {!canScore && <p className="text-xs text-zinc-600">Ergebnis ist bereits abgeschlossen oder für diesen Match-Typ nicht editierbar.</p>}
+          )}
+          {isReadOnly && match.status === "completed" && (
+            <Badge className="bg-green-500/10 text-green-400 border border-green-500/20">Abgeschlossen</Badge>
+          )}
+          {isReadOnly && match.status !== "completed" && (
+            <p className="text-xs text-zinc-600">Ergebnis noch ausstehend.</p>
+          )}
         </div>
 
         <div className="glass rounded-xl border border-white/5 p-5">
