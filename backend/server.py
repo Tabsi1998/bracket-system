@@ -162,8 +162,11 @@ class TournamentCreate(BaseModel):
     battle_royale_group_size: int = 4
     battle_royale_advance: int = 2
     default_match_time: str = ""
+    default_match_day: str = "wednesday"  # Default day if no team schedules: monday, tuesday, etc.
+    default_match_hour: int = 19  # Default hour (0-23) for auto-scheduling
     matchday_interval_days: int = 7
     matchday_window_days: int = 7
+    auto_schedule_on_window_end: bool = True  # Auto-assign default time when window ends
     points_win: int = 3
     points_draw: int = 1
     points_loss: int = 0
@@ -188,6 +191,9 @@ class TournamentUpdate(BaseModel):
     battle_royale_advance: Optional[int] = None
     matchday_interval_days: Optional[int] = None
     matchday_window_days: Optional[int] = None
+    default_match_day: Optional[str] = None
+    default_match_hour: Optional[int] = None
+    auto_schedule_on_window_end: Optional[bool] = None
     points_win: Optional[int] = None
     points_draw: Optional[int] = None
     points_loss: Optional[int] = None
