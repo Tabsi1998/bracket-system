@@ -49,61 +49,73 @@ export default function MatchDetailPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      let detailRes, scheduleRes, setupRes;
-      
       if (user) {
-        // Authenticated user - full detail
-        [detailRes, scheduleRes, setupRes] = await Promise.all([
-          axios.get(`${API}/matches/${matchId}`),
-          axios.get(`${API}/matches/${matchId}/schedule`),
-          axios.get(`${API}/matches/${matchId}/setup`),
-        ]);
-      } else {
-        // Guest - public endpoint only
-        detailRes = await axios.get(`${API}/matches/${matchId}/public`);
-        scheduleRes = { data: [] };
-        setupRes = { data: {} };
-      }
-      
-      setMatchData(detailRes.data);
-      setScheduleItems(Array.isArray(scheduleRes.data) ? scheduleRes.data : []);
-      const setupPayload = (setupRes.data || {}).setup || null;
-      const setupTemplate = (setupRes.data || {}).template || {};
-      setSetupState(setupPayload);
-      setTemplate(setupTemplate);
-      const effectiveSetup = setupPayload?.final_setup && Object.keys(setupPayload?.final_setup || {}).length
-        ? setupPayload.final_setup
-        : setupTemplate;
-      const jsonString = safePrettyJson(effectiveSetup);
-      setSetupJson(jsonString);
-      setResolveJson(jsonString);
-
-      const match = (detailRes.data || {}).match || {};
-      setScoreForm({
-        score1: Number(match.score1 || 0),
-        score2: Number(match.score2 || 0),
-      });
-      
-      // Fetch map veto state (or use from public endpoint)
-      if (detailRes.data?.map_veto) {
-        setMapVetoState(detailRes.data.map_veto);
-      } else {
-        fetchMapVeto();
-      }
-    } catch (e) {
-      // Fallback to public endpoint if authenticated endpoint fails
-      if (user) {
-        try {
-          const publicRes = await axios.get(`${API}/matches/${matchId}/public`);
-          setMatchData(publicRes.data);
-          if (publicRes.data?.map_veto) {
-            setMapVetoState(publicRes.data.map_veto);
+        // Authenticated user - try full detail (works for participants AND non-participants now)
+        const detailRes = await axios.get(`${API}/matches/${matchId}`);
+        setMatchData(detailRes.data);
+        
+        const viewerData = detailRes.data?.viewer || {};
+        const hasAccess = viewerData.can_manage_match;
+        
+        // Only fetch schedule and setup if user can manage this match
+        if (hasAccess) {
+          try {
+            const [scheduleRes, setupRes] = await Promise.all([
+              axios.get(`${API}/matches/${matchId}/schedule`),
+              axios.get(`${API}/matches/${matchId}/setup`),
+            ]);
+            setScheduleItems(Array.isArray(scheduleRes.data) ? scheduleRes.data : []);
+            const setupPayload = (setupRes.data || {}).setup || null;
+            const setupTemplate = (setupRes.data || {}).template || {};
+            setSetupState(setupPayload);
+            setTemplate(setupTemplate);
+            const effectiveSetup = setupPayload?.final_setup && Object.keys(setupPayload?.final_setup || {}).length
+              ? setupPayload.final_setup
+              : setupTemplate;
+            const jsonString = safePrettyJson(effectiveSetup);
+            setSetupJson(jsonString);
+            setResolveJson(jsonString);
+          } catch {
+            // Setup/schedule not accessible - that's fine for non-participants
           }
-        } catch {
-          toast.error("Match konnte nicht geladen werden");
+        }
+        
+        const matchObj = (detailRes.data || {}).match || {};
+        setScoreForm({
+          score1: Number(matchObj.score1 || 0),
+          score2: Number(matchObj.score2 || 0),
+        });
+        
+        if (hasAccess) {
+          fetchMapVeto();
+        } else if (detailRes.data?.map_veto) {
+          setMapVetoState(detailRes.data.map_veto);
         }
       } else {
-        toast.error(e.response?.data?.detail || "Match konnte nicht geladen werden");
+        // Guest - public endpoint only
+        const detailRes = await axios.get(`${API}/matches/${matchId}/public`);
+        setMatchData(detailRes.data);
+        
+        const matchObj = (detailRes.data || {}).match || {};
+        setScoreForm({
+          score1: Number(matchObj.score1 || 0),
+          score2: Number(matchObj.score2 || 0),
+        });
+        
+        if (detailRes.data?.map_veto) {
+          setMapVetoState(detailRes.data.map_veto);
+        }
+      }
+    } catch (e) {
+      // Fallback to public endpoint if anything fails
+      try {
+        const publicRes = await axios.get(`${API}/matches/${matchId}/public`);
+        setMatchData(publicRes.data);
+        if (publicRes.data?.map_veto) {
+          setMapVetoState(publicRes.data.map_veto);
+        }
+      } catch {
+        toast.error("Match konnte nicht geladen werden");
       }
     } finally {
       setLoading(false);
