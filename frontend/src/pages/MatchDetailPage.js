@@ -393,7 +393,8 @@ export default function MatchDetailPage() {
                               {isBanned && <Badge className="text-[9px] bg-red-500/10 text-red-400">Gebannt</Badge>}
                               {isPicked && <Badge className="text-[9px] bg-green-500/10 text-green-400">Gepickt</Badge>}
                             </div>
-                            {isAvailable && mapVetoState?.status !== "completed" && (
+                            {isAvailable && mapVetoState?.status !== "completed" && canInteract && (
+                              (mapVetoState?.current_turn === viewer.side || isAdmin) && (
                               <div className="flex gap-1 mt-2">
                                 {mapVetoState?.current_action === "ban" && (
                                   <Button
@@ -402,6 +403,7 @@ export default function MatchDetailPage() {
                                     className="text-[10px] h-6 border-red-500/30 text-red-400 hover:bg-red-500/10"
                                     onClick={() => handleMapVetoAction("ban", mapId)}
                                     disabled={mapVetoLoading}
+                                    data-testid={`veto-ban-${mapId}`}
                                   >
                                     Bannen
                                   </Button>
@@ -413,11 +415,13 @@ export default function MatchDetailPage() {
                                     className="text-[10px] h-6 border-green-500/30 text-green-400 hover:bg-green-500/10"
                                     onClick={() => handleMapVetoAction("pick", mapId)}
                                     disabled={mapVetoLoading}
+                                    data-testid={`veto-pick-${mapId}`}
                                   >
                                     Picken
                                   </Button>
                                 )}
                               </div>
+                              )
                             )}
                           </div>
                         </div>
