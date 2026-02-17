@@ -317,6 +317,14 @@ class MatchSetupResolve(BaseModel):
     settings: Dict[str, Any] = Field(default_factory=dict)
     note: str = ""
 
+class MapBanAction(BaseModel):
+    map_id: str
+    action: str = "ban"  # "ban" or "pick"
+
+class MapVetoSubmission(BaseModel):
+    action: str  # "ban", "pick", "confirm"
+    map_id: str = ""
+
 class AdminPayPalValidateRequest(BaseModel):
     force_live: bool = True
 
