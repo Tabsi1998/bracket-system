@@ -6829,6 +6829,12 @@ async def ensure_indexes() -> None:
                 ([("target_type", ASCENDING), ("target_id", ASCENDING), ("created_at", ASCENDING)], {"name": "comments_target_created_idx"}),
             ],
         ),
+        (
+            "map_vetos",
+            [
+                ([("tournament_id", ASCENDING), ("match_id", ASCENDING)], {"name": "map_vetos_tournament_match_unique", "unique": True}),
+            ],
+        ),
     ]
 
     for collection_name, indexes in index_specs:
