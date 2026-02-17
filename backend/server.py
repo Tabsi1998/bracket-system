@@ -4373,6 +4373,16 @@ async def resolve_match_setup(request: Request, match_id: str, body: MatchSetupR
 
 # --- Map Veto System ---
 
+async def find_match(match_id: str):
+    """Find a match and its tournament by match ID."""
+    # Search through all tournaments with brackets
+    cursor = db.tournaments.find({"bracket": {"$exists": True, "$ne": None}}, {"_id": 0})
+    async for tournament in cursor:
+        match_doc = find_match_in_bracket(tournament.get("bracket", {}), match_id)
+        if match_doc:
+            return tournament, match_doc
+    return None, None
+
 @api_router.get("/matches/{match_id}/map-veto")
 async def get_map_veto_state(request: Request, match_id: str):
     """Get current map veto state for a match."""
