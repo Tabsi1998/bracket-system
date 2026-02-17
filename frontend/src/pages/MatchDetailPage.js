@@ -317,10 +317,11 @@ export default function MatchDetailPage() {
                     <Badge className="text-[10px] bg-zinc-800 text-zinc-300">{s.status}</Badge>
                   </div>
                   <div className="text-xs text-zinc-600 mt-1">von {s.proposed_by_name || "Unbekannt"}</div>
-                  {s.status === "pending" && (
+                  {s.status === "pending" && canInteract && (
                     <Button
                       size="sm"
                       variant="outline"
+                      data-testid={`accept-proposal-${s.id}`}
                       className="mt-2 border-yellow-500/30 text-yellow-500 hover:bg-yellow-500/10"
                       onClick={() => acceptProposal(s.id)}
                     >
