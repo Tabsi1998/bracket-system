@@ -454,6 +454,87 @@ def seed_demo_data(reset: bool = False) -> None:
             "start_days": -3,
             "checkin_days": -4,
         },
+        # === HAUPTTURNIER: CoD Black Ops 6 - 4v4 S&D Liga ===
+        {
+            "key": "cod_snd_league",
+            "name": "CoD BO6 4v4 S&D Liga - Season 1",
+            "status": "live",
+            "bracket_type": "league",
+            "participant_mode": "team",
+            "game": game_league,  # Will be replaced with CoD
+            "game_mode_override": "S&D",
+            "team_size": 4,
+            "max_participants": 8,
+            "start_days": -21,  # Started 3 weeks ago
+            "checkin_days": -22,
+            "matchday_interval_days": 7,
+            "matchday_window_days": 5,
+            "default_match_day": "wednesday",
+            "default_match_hour": 20,
+            "best_of": 3,
+            "map_pool": ["bo6-nuketown", "bo6-hacienda", "bo6-vault", "bo6-skyline", "bo6-red-card"],
+            "map_ban_enabled": True,
+            "map_ban_count": 2,
+            "description": """# CoD BO6 4v4 S&D Liga - Season 1
+
+## Übersicht
+Willkommen zur ersten Season der ARENA 4v4 Search & Destroy Liga für Call of Duty: Black Ops 6!
+
+## Format
+- **Liga-System**: Jeder gegen jeden
+- **Spieltage**: Wöchentlich (7 Tage Intervall)
+- **Zeitfenster**: 5 Tage pro Spieltag für Terminabsprache
+- **Matches**: Best of 3
+
+## Punkte
+- Sieg: 3 Punkte
+- Unentschieden: 1 Punkt
+- Niederlage: 0 Punkte
+
+## Map-Veto Prozess
+1. Team A bannt eine Map
+2. Team B bannt eine Map
+3. Team A pickt Map 1
+4. Team B pickt Map 2
+5. Team A bannt eine Map
+6. Team B bannt eine Map
+7. Verbleibende Map = Map 3 (Decider)
+""",
+            "rules": """# Turnier-Regeln
+
+## Spieleranzahl
+- 4 Spieler pro Team (keine Wechselspieler erlaubt im Match)
+
+## Map-Pool
+- Nuketown
+- Hacienda
+- Vault
+- Skyline
+- Red Card
+
+## Match-Setup
+- Modus: Search & Destroy
+- Rundenlimit: 11 (First to 6)
+- Zeitlimit pro Runde: 1:30
+- Bomben-Timer: 45 Sekunden
+
+## Terminabstimmung
+1. Teams schlagen Termine im Match-Hub vor
+2. Der andere Team-Leader bestätigt oder macht Gegenvorschlag
+3. Bei keiner Einigung innerhalb von 5 Tagen: Standard-Termin (Mittwoch 20:00)
+
+## Ergebnismeldung
+- Beide Teams melden das Ergebnis
+- Screenshots als Beweis empfohlen
+- Bei Streit: Admin entscheidet
+
+## Code of Conduct
+- Fair Play ist Pflicht
+- Kein Cheating, kein Glitching
+- Respektvolles Verhalten gegenüber Gegnern
+- Beleidigungen führen zu Verwarnungen/Disqualifikation
+""",
+        },
         {
             "key": "live_league",
             "name": "Demo Pro League",
