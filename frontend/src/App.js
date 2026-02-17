@@ -11,6 +11,7 @@ import GamesPage from "@/pages/GamesPage";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import TeamsPage from "@/pages/TeamsPage";
+import TeamDetailPage from "@/pages/TeamDetailPage";
 import AdminPage from "@/pages/AdminPage";
 import ProfilePage from "@/pages/ProfilePage";
 import WidgetPage from "@/pages/WidgetPage";
