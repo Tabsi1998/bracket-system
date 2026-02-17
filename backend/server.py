@@ -5964,7 +5964,7 @@ async def send_scheduling_reminders(request: Request, tournament_id: str, hours_
                     if owner and owner.get("email"):
                         # Create notification
                         notif = {
-                            "id": str(uuid4()),
+                            "id": str(uuid.uuid4()),
                             "user_id": team["owner_id"],
                             "type": "scheduling_reminder",
                             "title": "Termin-Erinnerung",
