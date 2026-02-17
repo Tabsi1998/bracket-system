@@ -474,28 +474,36 @@ export default function MatchDetailPage() {
             <div className="text-sm text-zinc-400">
               Status: <span className="text-white">{setupStatus}</span>
             </div>
-            <div>
-              <Label className="text-zinc-400 text-xs">Template / Setup (JSON)</Label>
-              <Textarea
-                value={setupJson}
-                onChange={(e) => setSetupJson(e.target.value)}
-                className="bg-zinc-900 border-white/10 text-white min-h-[180px] font-mono text-xs mt-1"
-              />
-              {!parsedSetup && <p className="text-[11px] text-red-400 mt-1">Ungültiges JSON</p>}
-            </div>
-            <div>
-              <Label className="text-zinc-400 text-xs">Notiz</Label>
-              <Input
-                value={setupNote}
-                onChange={(e) => setSetupNote(e.target.value)}
-                className="bg-zinc-900 border-white/10 text-white mt-1"
-                placeholder="Optional"
-              />
-            </div>
-            {canEditSetup && (
-              <Button className="bg-yellow-500 text-black hover:bg-yellow-400" onClick={submitSetup}>
-                Setup einreichen
-              </Button>
+            {canEditSetup ? (
+              <>
+                <div>
+                  <Label className="text-zinc-400 text-xs">Template / Setup (JSON)</Label>
+                  <Textarea
+                    value={setupJson}
+                    onChange={(e) => setSetupJson(e.target.value)}
+                    className="bg-zinc-900 border-white/10 text-white min-h-[180px] font-mono text-xs mt-1"
+                  />
+                  {!parsedSetup && <p className="text-[11px] text-red-400 mt-1">Ungültiges JSON</p>}
+                </div>
+                <div>
+                  <Label className="text-zinc-400 text-xs">Notiz</Label>
+                  <Input
+                    value={setupNote}
+                    onChange={(e) => setSetupNote(e.target.value)}
+                    className="bg-zinc-900 border-white/10 text-white mt-1"
+                    placeholder="Optional"
+                  />
+                </div>
+                <Button className="bg-yellow-500 text-black hover:bg-yellow-400" onClick={submitSetup}>
+                  Setup einreichen
+                </Button>
+              </>
+            ) : (
+              <div className="text-sm text-zinc-500">
+                {setupState?.final_setup && Object.keys(setupState.final_setup).length > 0
+                  ? <pre className="bg-zinc-900/50 rounded-lg p-3 text-xs font-mono text-zinc-400 overflow-x-auto">{safePrettyJson(setupState.final_setup)}</pre>
+                  : "Setup noch nicht festgelegt."}
+              </div>
             )}
             {isAdmin && (
               <div className="border-t border-white/5 pt-4 space-y-2">
