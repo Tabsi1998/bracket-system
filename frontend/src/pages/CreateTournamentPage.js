@@ -241,6 +241,60 @@ export default function CreateTournamentPage() {
                   </div>
                 </div>
               )}
+              {/* Sub-Game Selection */}
+              {subGames.length > 0 && (
+                <div>
+                  <Label className="text-zinc-400 text-sm">Unterspiel / Version</Label>
+                  <Select value={form.sub_game_id} onValueChange={handleSubGameSelect}>
+                    <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                      <SelectValue placeholder="Version wählen..." />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-950 border-white/10">
+                      {subGames.filter(sg => sg.active !== false).map(sg => (
+                        <SelectItem key={sg.id} value={sg.id}>
+                          {sg.name} {sg.release_year ? `(${sg.release_year})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {/* Map Pool Selection */}
+              {availableMaps.length > 0 && (
+                <div className="border-t border-white/5 pt-4 mt-4">
+                  <Label className="text-zinc-400 text-sm mb-3 block">Map-Pool auswählen</Label>
+                  <p className="text-[11px] text-zinc-500 mb-3">
+                    Wähle die Maps, die in diesem Turnier gespielt werden können. Teams können dann vor dem Match bannen/picken.
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {availableMaps.map(map => {
+                      const isSelected = form.map_pool?.includes(map.id);
+                      const isCompatible = !form.game_mode || map.game_modes?.includes(form.game_mode);
+                      return (
+                        <button
+                          key={map.id}
+                          type="button"
+                          onClick={() => toggleMapInPool(map.id)}
+                          disabled={!isCompatible}
+                          className={`p-2 rounded-lg border text-xs font-medium transition-all ${
+                            !isCompatible 
+                              ? "border-white/5 bg-zinc-900/30 text-zinc-600 cursor-not-allowed opacity-50"
+                              : isSelected
+                                ? "border-cyan-500 bg-cyan-500/10 text-cyan-400"
+                                : "border-white/10 bg-zinc-900 text-zinc-400 hover:border-white/20"
+                          }`}
+                        >
+                          {map.name}
+                          {!isCompatible && <span className="block text-[9px] text-zinc-600">Nicht für {form.game_mode}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {form.map_pool?.length > 0 && (
+                    <p className="text-[11px] text-cyan-400 mt-2">{form.map_pool.length} Maps ausgewählt</p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Tournament Settings */}
