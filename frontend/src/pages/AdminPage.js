@@ -545,6 +545,16 @@ export default function AdminPage() {
                 <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-white uppercase mb-4 flex items-center gap-2">
                   <CreditCard className="w-5 h-5 text-yellow-500" />Zahlungs-Einstellungen
                 </h3>
+                <div className="mb-4 p-4 rounded-lg bg-purple-500/5 border border-purple-500/20">
+                  <h4 className="text-sm text-purple-400 font-semibold mb-2">💳 PayPal-Konfiguration Hilfe</h4>
+                  <div className="text-xs text-zinc-400 space-y-1">
+                    <p>1. Gehe zu <a href="https://developer.paypal.com/" target="_blank" rel="noreferrer" className="text-purple-400 hover:text-purple-300 underline">developer.paypal.com</a> und erstelle eine App</p>
+                    <p>2. Kopiere die <strong>Client ID</strong> und das <strong>Secret</strong> deiner App</p>
+                    <p>3. Für Tests: <strong>Mode = sandbox</strong> verwenden</p>
+                    <p>4. Für Live: <strong>Mode = live</strong> und Live-Credentials verwenden</p>
+                    <p className="text-amber-400 mt-2">⚠️ Stripe-Schlüssel werden automatisch aus der Umgebung geladen!</p>
+                  </div>
+                </div>
                 <div className="mb-4 p-3 rounded-lg bg-zinc-900/50 border border-white/5 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-zinc-500">Aktiver Provider:</span>
