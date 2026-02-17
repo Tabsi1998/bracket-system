@@ -4239,6 +4239,74 @@ def prepare_match_setup_response(doc: Optional[Dict[str, Any]], *, match_id: str
     clean.setdefault("final_note", "")
     return clean
 
+@api_router.get("/matches/{match_id}/public")
+async def get_match_detail_public(match_id: str):
+    """Public match details accessible by guests (no auth required)."""
+    tournament, match = await find_tournament_and_match_by_match_id(match_id)
+    if not tournament or not match:
+        raise HTTPException(404, "Match nicht gefunden")
+
+    team_reg_ids = [rid for rid in [match.get("team1_id"), match.get("team2_id")] if rid]
+    regs = await db.registrations.find({"id": {"$in": team_reg_ids}}, {"_id": 0}).to_list(10)
+    reg_by_id = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
+    team1_reg = reg_by_id.get(str(match.get("team1_id", "")).strip())
+    team2_reg = reg_by_id.get(str(match.get("team2_id", "")).strip())
+
+    round_context = find_match_round_context(tournament.get("bracket") or {}, match_id)
+    match_payload = dict(match or {})
+    if not match_payload.get("matchday") and round_context.get("matchday"):
+        match_payload["matchday"] = int(round_context.get("matchday") or 0)
+    if round_context.get("round_name") and not match_payload.get("round_name"):
+        match_payload["round_name"] = str(round_context.get("round_name", "") or "")
+
+    # Get map veto data
+    veto_doc = await db.map_vetos.find_one({"match_id": match_id}, {"_id": 0})
+    
+    # Get map names if veto exists
+    map_names = {}
+    if veto_doc:
+        game_id = tournament.get("game_id", "")
+        sub_game_id = tournament.get("sub_game_id", "")
+        if game_id:
+            game = await db.games.find_one({"id": game_id}, {"_id": 0, "sub_games": 1})
+            if game:
+                for sg in game.get("sub_games", []):
+                    if sub_game_id and sg.get("id") == sub_game_id:
+                        map_names = {m["id"]: m["name"] for m in sg.get("maps", []) if m.get("id")}
+                        break
+                    elif not sub_game_id:
+                        for m in sg.get("maps", []):
+                            if m.get("id"):
+                                map_names[m["id"]] = m["name"]
+
+    return {
+        "tournament": {
+            "id": tournament.get("id"),
+            "name": tournament.get("name", ""),
+            "status": tournament.get("status", ""),
+            "game_name": tournament.get("game_name", ""),
+            "game_mode": tournament.get("game_mode", ""),
+        },
+        "match": match_payload,
+        "team1_registration": sanitize_registration(team1_reg) if team1_reg else None,
+        "team2_registration": sanitize_registration(team2_reg) if team2_reg else None,
+        "context": round_context,
+        "map_veto": {
+            "status": veto_doc.get("status", "pending") if veto_doc else None,
+            "picked_maps": veto_doc.get("picked_maps", []) if veto_doc else [],
+            "banned_maps": veto_doc.get("banned_maps", []) if veto_doc else [],
+            "map_pool": veto_doc.get("map_pool", []) if veto_doc else [],
+            "map_names": map_names,
+            "history": veto_doc.get("history", []) if veto_doc else [],
+        } if veto_doc else None,
+        "schedule": {
+            "scheduled_for": str(match.get("scheduled_for", "") or ""),
+            "window_start": str(round_context.get("window_start", "") or ""),
+            "window_end": str(round_context.get("window_end", "") or ""),
+        },
+        "viewer": {"is_admin": False, "side": None, "can_manage_match": False},
+    }
+
 @api_router.get("/matches/{match_id}")
 async def get_match_detail(request: Request, match_id: str):
     user = await require_auth(request)
