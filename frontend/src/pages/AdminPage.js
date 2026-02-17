@@ -658,16 +658,24 @@ export default function AdminPage() {
                           return;
                         }
                         try {
-                          const res = await axios.post(`${API}/admin/email/test`, { email: smtpTestEmail.trim() });
-                          toast.success(res.data?.detail || "Testmail wurde versendet");
+                          const res = await axios.post(`${API}/admin/smtp-test`, { test_email: smtpTestEmail.trim() });
+                          if (res.data?.success) {
+                            toast.success("Testmail wurde versendet! Prüfe dein Postfach.");
+                          } else {
+                            toast.error(`SMTP Fehler: ${res.data?.error || "Unbekannt"}`);
+                          }
                         } catch (e) {
-                          toast.error(e.response?.data?.detail || "SMTP Test fehlgeschlagen");
+                          const detail = e.response?.data?.detail || e.response?.data?.error || "SMTP Test fehlgeschlagen";
+                          toast.error(detail);
                         }
                       }}
                     >
                       Test senden
                     </Button>
                   </div>
+                  <p className="text-[10px] text-zinc-600 mt-2">
+                    Sendet eine Test-E-Mail um die SMTP-Konfiguration zu prüfen. Bei Gmail: App-Passwort verwenden!
+                  </p>
                 </div>
               </div>
             </div>
