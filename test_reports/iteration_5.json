@@ -1,0 +1,109 @@
+{
+  "summary": "eSports Tournament System new features testing completed. Verified PayPal integration endpoints, scheduling reminder APIs, extended FAQ system, admin panel improvements, and tournament creation enhancements. Backend: 10/15 tests passed (66.7%). Frontend: Key features verified including FAQ (32 items), admin panel with PayPal/SMTP help, and login functionality.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "minor_issues": [
+      {
+        "endpoint": "/api/payments/paypal/create-order",
+        "issue": "Returns 422 validation error - expects 'registration_id' field instead of amount/currency",
+        "impact": "API parameter mismatch, needs registration_id to create PayPal order",
+        "fix_priority": "MEDIUM"
+      },
+      {
+        "endpoint": "/api/payments/paypal/capture-order",
+        "issue": "Returns 422 validation error - expects 'paypal_order_id' field in request body",
+        "impact": "API parameter mismatch for PayPal order capture",
+        "fix_priority": "MEDIUM"
+      },
+      {
+        "endpoint": "/api/tournaments/{id}/send-scheduling-reminders",
+        "issue": "Returns 400 'Bracket noch nicht generiert' when bracket not generated",
+        "impact": "Expected behavior - reminders require bracket first",
+        "fix_priority": "LOW"
+      },
+      {
+        "endpoint": "POST /api/tournaments",
+        "issue": "Returns 200 instead of expected 201 for tournament creation",
+        "impact": "Minor HTTP status code inconsistency, functionality works",
+        "fix_priority": "LOW"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "CreateTournamentPage",
+        "issue": "Default scheduling fields (Standard-Tag, Standard-Uhrzeit) not visible in current view",
+        "selector": "text=Standard-Tag, text=Standard-Uhrzeit",
+        "fix_priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Tournament detail admin buttons",
+        "issue": "Auto-Termine and Erinnerungen senden buttons not fully verified due to navigation issues",
+        "affected_selectors": ["text=Auto-Termine", "text=Erinnerungen senden"]
+      }
+    ],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Login admin@arena.gg / admin123 - successful authentication",
+    "Login demo.admin@arena.gg / demo123 - successful authentication",
+    "GET /api/games - returns 14 games",
+    "GET /api/tournaments - returns 13 tournaments",
+    "GET /api/payments/paypal/config - PayPal config endpoint accessible",
+    "GET /api/faq - returns 8 FAQ items (default set)",
+    "GET /api/admin/faq - admin FAQ management working",
+    "Tournament creation with new fields (default_match_day, default_match_hour, auto_schedule_on_window_end)",
+    "Frontend: FAQ page shows 32 FAQ items (exceeds 10+ requirement)",
+    "Frontend: Admin panel accessible with proper authentication",
+    "Frontend: PayPal help section with developer.paypal.com link",
+    "Frontend: SMTP help section with Gmail/Outlook instructions",
+    "Frontend: Admin login and panel navigation working",
+    "Frontend: FAQ page fully functional with accordion interface"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py"
+  ],
+  "action_item_for_main_agent": "Fix PayPal API parameter validation (registration_id vs amount/currency), verify tournament creation scheduling fields visibility, and ensure tournament detail admin buttons are properly displayed for authenticated admin users.",
+  "updated_files": [
+    "/app/backend_test.py"
+  ],
+  "success_percentage": {
+    "backend": "66.7% (10/15 tests passed - some failures expected due to missing prerequisites)",
+    "frontend": "80% (key features verified, minor navigation and field visibility issues)"
+  },
+  "features_verified": {
+    "paypal_integration": {
+      "config_endpoint": "Working - GET /api/payments/paypal/config",
+      "create_order_api": "Parameter mismatch - expects registration_id",
+      "capture_order_api": "Parameter mismatch - expects paypal_order_id",
+      "admin_help_section": "Working with developer.paypal.com link"
+    },
+    "scheduling_features": {
+      "reminder_api": "Available - POST /api/tournaments/{id}/send-scheduling-reminders",
+      "auto_schedule_api": "Available - POST /api/tournaments/{id}/auto-schedule-unscheduled",
+      "tournament_fields": "Backend supports default_match_day, default_match_hour fields",
+      "frontend_visibility": "Scheduling fields not visible in current create tournament view"
+    },
+    "faq_system": {
+      "backend_default": "8 FAQ items in DEFAULT_FAQ_ITEMS",
+      "frontend_display": "32 FAQ items displayed (likely includes custom entries)",
+      "admin_management": "Working FAQ management in admin panel",
+      "public_access": "FAQ page accessible at /faq"
+    },
+    "admin_improvements": {
+      "paypal_help": "PayPal configuration help with developer.paypal.com link",
+      "smtp_help": "SMTP configuration help with Gmail/Outlook instructions",
+      "panel_access": "Admin panel accessible with proper authentication",
+      "settings_management": "Settings tab working with help sections"
+    },
+    "login_credentials": {
+      "admin@arena.gg": "Working with admin123",
+      "demo.admin@arena.gg": "Working with demo123"
+    }
+  },
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_test_itself": false
+}
