@@ -82,7 +82,163 @@ class eSportsTournamentTester:
             return True
         return False
 
-    def test_games_with_sub_games(self):
+    def test_smtp_config_endpoint(self):
+        """Test GET /api/admin/smtp-config endpoint"""
+        success, response = self.run_test(
+            "GET /api/admin/smtp-config - SMTP Status",
+            "GET",
+            "admin/smtp-config",
+            200
+        )
+        
+        if success:
+            print(f"   📧 SMTP Config Status:")
+            print(f"      - Configured: {response.get('configured', False)}")
+            print(f"      - Valid: {response.get('valid', False)}")
+            print(f"      - Host: {response.get('host', 'N/A')}")
+            print(f"      - Port: {response.get('port', 'N/A')}")
+            print(f"      - From Email: {response.get('from_email', 'N/A')}")
+            print(f"      - Use STARTTLS: {response.get('use_starttls', False)}")
+            print(f"      - Use SSL: {response.get('use_ssl', False)}")
+            
+            if response.get('error'):
+                print(f"      - Error: {response.get('error')}")
+            
+            return True
+        
+        return success
+
+    def test_smtp_test_endpoint(self):
+        """Test POST /api/admin/smtp-test endpoint"""
+        test_email = "test@example.com"
+        
+        success, response = self.run_test(
+            f"POST /api/admin/smtp-test - Send test email to {test_email}",
+            "POST",
+            "admin/smtp-test",
+            200,
+            data={"email": test_email}
+        )
+        
+        if success:
+            print(f"   📧 SMTP Test Result:")
+            print(f"      - Success: {response.get('success', False)}")
+            print(f"      - Message: {response.get('message', 'N/A')}")
+            
+            if response.get('error'):
+                print(f"      - Error: {response.get('error')}")
+            
+            if response.get('config_status'):
+                config = response.get('config_status')
+                print(f"      - Config Valid: {config.get('valid', False)}")
+                print(f"      - Config Error: {config.get('error', 'None')}")
+            
+            return True
+        
+        return success
+
+    def test_team_tournaments_endpoint(self):
+        """Test GET /api/teams/{id}/tournaments endpoint"""
+        if not self.test_team_id:
+            # Try to find a team first
+            success, teams_response = self.run_test(
+                "GET /api/admin/teams - Find test team",
+                "GET",
+                "admin/teams",
+                200
+            )
+            
+            if success and isinstance(teams_response, list) and len(teams_response) > 0:
+                self.test_team_id = teams_response[0].get('id')
+                print(f"   👥 Using team: {teams_response[0].get('name')} (ID: {self.test_team_id})")
+            else:
+                print("   ⚠️  No teams found, skipping team tournaments test")
+                return False
+        
+        success, response = self.run_test(
+            f"GET /api/teams/{self.test_team_id}/tournaments",
+            "GET",
+            f"teams/{self.test_team_id}/tournaments",
+            200
+        )
+        
+        if success and isinstance(response, list):
+            print(f"   🏆 Team Tournaments: {len(response)} tournaments")
+            
+            for i, tournament in enumerate(response[:3], 1):  # Show first 3
+                print(f"      {i}. {tournament.get('name', 'Unknown')}")
+                print(f"         - Game: {tournament.get('game_name', 'N/A')}")
+                print(f"         - Status: {tournament.get('status', 'N/A')}")
+                print(f"         - Bracket: {tournament.get('bracket_type', 'N/A')}")
+            
+            return True
+        
+        return success
+
+    def test_sub_games_logic(self):
+        """Test that only CoD and FIFA have sub-games, CS2 and Valorant should not"""
+        success, response = self.run_test(
+            "GET /api/games - Check Sub-Games Logic",
+            "GET",
+            "games",
+            200
+        )
+        
+        if success and isinstance(response, list):
+            print(f"   🎮 Checking Sub-Games Logic for {len(response)} games:")
+            
+            games_with_subgames = []
+            games_without_subgames = []
+            
+            for game in response:
+                game_name = game.get('name', '').lower()
+                sub_games = game.get('sub_games', [])
+                
+                if 'call of duty' in game_name:
+                    self.cod_game_id = game.get('id')
+                    if len(sub_games) > 0:
+                        games_with_subgames.append(f"CoD ({len(sub_games)} sub-games)")
+                        print(f"      ✅ CoD has {len(sub_games)} sub-games (expected)")
+                    else:
+                        print(f"      ❌ CoD has no sub-games (should have sub-games)")
+                        
+                elif 'fifa' in game_name or 'ea fc' in game_name:
+                    self.fifa_game_id = game.get('id')
+                    if len(sub_games) > 0:
+                        games_with_subgames.append(f"FIFA ({len(sub_games)} sub-games)")
+                        print(f"      ✅ FIFA has {len(sub_games)} sub-games (expected)")
+                    else:
+                        print(f"      ❌ FIFA has no sub-games (should have sub-games)")
+                        
+                elif 'counter-strike' in game_name or 'cs2' in game_name:
+                    self.cs2_game_id = game.get('id')
+                    if len(sub_games) == 0:
+                        games_without_subgames.append("CS2 (no sub-games)")
+                        print(f"      ✅ CS2 has no sub-games (expected - direct maps)")
+                    else:
+                        print(f"      ❌ CS2 has {len(sub_games)} sub-games (should have direct maps)")
+                        
+                elif 'valorant' in game_name:
+                    self.valorant_game_id = game.get('id')
+                    if len(sub_games) == 0:
+                        games_without_subgames.append("Valorant (no sub-games)")
+                        print(f"      ✅ Valorant has no sub-games (expected - direct maps)")
+                    else:
+                        print(f"      ❌ Valorant has {len(sub_games)} sub-games (should have direct maps)")
+            
+            print(f"   📊 Summary:")
+            print(f"      - Games with sub-games: {', '.join(games_with_subgames) if games_with_subgames else 'None'}")
+            print(f"      - Games without sub-games: {', '.join(games_without_subgames) if games_without_subgames else 'None'}")
+            
+            # Check if logic is correct: CoD and FIFA should have sub-games, CS2 and Valorant should not
+            cod_correct = self.cod_game_id is not None
+            fifa_correct = self.fifa_game_id is not None  
+            cs2_correct = self.cs2_game_id is not None
+            valorant_correct = self.valorant_game_id is not None
+            
+            return cod_correct and fifa_correct and cs2_correct and valorant_correct
+        
+        return success
         """Test games endpoint and find Call of Duty with sub-games"""
         success, response = self.run_test(
             "GET /api/games - Check for Sub-Games",
