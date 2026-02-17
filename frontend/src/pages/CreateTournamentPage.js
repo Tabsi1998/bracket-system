@@ -1,29 +1,30 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { ArrowLeft, Trophy, Gamepad2, Shield } from "lucide-react";
+import { ArrowLeft, Trophy, Gamepad2, Shield, CircleHelp } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
 
 const bracketTypes = [
-  { value: "single_elimination", label: "Single Elimination" },
-  { value: "double_elimination", label: "Double Elimination" },
-  { value: "round_robin", label: "Round Robin" },
-  { value: "group_playoffs", label: "Gruppenphase + Playoffs" },
-  { value: "league", label: "Liga (Spieltage + Tabelle)" },
-  { value: "group_stage", label: "Gruppenphase" },
-  { value: "swiss_system", label: "Swiss System" },
-  { value: "ladder_system", label: "Ladder System" },
-  { value: "king_of_the_hill", label: "King of the Hill" },
-  { value: "battle_royale", label: "Battle Royale" },
+  { value: "single_elimination", label: "Single Elimination", hint: "Eine Niederlage = raus." },
+  { value: "double_elimination", label: "Double Elimination", hint: "Zwei Niederlagen bis zum Ausscheiden." },
+  { value: "round_robin", label: "Round Robin", hint: "Jeder gegen jeden, Tabelle entscheidet." },
+  { value: "group_playoffs", label: "Gruppenphase + Playoffs", hint: "Gruppen + KO-Endrunde." },
+  { value: "league", label: "Liga (Spieltage + Tabelle)", hint: "Saison mit Spieltagen und Fenstern." },
+  { value: "group_stage", label: "Gruppenphase", hint: "Nur Gruppen ohne Playoff-Baum." },
+  { value: "swiss_system", label: "Swiss System", hint: "Runden gegen ähnlich starke Bilanz." },
+  { value: "ladder_system", label: "Ladder System", hint: "Fortlaufende Ranglisten-Herausforderungen." },
+  { value: "king_of_the_hill", label: "King of the Hill", hint: "Champion bleibt oben, Herausforderer kommen nach." },
+  { value: "battle_royale", label: "Battle Royale", hint: "Heats/Lobbys mit Placement-Wertung." },
 ];
 
 export default function CreateTournamentPage() {
@@ -73,9 +74,53 @@ export default function CreateTournamentPage() {
     map_pick_order: "ban_ban_pick",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [formatGuidance, setFormatGuidance] = useState(null);
 
   useEffect(() => {
     axios.get(`${API}/games`).then(r => setGames(r.data)).catch(() => {});
+  }, []);
+
+  const applyGuidanceToForm = useCallback((guidance, modeName = "") => {
+    if (!guidance) return;
+    const recommendedBracket = guidance.default_bracket_type || "single_elimination";
+    const recommendedBestOf = Number(guidance.default_best_of || 1);
+    const recommendedParticipantMode = guidance.default_participant_mode || "team";
+    setForm(prev => {
+      const next = {
+        ...prev,
+        bracket_type: recommendedBracket,
+        best_of: Math.max(1, recommendedBestOf),
+        participant_mode: recommendedParticipantMode,
+        team_size: recommendedParticipantMode === "solo" ? 1 : prev.team_size,
+        map_ban_enabled: Boolean(guidance.map_ban_enabled),
+        map_vote_enabled: Boolean(guidance.map_vote_enabled),
+        map_ban_count: Math.max(1, Number(guidance.map_ban_count || 2)),
+        map_pick_order: guidance.map_pick_order || prev.map_pick_order,
+      };
+      if (modeName) {
+        const mode = selectedGame?.modes?.find(m => m.name === modeName);
+        if (mode && next.participant_mode !== "solo") {
+          next.team_size = mode.team_size || next.team_size;
+        }
+      }
+      return next;
+    });
+  }, [selectedGame?.modes]);
+
+  const fetchFormatGuidance = useCallback(async (gameId, modeName = "") => {
+    if (!gameId) {
+      setFormatGuidance(null);
+      return null;
+    }
+    try {
+      const query = modeName ? `?mode=${encodeURIComponent(modeName)}` : "";
+      const res = await axios.get(`${API}/games/${gameId}/format-guidance${query}`);
+      setFormatGuidance(res.data || null);
+      return res.data || null;
+    } catch {
+      setFormatGuidance(null);
+      return null;
+    }
   }, []);
 
   const handleGameSelect = (gameId) => {
@@ -84,7 +129,10 @@ export default function CreateTournamentPage() {
     setSubGames(game?.sub_games || []);
     setSelectedSubGame(null);
     setAvailableMaps([]);
-    setForm({ ...form, game_id: gameId, game_mode: "", team_size: 1, sub_game_id: "", sub_game_name: "", map_pool: [] });
+    setForm(prev => ({ ...prev, game_id: gameId, game_mode: "", team_size: 1, sub_game_id: "", sub_game_name: "", map_pool: [] }));
+    fetchFormatGuidance(gameId).then(guidance => {
+      if (guidance) applyGuidanceToForm(guidance);
+    });
   };
 
   const handleSubGameSelect = (subGameId) => {
@@ -97,7 +145,7 @@ export default function CreateTournamentPage() {
     const compatibleMaps = selectedMode 
       ? maps.filter(m => m.game_modes?.includes(selectedMode)).map(m => m.id)
       : maps.map(m => m.id);
-    setForm({ ...form, sub_game_id: subGameId, sub_game_name: sg?.name || "", map_pool: compatibleMaps });
+    setForm(prev => ({ ...prev, sub_game_id: subGameId, sub_game_name: sg?.name || "", map_pool: compatibleMaps }));
   };
 
   const handleModeSelect = (modeName) => {
@@ -106,27 +154,35 @@ export default function CreateTournamentPage() {
     const compatibleMaps = availableMaps
       .filter(m => m.game_modes?.includes(modeName))
       .map(m => m.id);
-    setForm({
-      ...form,
+    setForm(prev => ({
+      ...prev,
       game_mode: modeName,
-      team_size: form.participant_mode === "solo" ? 1 : (mode?.team_size || 1),
-      map_pool: compatibleMaps.length > 0 ? compatibleMaps : form.map_pool,
+      team_size: prev.participant_mode === "solo" ? 1 : (mode?.team_size || 1),
+      map_pool: compatibleMaps.length > 0 ? compatibleMaps : prev.map_pool,
+    }));
+    fetchFormatGuidance(selectedGame?.id || form.game_id, modeName).then(guidance => {
+      if (guidance) applyGuidanceToForm(guidance, modeName);
     });
   };
 
   const toggleMapInPool = (mapId) => {
-    const current = form.map_pool || [];
-    if (current.includes(mapId)) {
-      setForm({ ...form, map_pool: current.filter(m => m !== mapId) });
-    } else {
-      setForm({ ...form, map_pool: [...current, mapId] });
-    }
+    setForm(prev => {
+      const current = prev.map_pool || [];
+      if (current.includes(mapId)) {
+        return { ...prev, map_pool: current.filter(m => m !== mapId) };
+      }
+      return { ...prev, map_pool: [...current, mapId] };
+    });
   };
 
   const handleSubmit = async () => {
     if (!form.name.trim()) { toast.error("Turniername ist erforderlich"); return; }
     if (!form.game_id) { toast.error("Bitte wähle ein Spiel"); return; }
     if (!form.game_mode) { toast.error("Bitte wähle einen Spielmodus"); return; }
+    if ((form.map_ban_enabled || form.map_vote_enabled) && availableMaps.length > 0 && (form.map_pool || []).length === 0) {
+      toast.error("Bitte mindestens eine Map im Map-Pool auswählen");
+      return;
+    }
     setSubmitting(true);
     try {
       const parsedTieBreakers = String(form.tiebreakers || "")
@@ -141,6 +197,9 @@ export default function CreateTournamentPage() {
         points_win: Math.max(0, parseInt(form.points_win, 10) || 0),
         points_draw: Math.max(0, parseInt(form.points_draw, 10) || 0),
         points_loss: Math.max(0, parseInt(form.points_loss, 10) || 0),
+        map_ban_count: Math.max(1, parseInt(form.map_ban_count, 10) || 1),
+        map_pick_order: String(form.map_pick_order || "ban_ban_pick").toLowerCase(),
+        map_pool: [...new Set((form.map_pool || []).map(x => String(x).trim()).filter(Boolean))],
         tiebreakers: parsedTieBreakers.length > 0 ? parsedTieBreakers : ["points", "score_diff", "score_for", "team_name"],
         require_admin_score_approval:
           form.bracket_type === "battle_royale" ? true : form.require_admin_score_approval,
@@ -241,6 +300,45 @@ export default function CreateTournamentPage() {
                   </div>
                 </div>
               )}
+              {formatGuidance && (
+                <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wider text-cyan-300">Empfohlene Turnierstruktur</p>
+                      <p className="text-sm text-white">
+                        Standard: <span className="font-semibold">{(bracketTypes.find(b => b.value === formatGuidance.default_bracket_type)?.label) || formatGuidance.default_bracket_type}</span>
+                        {" • "}Best of {formatGuidance.default_best_of}
+                        {" • "}{formatGuidance.default_participant_mode === "solo" ? "Einzelspieler" : "Team"}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+                      onClick={() => applyGuidanceToForm(formatGuidance, form.game_mode)}
+                    >
+                      Empfehlung übernehmen
+                    </Button>
+                  </div>
+                  {Array.isArray(formatGuidance.notes) && formatGuidance.notes.length > 0 && (
+                    <ul className="text-[11px] text-zinc-300 space-y-1">
+                      {formatGuidance.notes.slice(0, 3).map((note, idx) => (
+                        <li key={idx}>• {note}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {Array.isArray(formatGuidance.source_urls) && formatGuidance.source_urls.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {formatGuidance.source_urls.slice(0, 3).map((src) => (
+                        <a key={src} href={src} target="_blank" rel="noopener noreferrer" className="text-[11px] text-cyan-300 hover:text-cyan-200 underline">
+                          Quelle
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {/* Sub-Game Selection */}
               {subGames.length > 0 && (
                 <div>
@@ -293,6 +391,56 @@ export default function CreateTournamentPage() {
                   {form.map_pool?.length > 0 && (
                     <p className="text-[11px] text-cyan-400 mt-2">{form.map_pool.length} Maps ausgewählt</p>
                   )}
+                  <div className="grid sm:grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Map-Bans aktiv</Label>
+                      <Select value={String(form.map_ban_enabled)} onValueChange={v => setForm({ ...form, map_ban_enabled: v === "true" })}>
+                        <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-950 border-white/10">
+                          <SelectItem value="true">Ja</SelectItem>
+                          <SelectItem value="false">Nein</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Map-Picks aktiv</Label>
+                      <Select value={String(form.map_vote_enabled)} onValueChange={v => setForm({ ...form, map_vote_enabled: v === "true" })}>
+                        <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-950 border-white/10">
+                          <SelectItem value="true">Ja</SelectItem>
+                          <SelectItem value="false">Nein</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Bans pro Team</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={form.map_ban_count}
+                        onChange={e => setForm({ ...form, map_ban_count: parseInt(e.target.value, 10) || 1 })}
+                        className="bg-zinc-900 border-white/10 text-white mt-1"
+                        disabled={!form.map_ban_enabled}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-zinc-400 text-sm">Veto-Reihenfolge</Label>
+                      <Select value={form.map_pick_order} onValueChange={v => setForm({ ...form, map_pick_order: v })}>
+                        <SelectTrigger className="bg-zinc-900 border-white/10 text-white mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-950 border-white/10">
+                          <SelectItem value="ban_ban_pick">ban_ban_pick</SelectItem>
+                          <SelectItem value="ban_pick_ban">ban_pick_ban</SelectItem>
+                          <SelectItem value="alternate">alternate</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -327,7 +475,21 @@ export default function CreateTournamentPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-zinc-400 text-sm">Bracket-Typ</Label>
+                  <Label className="text-zinc-400 text-sm flex items-center gap-1">
+                    Bracket-Typ
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="text-zinc-500 hover:text-zinc-300">
+                            <CircleHelp className="w-3 h-3" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {bracketTypes.find(x => x.value === form.bracket_type)?.hint || "Turnierstruktur auswählen"}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
                   <Select value={form.bracket_type} onValueChange={v => setForm({ ...form, bracket_type: v })}>
                     <SelectTrigger data-testid="bracket-type-select" className="bg-zinc-900 border-white/10 text-white mt-1">
                       <SelectValue />
@@ -338,6 +500,27 @@ export default function CreateTournamentPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-[11px] text-zinc-500 mt-1">
+                    {bracketTypes.find(x => x.value === form.bracket_type)?.hint || ""}
+                  </p>
+                  {Array.isArray(formatGuidance?.recommended_bracket_types) && formatGuidance.recommended_bracket_types.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {formatGuidance.recommended_bracket_types.map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setForm(prev => ({ ...prev, bracket_type: type }))}
+                          className={`px-2 py-1 rounded text-[10px] border transition-all ${
+                            form.bracket_type === type
+                              ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
+                              : "border-cyan-500/20 text-cyan-300 hover:border-cyan-500/40"
+                          }`}
+                        >
+                          {(bracketTypes.find(x => x.value === type)?.label) || type}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {(form.bracket_type === "group_stage" || form.bracket_type === "group_playoffs") && (
                   <div>

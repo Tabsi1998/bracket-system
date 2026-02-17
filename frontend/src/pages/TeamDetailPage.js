@@ -15,12 +15,12 @@ const SocialIcon = ({ type, url }) => {
   if (!url) return null;
   
   const iconMap = {
-    discord: { icon: "fab fa-discord", color: "text-[#5865F2]", label: "Discord" },
-    twitter: { icon: "fab fa-twitter", color: "text-[#1DA1F2]", label: "Twitter" },
-    instagram: { icon: "fab fa-instagram", color: "text-[#E4405F]", label: "Instagram" },
-    twitch: { icon: "fab fa-twitch", color: "text-[#9146FF]", label: "Twitch" },
-    youtube: { icon: "fab fa-youtube", color: "text-[#FF0000]", label: "YouTube" },
-    website: { icon: "fas fa-globe", color: "text-zinc-400", label: "Website" },
+    discord: { icon: "fab fa-discord", color: "text-[#5865F2]", hoverBorderClass: "hover:border-[#5865F2]/50", label: "Discord" },
+    twitter: { icon: "fab fa-twitter", color: "text-[#1DA1F2]", hoverBorderClass: "hover:border-[#1DA1F2]/50", label: "Twitter" },
+    instagram: { icon: "fab fa-instagram", color: "text-[#E4405F]", hoverBorderClass: "hover:border-[#E4405F]/50", label: "Instagram" },
+    twitch: { icon: "fab fa-twitch", color: "text-[#9146FF]", hoverBorderClass: "hover:border-[#9146FF]/50", label: "Twitch" },
+    youtube: { icon: "fab fa-youtube", color: "text-[#FF0000]", hoverBorderClass: "hover:border-[#FF0000]/50", label: "YouTube" },
+    website: { icon: "fas fa-globe", color: "text-zinc-400", hoverBorderClass: "hover:border-zinc-400/50", label: "Website" },
   };
   
   const config = iconMap[type] || iconMap.website;
@@ -30,7 +30,7 @@ const SocialIcon = ({ type, url }) => {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className={`w-10 h-10 rounded-lg bg-zinc-900 border border-white/5 flex items-center justify-center hover:border-${config.color.replace('text-', '')}/50 transition-all group`}
+      className={`w-10 h-10 rounded-lg bg-zinc-900 border border-white/5 flex items-center justify-center transition-all group ${config.hoverBorderClass}`}
       title={config.label}
     >
       <i className={`${config.icon} text-lg ${config.color} group-hover:scale-110 transition-transform`}></i>
@@ -51,10 +51,21 @@ export default function TeamDetailPage() {
       const res = await axios.get(`${API}/teams/${id}`);
       setTeam(res.data);
       
-      // Fetch sub-teams if this is a main team
+      // Fetch sub-teams only for users who are allowed to view them.
       if (!res.data.parent_team_id) {
-        const subRes = await axios.get(`${API}/teams/${id}/sub-teams`);
-        setSubTeams(Array.isArray(subRes.data) ? subRes.data : []);
+        const canViewSubTeams = Boolean(
+          user && (isAdmin || res.data.owner_id === user.id || (res.data.member_ids || []).includes(user.id))
+        );
+        if (canViewSubTeams) {
+          try {
+            const subRes = await axios.get(`${API}/teams/${id}/sub-teams`);
+            setSubTeams(Array.isArray(subRes.data) ? subRes.data : []);
+          } catch {
+            setSubTeams([]);
+          }
+        } else {
+          setSubTeams([]);
+        }
       }
       
       // Fetch tournaments this team participated in
@@ -65,7 +76,7 @@ export default function TeamDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, isAdmin, user]);
 
   useEffect(() => {
     fetchTeam();
@@ -73,7 +84,7 @@ export default function TeamDetailPage() {
 
   const isOwner = user && team?.owner_id === user.id;
   const isLeader = user && (team?.leader_ids || []).includes(user.id);
-  const isMember = user && (team?.members || []).some(m => m.user_id === user.id);
+  const isMember = user && (team?.members || []).some(m => (m.id || m.user_id) === user.id);
   const canEdit = isAdmin || isOwner;
 
   if (loading) {
@@ -146,9 +157,9 @@ export default function TeamDetailPage() {
           {/* Actions */}
           <div className="flex gap-2">
             {canEdit && (
-              <Link to={`/teams/${id}/edit`}>
+              <Link to="/teams">
                 <Button variant="outline" className="border-white/10 text-white">
-                  Bearbeiten
+                  Im Team-Manager bearbeiten
                 </Button>
               </Link>
             )}
@@ -248,7 +259,7 @@ export default function TeamDetailPage() {
             </div>
             <div className="divide-y divide-white/5">
               {(team.members || []).map((member) => (
-                <div key={member.user_id} className="p-4 flex items-center gap-4 hover:bg-white/[0.02] transition-colors">
+                <div key={member.id || member.user_id || member.username} className="p-4 flex items-center gap-4 hover:bg-white/[0.02] transition-colors">
                   <img
                     src={member.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.username}`}
                     alt={member.username}
@@ -257,12 +268,12 @@ export default function TeamDetailPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-white font-medium">{member.username}</span>
-                      {member.user_id === team.owner_id && (
+                      {(member.id || member.user_id) === team.owner_id && (
                         <Badge className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 text-xs">
                           <Crown className="w-3 h-3 mr-1" /> Owner
                         </Badge>
                       )}
-                      {(team.leader_ids || []).includes(member.user_id) && member.user_id !== team.owner_id && (
+                      {(team.leader_ids || []).includes(member.id || member.user_id) && (member.id || member.user_id) !== team.owner_id && (
                         <Badge className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-xs">
                           Leader
                         </Badge>
@@ -272,7 +283,7 @@ export default function TeamDetailPage() {
                       Beigetreten: {member.joined_at ? new Date(member.joined_at).toLocaleDateString("de-DE") : "-"}
                     </p>
                   </div>
-                  <Link to={`/profile/${member.user_id}`}>
+                  <Link to={`/profile/${member.id || member.user_id}`}>
                     <Button variant="ghost" size="sm" className="text-zinc-500 hover:text-white">
                       <User className="w-4 h-4" />
                     </Button>
@@ -297,9 +308,9 @@ export default function TeamDetailPage() {
                   Sub-Teams ({subTeams.length})
                 </h2>
                 {canEdit && (
-                  <Link to={`/teams/${id}/create-sub`}>
+                  <Link to="/teams">
                     <Button size="sm" className="bg-yellow-500 text-black hover:bg-yellow-400">
-                      Sub-Team erstellen
+                      Sub-Team im Team-Manager erstellen
                     </Button>
                   </Link>
                 )}

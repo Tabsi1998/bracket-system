@@ -89,7 +89,6 @@ export default function Navbar() {
 
           {/* Mobile toggle */}
           <div className="flex items-center gap-2 md:hidden">
-            {user && <NotificationBell />}
             <button data-testid="mobile-menu-toggle" className="text-zinc-400 hover:text-white" onClick={() => setMobileOpen(!mobileOpen)}>
               {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>

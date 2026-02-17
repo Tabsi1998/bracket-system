@@ -205,13 +205,18 @@ class TournamentUpdate(BaseModel):
     status: Optional[str] = None
     bracket_type: Optional[str] = None
     participant_mode: Optional[str] = None
+    game_mode: Optional[str] = None
+    sub_game_id: Optional[str] = None
+    sub_game_name: Optional[str] = None
     team_size: Optional[int] = None
     max_participants: Optional[int] = None
     require_admin_score_approval: Optional[bool] = None
+    best_of: Optional[int] = None
     description: Optional[str] = None
     rules: Optional[str] = None
     start_date: Optional[str] = None
     checkin_start: Optional[str] = None
+    default_match_time: Optional[str] = None
     group_size: Optional[int] = None
     advance_per_group: Optional[int] = None
     swiss_rounds: Optional[int] = None
@@ -226,6 +231,11 @@ class TournamentUpdate(BaseModel):
     points_draw: Optional[int] = None
     points_loss: Optional[int] = None
     tiebreakers: Optional[List[str]] = None
+    map_pool: Optional[List[str]] = None
+    map_ban_enabled: Optional[bool] = None
+    map_ban_count: Optional[int] = None
+    map_vote_enabled: Optional[bool] = None
+    map_pick_order: Optional[str] = None
 
 class RegistrationCreate(BaseModel):
     team_name: str = ""
@@ -537,6 +547,375 @@ GAME_SETTINGS_TEMPLATE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "items": "standard",
         "cpu": "none",
     },
+    "rocket league": {
+        "arena_rotation": [],
+        "overtime": True,
+        "bo_default": 5,
+    },
+    "counter-strike 2": {
+        "maps": [],
+        "map_order": "veto",
+        "mr": 12,
+        "overtime_mr": 3,
+    },
+    "valorant": {
+        "maps": [],
+        "map_order": "veto",
+        "agent_pause_rules": "",
+        "overtime_rules": "",
+    },
+    "league of legends": {
+        "server": "EUW",
+        "patch": "",
+        "side_choice": "coin_toss",
+        "chronobreak_policy": "",
+    },
+    "dota 2": {
+        "server": "EU West",
+        "patch": "",
+        "side_choice": "coin_toss",
+        "pause_policy": "",
+    },
+    "super smash bros": {
+        "stage_rules": "Starter/Counterpick",
+        "character_rules": "Blind pick game 1",
+        "bo_default": 3,
+    },
+    "fortnite": {
+        "lobby_settings": "Custom Lobby",
+        "scoring_rules": "Placement + Eliminations",
+        "admin_review_required": True,
+    },
+    "apex legends": {
+        "lobby_settings": "Private Match",
+        "scoring_rules": "Placement + Kills / Match Point Finals",
+        "admin_review_required": True,
+    },
+    "overwatch 2": {
+        "maps": [],
+        "map_order": "control-hybrid-escort-push",
+        "pause_policy": "",
+        "bo_default": 5,
+    },
+    "street fighter 6": {
+        "stage_rules": "Tournament legal stages only",
+        "character_rules": "Standard blind pick / character change loser options",
+        "bo_default": 3,
+        "controller_policy": "Own controller + desync check",
+    },
+    "tekken 8": {
+        "stage_rules": "Tournament legal stages only",
+        "character_rules": "Blind pick game 1, loser may switch",
+        "bo_default": 3,
+        "pause_policy": "Immediate TO call on pause/disconnect",
+    },
+}
+
+BRACKET_TYPE_HELP_TEXT: Dict[str, str] = {
+    "single_elimination": "KO-System: eine Niederlage bedeutet Ausscheiden.",
+    "double_elimination": "Upper/Lower-Bracket: erst nach zwei Niederlagen ausgeschieden.",
+    "round_robin": "Jeder spielt gegen jeden, Rangliste nach Punkten.",
+    "group_stage": "Nur Gruppenphase ohne Playoff-Baum.",
+    "group_playoffs": "Gruppenphase, danach KO-Playoffs.",
+    "swiss_system": "Paarungen gegen Gegner mit ähnlicher Bilanz pro Runde.",
+    "ladder_system": "Dynamische Rangliste mit fortlaufenden Herausforderungen.",
+    "king_of_the_hill": "Titelverteidiger bleibt oben, Herausforderer rücken nach.",
+    "battle_royale": "Heats/Lobbys mit Placement-Punkten und Admin-Freigabe.",
+    "league": "Saison mit Spieltagen, Zeitfenstern und Tabelle.",
+}
+
+CATEGORY_TOURNAMENT_GUIDANCE: Dict[str, Dict[str, Any]] = {
+    "fps": {
+        "default_bracket_type": "double_elimination",
+        "recommended_bracket_types": ["double_elimination", "swiss_system", "group_playoffs", "single_elimination"],
+        "default_best_of": 3,
+        "default_participant_mode": "team",
+        "notes": [
+            "FPS-Events nutzen oft Bo3 in Playoffs und Map-Veto pro Match.",
+            "Für große Open-Events passt Swiss + Playoffs, für kleinere Ligen Round Robin/League.",
+        ],
+        "source_urls": [],
+    },
+    "sports": {
+        "default_bracket_type": "group_playoffs",
+        "recommended_bracket_types": ["group_playoffs", "league", "round_robin", "single_elimination"],
+        "default_best_of": 1,
+        "default_participant_mode": "solo",
+        "notes": [
+            "Sports-Titel werden häufig in Gruppen/League-Phasen mit anschließenden Playoffs gespielt.",
+        ],
+        "source_urls": [],
+    },
+    "fighting": {
+        "default_bracket_type": "double_elimination",
+        "recommended_bracket_types": ["double_elimination", "single_elimination", "group_playoffs"],
+        "default_best_of": 3,
+        "default_participant_mode": "solo",
+        "notes": [
+            "Fighting Games setzen meist auf Double Elimination und Bo3/Bo5 in Finalphasen.",
+        ],
+        "source_urls": [],
+    },
+    "racing": {
+        "default_bracket_type": "league",
+        "recommended_bracket_types": ["league", "round_robin", "group_stage"],
+        "default_best_of": 1,
+        "default_participant_mode": "solo",
+        "notes": [
+            "Racing-Events werden häufig über mehrere Rennen und Punktewertung entschieden.",
+        ],
+        "source_urls": [],
+    },
+    "moba": {
+        "default_bracket_type": "group_playoffs",
+        "recommended_bracket_types": ["group_playoffs", "swiss_system", "double_elimination"],
+        "default_best_of": 3,
+        "default_participant_mode": "team",
+        "notes": [
+            "MOBA-Majors kombinieren oft Gruppen/Swiss mit Playoffs.",
+        ],
+        "source_urls": [],
+    },
+    "strategy": {
+        "default_bracket_type": "group_playoffs",
+        "recommended_bracket_types": ["group_playoffs", "double_elimination", "swiss_system"],
+        "default_best_of": 3,
+        "default_participant_mode": "team",
+        "notes": [],
+        "source_urls": [],
+    },
+    "battle_royale": {
+        "default_bracket_type": "battle_royale",
+        "recommended_bracket_types": ["battle_royale", "group_stage"],
+        "default_best_of": 1,
+        "default_participant_mode": "solo",
+        "notes": [
+            "Battle-Royale-Wettbewerbe nutzen Heats und Placement-Punkte; Score-Review durch Admin ist empfohlen.",
+        ],
+        "source_urls": [],
+    },
+    "other": {
+        "default_bracket_type": "single_elimination",
+        "recommended_bracket_types": ["single_elimination", "double_elimination", "round_robin"],
+        "default_best_of": 1,
+        "default_participant_mode": "team",
+        "notes": [],
+        "source_urls": [],
+    },
+}
+
+GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
+    "call of duty": {
+        "default_bracket_type": "league",
+        "recommended_bracket_types": ["league", "group_playoffs", "double_elimination", "single_elimination"],
+        "default_best_of": 3,
+        "default_participant_mode": "team",
+        "map_ban_enabled": True,
+        "map_vote_enabled": True,
+        "map_ban_count": 2,
+        "map_pick_order": "ban_ban_pick",
+        "notes": [
+            "Für 4v4 S&D sind Spieltage (Liga) mit Bo3 und Map-Veto besonders gut nutzbar.",
+            "Für Wochenend-Cups sind Group + Playoffs oder Double-Elimination oft einfacher.",
+        ],
+        "source_urls": [
+            "https://www.callofduty.com/mobile/esports/rules",
+        ],
+        "mode_overrides": {
+            "1v1": {"default_participant_mode": "solo", "default_best_of": 5, "default_bracket_type": "double_elimination"},
+            "2v2": {"default_participant_mode": "team", "default_best_of": 3, "default_bracket_type": "group_playoffs"},
+            "s&d": {"default_best_of": 3, "default_bracket_type": "league"},
+            "hardpoint": {"default_best_of": 5, "default_bracket_type": "double_elimination"},
+            "control": {"default_best_of": 5, "default_bracket_type": "double_elimination"},
+        },
+    },
+    "ea fc (fifa)": {
+        "default_bracket_type": "group_playoffs",
+        "recommended_bracket_types": ["group_playoffs", "league", "round_robin"],
+        "default_best_of": 1,
+        "default_participant_mode": "solo",
+        "notes": [
+            "EA FC nutzt häufig Gruppenphase und KO-Playoffs.",
+        ],
+        "source_urls": [
+            "https://www.ea.com/games/ea-sports-fc/fc-pro/news/fc-pro-2025-need-to-know",
+        ],
+        "mode_overrides": {
+            "2v2": {"default_participant_mode": "team", "default_bracket_type": "group_playoffs"},
+        },
+    },
+    "rocket league": {
+        "default_bracket_type": "swiss_system",
+        "recommended_bracket_types": ["swiss_system", "double_elimination", "group_playoffs"],
+        "default_best_of": 5,
+        "default_participant_mode": "team",
+        "notes": [
+            "RLCS nutzt Swiss-Stages und Bo-Serien in Playoffs.",
+        ],
+        "source_urls": [
+            "https://liquipedia.net/rocketleague/Rocket_League_Championship_Series",
+        ],
+        "mode_overrides": {
+            "1v1": {"default_participant_mode": "solo", "default_best_of": 5, "default_bracket_type": "double_elimination"},
+            "2v2": {"default_participant_mode": "team", "default_best_of": 5, "default_bracket_type": "group_playoffs"},
+            "3v3": {"default_participant_mode": "team", "default_best_of": 7, "default_bracket_type": "swiss_system"},
+        },
+    },
+    "counter-strike 2": {
+        "default_bracket_type": "swiss_system",
+        "recommended_bracket_types": ["swiss_system", "double_elimination", "single_elimination"],
+        "default_best_of": 3,
+        "default_participant_mode": "team",
+        "map_ban_enabled": True,
+        "map_vote_enabled": True,
+        "map_ban_count": 2,
+        "map_pick_order": "ban_pick_ban",
+        "notes": [
+            "CS2-Majors arbeiten mit Swiss-Phasen plus Arena-Playoffs.",
+        ],
+        "source_urls": [
+            "https://blast.tv/cs/news/esl-reveals-pro-tour-2025",
+            "https://liquipedia.net/counterstrike/BLAST/Major/2025/Austin",
+        ],
+    },
+    "valorant": {
+        "default_bracket_type": "group_playoffs",
+        "recommended_bracket_types": ["group_playoffs", "double_elimination", "swiss_system"],
+        "default_best_of": 3,
+        "default_participant_mode": "team",
+        "map_ban_enabled": True,
+        "map_vote_enabled": True,
+        "map_ban_count": 2,
+        "map_pick_order": "ban_pick_ban",
+        "notes": [
+            "VCT kombiniert Stage-Play mit Playoffs, häufig Bo3/Bo5.",
+        ],
+        "source_urls": [
+            "https://valorantesports.com/en-US/season/115571062868511862/handbook",
+        ],
+    },
+    "league of legends": {
+        "default_bracket_type": "swiss_system",
+        "recommended_bracket_types": ["swiss_system", "group_playoffs", "double_elimination"],
+        "default_best_of": 3,
+        "default_participant_mode": "team",
+        "notes": [
+            "Worlds nutzt Swiss Stage und Bo5 Knockout-Phase.",
+        ],
+        "source_urls": [
+            "https://www.leagueoflegends.com/en-us/news/esports/worlds-2025-primer/",
+        ],
+    },
+    "dota 2": {
+        "default_bracket_type": "group_playoffs",
+        "recommended_bracket_types": ["group_playoffs", "double_elimination", "swiss_system"],
+        "default_best_of": 3,
+        "default_participant_mode": "team",
+        "notes": [
+            "Dota-Majors/TI setzen traditionell auf Gruppenphase + Upper/Lower-Bracket.",
+        ],
+        "source_urls": [
+            "https://pro.eslgaming.com/tour/zh/2025/07/esl-pro-tour-ecosystem-update/",
+        ],
+    },
+    "mario kart": {
+        "default_bracket_type": "league",
+        "recommended_bracket_types": ["league", "round_robin", "group_stage"],
+        "default_best_of": 1,
+        "default_participant_mode": "solo",
+        "notes": [
+            "Mario-Kart-Wettbewerbe laufen meist über mehrere Rennen und Punktwertung.",
+        ],
+        "source_urls": [
+            "https://www.nintendo.com/us/whatsnew/mario-kart-8-deluxe-world-championship-2024/",
+        ],
+        "mode_overrides": {
+            "2v2": {"default_participant_mode": "team", "default_bracket_type": "league"},
+        },
+    },
+    "super smash bros": {
+        "default_bracket_type": "double_elimination",
+        "recommended_bracket_types": ["double_elimination", "single_elimination", "group_playoffs"],
+        "default_best_of": 3,
+        "default_participant_mode": "solo",
+        "notes": [
+            "Smash-Events werden typischerweise im Double-Elimination-Bracket gespielt.",
+        ],
+        "source_urls": [
+            "https://www.nintendo.com/us/whatsnew/nintendo-vs-championships-2024/",
+            "https://www.start.gg/tournament/smash-ultimate-double-elimination-1/event/double-elimination/overview/rules",
+        ],
+        "mode_overrides": {
+            "2v2": {"default_participant_mode": "team", "default_bracket_type": "double_elimination"},
+        },
+    },
+    "fortnite": {
+        "default_bracket_type": "battle_royale",
+        "recommended_bracket_types": ["battle_royale", "group_stage"],
+        "default_best_of": 1,
+        "default_participant_mode": "solo",
+        "notes": [
+            "FNCS verwendet Qualifier, Heats und Finale mit Serienpunkten.",
+        ],
+        "source_urls": [
+            "https://liquipedia.net/fortnite/Fortnite_Champion_Series",
+        ],
+        "mode_overrides": {
+            "duo": {"default_participant_mode": "team"},
+            "squad": {"default_participant_mode": "team"},
+            "solo": {"default_participant_mode": "solo"},
+        },
+    },
+    "apex legends": {
+        "default_bracket_type": "battle_royale",
+        "recommended_bracket_types": ["battle_royale", "group_stage"],
+        "default_best_of": 1,
+        "default_participant_mode": "team",
+        "notes": [
+            "ALGS nutzt Gruppeneinteilung und Match-Point-Finals.",
+        ],
+        "source_urls": [
+            "https://algs.ea.com/en/season-overview",
+        ],
+    },
+    "overwatch 2": {
+        "default_bracket_type": "group_playoffs",
+        "recommended_bracket_types": ["group_playoffs", "double_elimination", "swiss_system"],
+        "default_best_of": 5,
+        "default_participant_mode": "team",
+        "notes": [
+            "OWCS-Events bauen auf Open Qualifiern und strukturierten Stage-Playoffs auf.",
+        ],
+        "source_urls": [
+            "https://esports.overwatch.com/news/owcs-2026-season-competitive-details",
+        ],
+    },
+    "street fighter 6": {
+        "default_bracket_type": "double_elimination",
+        "recommended_bracket_types": ["double_elimination", "group_playoffs", "single_elimination"],
+        "default_best_of": 3,
+        "default_participant_mode": "solo",
+        "notes": [
+            "Fighting-Events nutzen typischerweise Double-Elimination, mit längeren Finals (Bo5).",
+        ],
+        "source_urls": [
+            "https://liquipedia.net/fighters/Capcom_Pro_Tour/2025",
+            "https://liquipedia.net/fighters/Capcom_Cup/11",
+        ],
+    },
+    "tekken 8": {
+        "default_bracket_type": "double_elimination",
+        "recommended_bracket_types": ["double_elimination", "group_playoffs", "single_elimination"],
+        "default_best_of": 3,
+        "default_participant_mode": "solo",
+        "notes": [
+            "Tekken-Turniere laufen in der Praxis oft als Double-Elimination mit FT2/FT3-Serien.",
+        ],
+        "source_urls": [
+            "https://tekkenworldtour.com/tournament-overview",
+            "https://liquipedia.net/fighters/Tekken_World_Tour/2025",
+        ],
+    },
 }
 
 def now_iso() -> str:
@@ -547,6 +926,93 @@ def deep_clone_template(value: Dict[str, Any]) -> Dict[str, Any]:
         return json.loads(json.dumps(value or {}))
     except Exception:
         return {}
+
+def deep_merge_dict(base: Optional[Dict[str, Any]], override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    merged = deep_clone_template(base or {})
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_dict(merged.get(key) or {}, value)
+        else:
+            merged[key] = value
+    return merged
+
+def normalize_recommended_bracket_types(values: Any, fallback: Optional[List[str]] = None) -> List[str]:
+    out: List[str] = []
+    for item in values or []:
+        key = str(item or "").strip().lower()
+        if key in SUPPORTED_BRACKET_TYPES and key not in out:
+            out.append(key)
+    if out:
+        return out
+    out = []
+    for item in fallback or []:
+        key = str(item or "").strip().lower()
+        if key in SUPPORTED_BRACKET_TYPES and key not in out:
+            out.append(key)
+    return out or ["single_elimination"]
+
+def normalize_default_bracket(value: Any, fallback: str = "single_elimination") -> str:
+    key = str(value or "").strip().lower()
+    if key in SUPPORTED_BRACKET_TYPES:
+        return key
+    return fallback if fallback in SUPPORTED_BRACKET_TYPES else "single_elimination"
+
+def build_game_format_guidance(game_doc: Dict[str, Any], mode_name: Optional[str] = None) -> Dict[str, Any]:
+    game_name = str((game_doc or {}).get("name", "") or "").strip()
+    category = str((game_doc or {}).get("category", "other") or "other").strip().lower()
+    category_key = category if category in CATEGORY_TOURNAMENT_GUIDANCE else "other"
+    game_key = game_name.lower()
+    selected_mode = str(mode_name or "").strip()
+    selected_mode_key = selected_mode.lower()
+
+    base = deep_clone_template(CATEGORY_TOURNAMENT_GUIDANCE.get(category_key, CATEGORY_TOURNAMENT_GUIDANCE["other"]))
+    override = deep_clone_template(GAME_TOURNAMENT_GUIDANCE_OVERRIDES.get(game_key, {}))
+    merged = deep_merge_dict(base, override)
+
+    mode_overrides = merged.pop("mode_overrides", {}) if isinstance(merged.get("mode_overrides"), dict) else {}
+    if selected_mode_key and isinstance(mode_overrides.get(selected_mode_key), dict):
+        merged = deep_merge_dict(merged, mode_overrides.get(selected_mode_key, {}))
+
+    default_bracket = normalize_default_bracket(
+        merged.get("default_bracket_type"),
+        fallback=str(base.get("default_bracket_type", "single_elimination")),
+    )
+    recommended = normalize_recommended_bracket_types(
+        merged.get("recommended_bracket_types"),
+        fallback=[default_bracket],
+    )
+    if default_bracket not in recommended:
+        recommended.insert(0, default_bracket)
+
+    participant_mode = str(merged.get("default_participant_mode", "team") or "team").strip().lower()
+    if participant_mode not in SUPPORTED_PARTICIPANT_MODES:
+        participant_mode = "team"
+
+    mode_names = [
+        str((mode or {}).get("name", "")).strip()
+        for mode in (game_doc or {}).get("modes", []) or []
+        if str((mode or {}).get("name", "")).strip()
+    ]
+    has_map_controls = bool(merged.get("map_ban_enabled") or merged.get("map_vote_enabled"))
+
+    return {
+        "game_id": str((game_doc or {}).get("id", "") or ""),
+        "game_name": game_name,
+        "category": category_key,
+        "mode": selected_mode,
+        "available_modes": mode_names,
+        "default_bracket_type": default_bracket,
+        "recommended_bracket_types": recommended,
+        "default_best_of": max(1, parse_int_or_default(merged.get("default_best_of"), 1)),
+        "default_participant_mode": participant_mode,
+        "map_ban_enabled": bool(merged.get("map_ban_enabled", has_map_controls)),
+        "map_vote_enabled": bool(merged.get("map_vote_enabled", has_map_controls)),
+        "map_ban_count": max(1, parse_int_or_default(merged.get("map_ban_count"), 2)),
+        "map_pick_order": str(merged.get("map_pick_order", "ban_ban_pick") or "ban_ban_pick").strip().lower(),
+        "notes": [str(x).strip() for x in (merged.get("notes") or []) if str(x).strip()],
+        "source_urls": [str(x).strip() for x in (merged.get("source_urls") or []) if str(x).strip()],
+        "bracket_help": BRACKET_TYPE_HELP_TEXT,
+    }
 
 def normalize_tiebreakers(values: Optional[List[str]]) -> List[str]:
     if not values:
@@ -2322,8 +2788,9 @@ async def list_games(category: Optional[str] = None):
     if category:
         query["category"] = category
     games = await db.games.find(query, {"_id": 0}).to_list(100)
-    for game in games:
+    for idx, game in enumerate(games):
         patched, changed = apply_mode_templates_to_game(game)
+        games[idx] = patched
         if changed:
             await db.games.update_one({"id": game.get("id")}, {"$set": {"modes": patched.get("modes", []), "updated_at": now_iso()}})
     return games
@@ -2352,6 +2819,16 @@ async def get_game(game_id: str):
     if changed:
         await db.games.update_one({"id": game_id}, {"$set": {"modes": game.get("modes", []), "updated_at": now_iso()}})
     return game
+
+@api_router.get("/games/{game_id}/format-guidance")
+async def get_game_format_guidance_endpoint(game_id: str, mode: Optional[str] = None):
+    game = await db.games.find_one({"id": game_id}, {"_id": 0})
+    if not game:
+        raise HTTPException(404, "Game not found")
+    game, changed = apply_mode_templates_to_game(game)
+    if changed:
+        await db.games.update_one({"id": game_id}, {"$set": {"modes": game.get("modes", []), "updated_at": now_iso()}})
+    return build_game_format_guidance(game, mode_name=mode)
 
 @api_router.put("/games/{game_id}")
 async def update_game(request: Request, game_id: str, body: GameCreate):
@@ -2466,6 +2943,16 @@ async def update_tournament(request: Request, tournament_id: str, body: Tourname
         update_data["team_size"] = max(1, int(update_data["team_size"] or 1))
     if "max_participants" in update_data:
         update_data["max_participants"] = max(2, int(update_data["max_participants"] or 2))
+    if "best_of" in update_data:
+        update_data["best_of"] = max(1, int(update_data["best_of"] or 1))
+    if "default_match_time" in update_data:
+        update_data["default_match_time"] = str(update_data.get("default_match_time") or "").strip()
+    if "game_mode" in update_data:
+        update_data["game_mode"] = str(update_data.get("game_mode") or "").strip()
+    if "sub_game_id" in update_data:
+        update_data["sub_game_id"] = str(update_data.get("sub_game_id") or "").strip()
+    if "sub_game_name" in update_data:
+        update_data["sub_game_name"] = str(update_data.get("sub_game_name") or "").strip()
     if "group_size" in update_data:
         update_data["group_size"] = max(2, int(update_data["group_size"] or 4))
     if "advance_per_group" in update_data:
@@ -2488,6 +2975,12 @@ async def update_tournament(request: Request, tournament_id: str, body: Tourname
         update_data["points_loss"] = max(0, int(update_data["points_loss"] or 0))
     if "tiebreakers" in update_data:
         update_data["tiebreakers"] = normalize_tiebreakers(update_data["tiebreakers"])
+    if "map_pool" in update_data:
+        update_data["map_pool"] = [str(x).strip() for x in (update_data.get("map_pool") or []) if str(x).strip()]
+    if "map_ban_count" in update_data:
+        update_data["map_ban_count"] = max(0, int(update_data["map_ban_count"] or 0))
+    if "map_pick_order" in update_data:
+        update_data["map_pick_order"] = str(update_data.get("map_pick_order") or "ban_ban_pick").strip().lower() or "ban_ban_pick"
 
     if update_data.get("participant_mode") == "solo":
         update_data["team_size"] = 1
@@ -4535,27 +5028,33 @@ async def get_map_veto_state(request: Request, match_id: str):
     if not veto_doc:
         # Initialize veto state from tournament settings
         map_pool = list(tournament.get("map_pool", []) or [])
+        sequence = build_action_sequence(tournament)
         veto_doc = {
             "tournament_id": tournament["id"],
             "match_id": match_id,
             "map_pool": map_pool,
             "banned_maps": [],
             "picked_maps": [],
-            "current_turn": "team1",  # team1 or team2
-            "current_action": "ban",  # ban or pick
-            "action_sequence": build_action_sequence(tournament),
+            "current_turn": sequence[0]["team"] if sequence else "",  # team1 or team2
+            "current_action": sequence[0]["action"] if sequence else "",  # ban or pick
+            "action_sequence": sequence,
             "action_index": 0,
-            "status": "pending",  # pending, in_progress, completed
+            "status": "pending" if sequence else "completed",  # pending, in_progress, completed
             "team1_id": match_doc.get("team1_id", ""),
             "team2_id": match_doc.get("team2_id", ""),
             "created_at": now_iso(),
         }
+        if not sequence:
+            veto_doc = finalize_map_veto(veto_doc, tournament)
     
-    # Add team names for display
-    team1 = await db.teams.find_one({"id": veto_doc.get("team1_id", "")}, {"_id": 0, "name": 1})
-    team2 = await db.teams.find_one({"id": veto_doc.get("team2_id", "")}, {"_id": 0, "name": 1})
-    veto_doc["team1_name"] = match_doc.get("team1_name") or (team1.get("name") if team1 else "Team 1")
-    veto_doc["team2_name"] = match_doc.get("team2_name") or (team2.get("name") if team2 else "Team 2")
+    # Add participant names for display (match stores registration IDs).
+    reg_ids = [str(veto_doc.get("team1_id", "")).strip(), str(veto_doc.get("team2_id", "")).strip()]
+    regs = await db.registrations.find({"id": {"$in": [rid for rid in reg_ids if rid]}}, {"_id": 0, "id": 1, "team_name": 1}).to_list(10)
+    reg_map = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
+    team1_reg = reg_map.get(str(veto_doc.get("team1_id", "")).strip())
+    team2_reg = reg_map.get(str(veto_doc.get("team2_id", "")).strip())
+    veto_doc["team1_name"] = match_doc.get("team1_name") or (team1_reg.get("team_name") if team1_reg else "Team 1")
+    veto_doc["team2_name"] = match_doc.get("team2_name") or (team2_reg.get("team_name") if team2_reg else "Team 2")
     
     # Get map details for name display
     game_id = tournament.get("game_id", "")
@@ -4579,12 +5078,27 @@ async def get_map_veto_state(request: Request, match_id: str):
 def build_action_sequence(tournament: Dict) -> List[Dict]:
     """Build the action sequence for map veto based on tournament settings."""
     pick_order = str(tournament.get("map_pick_order", "ban_ban_pick") or "ban_ban_pick").lower()
-    ban_count = max(1, int(tournament.get("map_ban_count", 2) or 2))
+    ban_enabled = bool(tournament.get("map_ban_enabled", True))
+    vote_enabled = bool(tournament.get("map_vote_enabled", True))
+    ban_count = max(0, int(tournament.get("map_ban_count", 2) or 2))
     best_of = max(1, int(tournament.get("best_of", 1) or 1))
-    
+    map_pool_size = len([m for m in (tournament.get("map_pool") or []) if str(m).strip()])
+
     sequence = []
-    
-    if pick_order == "ban_ban_pick":
+
+    if not ban_enabled and not vote_enabled:
+        return sequence
+
+    if ban_enabled:
+        max_total_bans = max(0, map_pool_size - best_of) if map_pool_size > 0 else ban_count * 2
+        max_bans_per_team = max_total_bans // 2
+        if max_bans_per_team <= 0:
+            ban_enabled = False
+            ban_count = 0
+        else:
+            ban_count = max(1, min(ban_count, max_bans_per_team))
+
+    if ban_enabled and vote_enabled and pick_order == "ban_ban_pick":
         # Team1 bans, Team2 bans, alternate picks
         for i in range(ban_count):
             sequence.append({"team": "team1", "action": "ban"})
@@ -4592,7 +5106,7 @@ def build_action_sequence(tournament: Dict) -> List[Dict]:
         for i in range(best_of):
             team = "team1" if i % 2 == 0 else "team2"
             sequence.append({"team": team, "action": "pick"})
-    elif pick_order == "ban_pick_ban":
+    elif ban_enabled and vote_enabled and pick_order == "ban_pick_ban":
         for _ in range(ban_count // 2):
             sequence.append({"team": "team1", "action": "ban"})
             sequence.append({"team": "team2", "action": "ban"})
@@ -4602,7 +5116,7 @@ def build_action_sequence(tournament: Dict) -> List[Dict]:
         for _ in range((ban_count + 1) // 2):
             sequence.append({"team": "team2", "action": "ban"})
             sequence.append({"team": "team1", "action": "ban"})
-    elif pick_order == "alternate":
+    elif ban_enabled and vote_enabled and pick_order == "alternate":
         # Simple alternating: ban-ban-ban-ban-pick-pick-pick
         current_team = "team1"
         for _ in range(ban_count * 2):
@@ -4611,13 +5125,40 @@ def build_action_sequence(tournament: Dict) -> List[Dict]:
         for i in range(best_of):
             sequence.append({"team": current_team, "action": "pick"})
             current_team = "team2" if current_team == "team1" else "team1"
-    else:
+    elif ban_enabled and vote_enabled:
         # Default: simple ban-ban-pick
         sequence.append({"team": "team1", "action": "ban"})
         sequence.append({"team": "team2", "action": "ban"})
         sequence.append({"team": "team1", "action": "pick"})
-    
+    elif ban_enabled and not vote_enabled:
+        # Ban-only flow: after bans, remaining maps are auto-selected.
+        current_team = "team1"
+        for _ in range(ban_count * 2):
+            sequence.append({"team": current_team, "action": "ban"})
+            current_team = "team2" if current_team == "team1" else "team1"
+    elif vote_enabled and not ban_enabled:
+        # Pick-only flow.
+        for i in range(best_of):
+            sequence.append({"team": "team1" if i % 2 == 0 else "team2", "action": "pick"})
+
     return sequence
+
+def finalize_map_veto(veto_doc: Dict[str, Any], tournament: Dict[str, Any]) -> Dict[str, Any]:
+    best_of = max(1, int(tournament.get("best_of", 1) or 1))
+    pool = [str(x).strip() for x in (veto_doc.get("map_pool") or []) if str(x).strip()]
+    banned = {str(x).strip() for x in (veto_doc.get("banned_maps") or []) if str(x).strip()}
+    picked = [str(x).strip() for x in (veto_doc.get("picked_maps") or []) if str(x).strip()]
+    picked_set = set(picked)
+    remaining = [m for m in pool if m not in banned and m not in picked_set]
+    need = max(0, best_of - len(picked))
+    if need > 0 and remaining:
+        picked.extend(remaining[:need])
+    veto_doc["picked_maps"] = picked
+    veto_doc["status"] = "completed"
+    veto_doc["completed_at"] = veto_doc.get("completed_at") or now_iso()
+    veto_doc["current_turn"] = ""
+    veto_doc["current_action"] = ""
+    return veto_doc
 
 @api_router.post("/matches/{match_id}/map-veto")
 async def submit_map_veto_action(request: Request, match_id: str, body: MapVetoSubmission):
@@ -4627,23 +5168,19 @@ async def submit_map_veto_action(request: Request, match_id: str, body: MapVetoS
     if not tournament or not match_doc:
         raise HTTPException(404, "Match nicht gefunden")
     
-    # Get user's team in this match
-    user_teams = await db.teams.find(
-        {"$or": [{"owner_id": user["id"]}, {"leader_ids": user["id"]}]},
-        {"_id": 0, "id": 1}
-    ).to_list(50)
-    user_team_ids = {t["id"] for t in user_teams}
-    
+    # Match slots store registration IDs. Resolve viewer side via registrations.
     team1_id = match_doc.get("team1_id", "")
     team2_id = match_doc.get("team2_id", "")
-    
-    user_team = None
-    if team1_id in user_team_ids:
-        user_team = "team1"
-    elif team2_id in user_team_ids:
-        user_team = "team2"
-    
-    if not user_team:
+    team_regs = await db.registrations.find(
+        {"id": {"$in": [team1_id, team2_id]}},
+        {"_id": 0},
+    ).to_list(10)
+    reg_by_id = {str(r.get("id", "")).strip(): r for r in team_regs if str(r.get("id", "")).strip()}
+    team1_reg = reg_by_id.get(str(team1_id).strip())
+    team2_reg = reg_by_id.get(str(team2_id).strip())
+    side = await resolve_user_match_side(user, team1_reg, team2_reg)
+    is_admin_override = side == "admin"
+    if side not in {"team1", "team2"} and not is_admin_override:
         raise HTTPException(403, "Du bist nicht Teil eines Teams in diesem Match")
     
     # Get or create veto document
@@ -4652,22 +5189,25 @@ async def submit_map_veto_action(request: Request, match_id: str, body: MapVetoS
     
     if not veto_doc:
         map_pool = list(tournament.get("map_pool", []) or [])
+        sequence = build_action_sequence(tournament)
         veto_doc = {
             "tournament_id": tournament["id"],
             "match_id": match_id,
             "map_pool": map_pool,
             "banned_maps": [],
             "picked_maps": [],
-            "current_turn": "team1",
-            "current_action": "ban",
-            "action_sequence": build_action_sequence(tournament),
+            "current_turn": sequence[0]["team"] if sequence else "",
+            "current_action": sequence[0]["action"] if sequence else "",
+            "action_sequence": sequence,
             "action_index": 0,
-            "status": "in_progress",
+            "status": "in_progress" if sequence else "completed",
             "team1_id": team1_id,
             "team2_id": team2_id,
             "history": [],
             "created_at": now_iso(),
         }
+        if not sequence:
+            veto_doc = finalize_map_veto(veto_doc, tournament)
     
     # Check if veto is already completed
     if veto_doc.get("status") == "completed":
@@ -4679,11 +5219,12 @@ async def submit_map_veto_action(request: Request, match_id: str, body: MapVetoS
     
     if action_index >= len(sequence):
         # Veto complete
-        veto_doc["status"] = "completed"
+        veto_doc = finalize_map_veto(veto_doc, tournament)
         await db.map_vetos.update_one(query, {"$set": veto_doc}, upsert=True)
         return veto_doc
     
     current_step = sequence[action_index]
+    user_team = current_step["team"] if is_admin_override else side
     if current_step["team"] != user_team:
         raise HTTPException(400, f"Es ist nicht dein Zug. {current_step['team']} ist dran.")
     
@@ -4720,7 +5261,7 @@ async def submit_map_veto_action(request: Request, match_id: str, body: MapVetoS
     # Move to next action
     veto_doc["action_index"] = action_index + 1
     if veto_doc["action_index"] >= len(sequence):
-        veto_doc["status"] = "completed"
+        veto_doc = finalize_map_veto(veto_doc, tournament)
         veto_doc["completed_at"] = now
     else:
         next_step = sequence[veto_doc["action_index"]]
@@ -6630,7 +7171,7 @@ async def send_scheduling_reminders(request: Request, tournament_id: str, hours_
     now = datetime.now(timezone.utc)
     reminder_threshold = timedelta(hours=hours_before_window_end)
     reminders_sent = 0
-    teams_notified = set()
+    users_notified = set()
     
     async def process_match_for_reminder(match: Dict, window_end: Optional[datetime]):
         nonlocal reminders_sent
@@ -6653,36 +7194,49 @@ async def send_scheduling_reminders(request: Request, tournament_id: str, hours_
         if not should_send:
             return
         
-        # Get team details and notify
-        for team_id in [match.get("team1_id"), match.get("team2_id")]:
-            if team_id and team_id not in teams_notified:
-                team = await db.teams.find_one({"id": team_id}, {"_id": 0, "name": 1, "owner_id": 1})
-                if team and team.get("owner_id"):
-                    owner = await db.users.find_one({"id": team["owner_id"]}, {"_id": 0, "email": 1, "username": 1})
-                    if owner and owner.get("email"):
-                        # Create notification
-                        notif = {
-                            "id": str(uuid.uuid4()),
-                            "user_id": team["owner_id"],
-                            "type": "scheduling_reminder",
-                            "title": "Termin-Erinnerung",
-                            "message": f"Das Match für Team '{team.get('name', 'Unbekannt')}' im Turnier '{tournament.get('name', '')}' hat noch keinen Termin. Bitte stimmt euch im Match-Hub ab!",
-                            "read": False,
-                            "created_at": now_iso(),
-                            "tournament_id": tournament_id,
-                            "match_id": match.get("id", ""),
-                        }
-                        await db.notifications.insert_one(notif)
-                        
-                        # Send email
-                        default_day = tournament.get("default_match_day", "Mittwoch")
-                        default_hour = tournament.get("default_match_hour", 19)
-                        day_map = {"monday": "Montag", "tuesday": "Dienstag", "wednesday": "Mittwoch", "thursday": "Donnerstag", "friday": "Freitag", "saturday": "Samstag", "sunday": "Sonntag"}
-                        day_display = day_map.get(str(default_day).lower(), default_day)
-                        
-                        email_body = f"""Hallo {owner.get('username', 'Team-Owner')},
+        reg_ids = [str(match.get("team1_id", "")).strip(), str(match.get("team2_id", "")).strip()]
+        reg_ids = [rid for rid in reg_ids if rid]
+        if not reg_ids:
+            return
+        regs = await db.registrations.find(
+            {"id": {"$in": reg_ids}},
+            {"_id": 0, "id": 1, "team_name": 1, "user_id": 1},
+        ).to_list(20)
+        reg_by_id = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
 
-dies ist eine freundliche Erinnerung: Das Match für Team "{team.get('name', 'Unbekannt')}" im Turnier "{tournament.get('name', '')}" hat noch keinen Termin!
+        for reg_id in reg_ids:
+            reg = reg_by_id.get(reg_id)
+            if not reg:
+                continue
+            user_id = str(reg.get("user_id", "")).strip()
+            if not user_id or user_id in users_notified:
+                continue
+            owner = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "username": 1})
+            if not owner or not owner.get("email"):
+                continue
+
+            participant_name = str(reg.get("team_name", "") or "Teilnehmer").strip() or "Teilnehmer"
+            notif = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "type": "scheduling_reminder",
+                "title": "Termin-Erinnerung",
+                "message": f"Das Match für '{participant_name}' im Turnier '{tournament.get('name', '')}' hat noch keinen Termin. Bitte stimmt euch im Match-Hub ab!",
+                "read": False,
+                "created_at": now_iso(),
+                "tournament_id": tournament_id,
+                "match_id": match.get("id", ""),
+            }
+            await db.notifications.insert_one(notif)
+
+            default_day = tournament.get("default_match_day", "Mittwoch")
+            default_hour = tournament.get("default_match_hour", 19)
+            day_map = {"monday": "Montag", "tuesday": "Dienstag", "wednesday": "Mittwoch", "thursday": "Donnerstag", "friday": "Freitag", "saturday": "Samstag", "sunday": "Sonntag"}
+            day_display = day_map.get(str(default_day).lower(), default_day)
+
+            email_body = f"""Hallo {owner.get('username', 'Teilnehmer')},
+
+dies ist eine freundliche Erinnerung: Das Match für "{participant_name}" im Turnier "{tournament.get('name', '')}" hat noch keinen Termin!
 
 Bitte einigt euch mit eurem Gegner im Match-Hub auf einen Termin.
 
@@ -6692,13 +7246,16 @@ Bitte einigt euch mit eurem Gegner im Match-Hub auf einen Termin.
 Mit sportlichen Grüßen,
 Das ARENA eSports Team
 """
-                        await send_email_notification(
-                            owner["email"],
-                            f"[{tournament.get('name', 'Turnier')}] Termin-Erinnerung für {team.get('name', 'dein Team')}",
-                            email_body
-                        )
-                        teams_notified.add(team_id)
-                        reminders_sent += 1
+            try:
+                await send_email_notification(
+                    owner["email"],
+                    f"[{tournament.get('name', 'Turnier')}] Termin-Erinnerung für {participant_name}",
+                    email_body
+                )
+            except Exception:
+                pass
+            users_notified.add(user_id)
+            reminders_sent += 1
     
     # Process all matches based on bracket type
     if bracket_type in ("league", "round_robin"):
@@ -6712,16 +7269,31 @@ Das ARENA eSports Team
                 window_end = parse_optional_datetime(str(round_doc.get("window_end", "") or ""))
                 for match in round_doc.get("matches", []):
                     await process_match_for_reminder(match, window_end)
-    elif bracket_type in ("single_elimination", "double_elimination", "swiss_system"):
+        if bracket_type == "group_playoffs":
+            for round_doc in (bracket.get("playoffs") or {}).get("rounds", []):
+                for match in round_doc.get("matches", []):
+                    await process_match_for_reminder(match, None)
+    elif bracket_type in ("single_elimination", "swiss_system", "ladder_system", "king_of_the_hill"):
         for round_doc in bracket.get("rounds", []):
             for match in round_doc.get("matches", []):
                 await process_match_for_reminder(match, None)
+    elif bracket_type == "double_elimination":
+        for round_doc in (bracket.get("winners_bracket") or {}).get("rounds", []):
+            for match in round_doc.get("matches", []):
+                await process_match_for_reminder(match, None)
+        for round_doc in (bracket.get("losers_bracket") or {}).get("rounds", []):
+            for match in round_doc.get("matches", []):
+                await process_match_for_reminder(match, None)
+        grand_final = bracket.get("grand_final")
+        if isinstance(grand_final, dict):
+            await process_match_for_reminder(grand_final, None)
     
     return {
         "status": "ok",
         "reminders_sent": reminders_sent,
-        "teams_notified": len(teams_notified),
-        "message": f"{reminders_sent} Erinnerungen an {len(teams_notified)} Teams gesendet"
+        "users_notified": len(users_notified),
+        "teams_notified": len(users_notified),
+        "message": f"{reminders_sent} Erinnerungen an {len(users_notified)} Benutzer gesendet"
     }
 
 # --- SMTP Test Endpoint ---
@@ -7386,7 +7958,7 @@ async def startup():
             log_info("cron.reminders.start", "Running daily reminder job")
             try:
                 active_tournaments = await db.tournaments.find(
-                    {"status": "in_progress", "bracket": {"$ne": None}},
+                    {"status": {"$in": ["live", "in_progress"]}, "bracket": {"$ne": None}},
                     {"_id": 0, "id": 1, "name": 1}
                 ).to_list(100)
                 
@@ -7404,52 +7976,82 @@ async def startup():
                             continue
                         
                         # Find unscheduled matches and send reminders
-                        matches_to_check = []
-                        bracket_type = bracket_data.get("type", "")
-                        if bracket_type == "league":
-                            for md in bracket_data.get("matchdays", []):
-                                matches_to_check.extend(md.get("matches", []))
-                        else:
+                        matches_to_check: List[Dict[str, Any]] = []
+                        bracket_type = str(bracket_data.get("type", "") or "")
+                        if bracket_type in {"league", "round_robin", "single_elimination", "swiss_system", "ladder_system", "king_of_the_hill"}:
                             for rnd in bracket_data.get("rounds", []):
                                 matches_to_check.extend(rnd.get("matches", []))
-                        
-                        teams_notified = set()
+                        elif bracket_type == "group_stage":
+                            for group in bracket_data.get("groups", []):
+                                for rnd in group.get("rounds", []):
+                                    matches_to_check.extend(rnd.get("matches", []))
+                        elif bracket_type == "group_playoffs":
+                            for group in bracket_data.get("groups", []):
+                                for rnd in group.get("rounds", []):
+                                    matches_to_check.extend(rnd.get("matches", []))
+                            for rnd in (bracket_data.get("playoffs") or {}).get("rounds", []):
+                                matches_to_check.extend(rnd.get("matches", []))
+                        elif bracket_type == "double_elimination":
+                            for rnd in (bracket_data.get("winners_bracket") or {}).get("rounds", []):
+                                matches_to_check.extend(rnd.get("matches", []))
+                            for rnd in (bracket_data.get("losers_bracket") or {}).get("rounds", []):
+                                matches_to_check.extend(rnd.get("matches", []))
+                            if isinstance(bracket_data.get("grand_final"), dict):
+                                matches_to_check.append(bracket_data["grand_final"])
+
+                        users_notified = set()
                         for match in matches_to_check:
                             if match.get("scheduled_for") or match.get("status") == "completed":
                                 continue
                             if not match.get("team1_id") or not match.get("team2_id"):
                                 continue
                             
-                            for team_id in [match.get("team1_id"), match.get("team2_id")]:
-                                if team_id and team_id not in teams_notified:
-                                    team = await db.teams.find_one({"id": team_id}, {"_id": 0, "name": 1, "owner_id": 1})
-                                    if team and team.get("owner_id"):
-                                        owner = await db.users.find_one({"id": team["owner_id"]}, {"_id": 0, "email": 1, "username": 1})
-                                        if owner and owner.get("email"):
-                                            notif = {
-                                                "id": str(uuid.uuid4()),
-                                                "user_id": team["owner_id"],
-                                                "type": "scheduling_reminder",
-                                                "title": "Termin-Erinnerung",
-                                                "message": f"Match für '{team.get('name', '')}' in '{tournament.get('name', '')}' hat noch keinen Termin!",
-                                                "read": False,
-                                                "created_at": now_iso(),
-                                                "tournament_id": t["id"],
-                                                "match_id": match.get("id", ""),
-                                            }
-                                            await db.notifications.insert_one(notif)
-                                            teams_notified.add(team_id)
-                                            total_sent += 1
-                                            
-                                            # Try sending email (non-blocking)
-                                            try:
-                                                await send_email_notification_detailed(
-                                                    owner["email"],
-                                                    "Termin-Erinnerung - ARENA eSports",
-                                                    f"Hallo {owner.get('username', 'Team-Owner')},\n\nDein Team \"{team.get('name', '')}\" hat ein Match ohne Termin im Turnier \"{tournament.get('name', '')}\".\n\nBitte stimmt euch im Match-Hub ab!\n\nMit sportlichen Grüßen,\nDas ARENA Team"
-                                                )
-                                            except Exception:
-                                                pass  # Email failure shouldn't stop the job
+                            reg_ids = [str(match.get("team1_id", "")).strip(), str(match.get("team2_id", "")).strip()]
+                            reg_ids = [rid for rid in reg_ids if rid]
+                            if not reg_ids:
+                                continue
+                            regs = await db.registrations.find(
+                                {"id": {"$in": reg_ids}},
+                                {"_id": 0, "id": 1, "team_name": 1, "user_id": 1},
+                            ).to_list(10)
+                            reg_by_id = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
+
+                            for reg_id in reg_ids:
+                                reg = reg_by_id.get(reg_id)
+                                if not reg:
+                                    continue
+                                user_id = str(reg.get("user_id", "")).strip()
+                                if not user_id or user_id in users_notified:
+                                    continue
+                                owner = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "username": 1})
+                                if not owner:
+                                    continue
+                                participant_name = str(reg.get("team_name", "") or "Teilnehmer").strip() or "Teilnehmer"
+                                notif = {
+                                    "id": str(uuid.uuid4()),
+                                    "user_id": user_id,
+                                    "type": "scheduling_reminder",
+                                    "title": "Termin-Erinnerung",
+                                    "message": f"Match für '{participant_name}' in '{tournament.get('name', '')}' hat noch keinen Termin!",
+                                    "read": False,
+                                    "created_at": now_iso(),
+                                    "tournament_id": t["id"],
+                                    "match_id": match.get("id", ""),
+                                }
+                                await db.notifications.insert_one(notif)
+                                users_notified.add(user_id)
+                                total_sent += 1
+
+                                # Try sending email (non-blocking)
+                                try:
+                                    if owner.get("email"):
+                                        await send_email_notification_detailed(
+                                            owner["email"],
+                                            "Termin-Erinnerung - ARENA eSports",
+                                            f"Hallo {owner.get('username', 'Teilnehmer')},\n\n\"{participant_name}\" hat ein Match ohne Termin im Turnier \"{tournament.get('name', '')}\".\n\nBitte stimmt euch im Match-Hub ab!\n\nMit sportlichen Grüßen,\nDas ARENA Team"
+                                        )
+                                except Exception:
+                                    pass  # Email failure shouldn't stop the job
                     except Exception as ex:
                         log_warning("cron.reminders.tournament_error", f"Error processing tournament {t.get('id','')}", error=str(ex))
                 

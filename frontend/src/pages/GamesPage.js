@@ -365,7 +365,12 @@ function GameCard({ game, isAdmin, onRefresh }) {
       short_name: game.short_name || "",
       category: game.category || "other",
       image_url: game.image_url || "",
-      modes: (game.modes || []).map(m => ({ name: m.name, team_size: m.team_size || 1, description: m.description || "" })),
+      modes: (game.modes || []).map(m => ({
+        name: m.name,
+        team_size: m.team_size || 1,
+        description: m.description || "",
+        settings_template: (m && typeof m.settings_template === "object" && !Array.isArray(m.settings_template)) ? m.settings_template : {},
+      })),
       platforms: game.platforms || [],
     });
     setEditGameOpen(true);
@@ -380,7 +385,7 @@ function GameCard({ game, isAdmin, onRefresh }) {
           name: m.name.trim(),
           team_size: m.team_size || 1,
           description: m.description || "",
-          settings_template: {},
+          settings_template: (m && typeof m.settings_template === "object" && !Array.isArray(m.settings_template)) ? m.settings_template : {},
         })),
         sub_games: game.sub_games || [],
       };
@@ -666,7 +671,7 @@ function GameCard({ game, isAdmin, onRefresh }) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setEditForm({ ...editForm, modes: [...editForm.modes, { name: "", team_size: 1, description: "" }] })}
+                  onClick={() => setEditForm({ ...editForm, modes: [...editForm.modes, { name: "", team_size: 1, description: "", settings_template: {} }] })}
                   className="mt-2 text-yellow-500 text-xs"
                 >
                   + Modus hinzufügen
@@ -692,7 +697,7 @@ export default function GamesPage() {
   const [filterCat, setFilterCat] = useState("all");
   const [newGame, setNewGame] = useState({
     name: "", short_name: "", category: "fps", image_url: "",
-    modes: [{ name: "", team_size: 1, description: "" }],
+    modes: [{ name: "", team_size: 1, description: "", settings_template: {} }],
     platforms: [],
   });
 
@@ -705,14 +710,17 @@ export default function GamesPage() {
   const handleCreateGame = async () => {
     if (!newGame.name.trim()) { toast.error("Spielname erforderlich"); return; }
     const validModes = newGame.modes.filter(m => m.name.trim()).map(m => ({
-      name: m.name.trim(), team_size: m.team_size || 1, description: m.description || "", settings_template: {},
+      name: m.name.trim(),
+      team_size: m.team_size || 1,
+      description: m.description || "",
+      settings_template: (m && typeof m.settings_template === "object" && !Array.isArray(m.settings_template)) ? m.settings_template : {},
     }));
     if (validModes.length === 0) { toast.error("Mindestens ein Modus erforderlich"); return; }
     try {
       await axios.post(`${API}/games`, { ...newGame, modes: validModes, sub_games: [] });
       toast.success("Spiel erstellt!");
       setCreateOpen(false);
-      setNewGame({ name: "", short_name: "", category: "fps", image_url: "", modes: [{ name: "", team_size: 1, description: "" }], platforms: [] });
+      setNewGame({ name: "", short_name: "", category: "fps", image_url: "", modes: [{ name: "", team_size: 1, description: "", settings_template: {} }], platforms: [] });
       fetchGames();
     } catch (e) {
       toast.error("Fehler beim Erstellen");
@@ -873,7 +881,7 @@ export default function GamesPage() {
                     )}
                   </div>
                 ))}
-                <Button variant="ghost" size="sm" onClick={() => setNewGame({ ...newGame, modes: [...newGame.modes, { name: "", team_size: 1, description: "" }] })} className="mt-2 text-yellow-500 text-xs">
+                <Button variant="ghost" size="sm" onClick={() => setNewGame({ ...newGame, modes: [...newGame.modes, { name: "", team_size: 1, description: "", settings_template: {} }] })} className="mt-2 text-yellow-500 text-xs">
                   + Modus hinzufügen
                 </Button>
               </div>

@@ -463,6 +463,8 @@ def seed_demo_data(reset: bool = False) -> None:
             "participant_mode": "team",
             "game": game_league,  # Will be replaced with CoD
             "game_mode_override": "S&D",
+            "sub_game_id": "cod-bo6",
+            "sub_game_name": "Black Ops 6",
             "team_size": 4,
             "max_participants": 8,
             "start_days": -21,  # Started 3 weeks ago
@@ -475,6 +477,8 @@ def seed_demo_data(reset: bool = False) -> None:
             "map_pool": ["bo6-nuketown", "bo6-hacienda", "bo6-vault", "bo6-skyline", "bo6-red-card"],
             "map_ban_enabled": True,
             "map_ban_count": 2,
+            "map_vote_enabled": True,
+            "map_pick_order": "ban_ban_pick",
             "description": """# CoD BO6 4v4 S&D Liga - Season 1
 
 ## Übersicht
@@ -663,7 +667,9 @@ Willkommen zur ersten Season der ARENA 4v4 Search & Destroy Liga für Call of Du
             "name": spec["name"],
             "game_id": game.get("id"),
             "game_name": game.get("name", "Demo Game"),
-            "game_mode": mode_name,
+            "game_mode": str(spec.get("game_mode_override", mode_name) or mode_name),
+            "sub_game_id": str(spec.get("sub_game_id", "") or ""),
+            "sub_game_name": str(spec.get("sub_game_name", "") or ""),
             "participant_mode": spec.get("participant_mode", "team"),
             "team_size": team_size,
             "max_participants": int(spec.get("max_participants", 8)),
@@ -680,12 +686,17 @@ Willkommen zur ersten Season der ARENA 4v4 Search & Destroy Liga für Call of Du
             "points_loss": int(spec.get("points_loss", 0)),
             "tiebreakers": list(spec.get("tiebreakers", ["points", "score_diff", "score_for", "team_name"])),
             "require_admin_score_approval": bool(spec.get("require_admin_score_approval", spec["bracket_type"] == "battle_royale")),
-            "best_of": 1,
+            "best_of": int(spec.get("best_of", 1)),
+            "map_pool": list(spec.get("map_pool", [])),
+            "map_ban_enabled": bool(spec.get("map_ban_enabled", True)),
+            "map_ban_count": int(spec.get("map_ban_count", 2)),
+            "map_vote_enabled": bool(spec.get("map_vote_enabled", True)),
+            "map_pick_order": str(spec.get("map_pick_order", "ban_ban_pick")),
             "entry_fee": 0.0,
             "currency": "usd",
             "prize_pool": "$250",
-            "description": "Automatisch erzeugte Demo-Daten für die Systemvorschau. Dieses Turnier zeigt die wichtigsten Funktionen der Plattform.",
-            "rules": """# Turnier-Regeln
+            "description": spec.get("description", "Automatisch erzeugte Demo-Daten für die Systemvorschau. Dieses Turnier zeigt die wichtigsten Funktionen der Plattform."),
+            "rules": spec.get("rules", """# Turnier-Regeln
 
 ## Allgemein
 - Fair Play ist Pflicht
@@ -701,13 +712,13 @@ Willkommen zur ersten Season der ARENA 4v4 Search & Destroy Liga für Call of Du
 - Beide Teams melden das Ergebnis
 - Bei Übereinstimmung: automatische Bestätigung
 - Bei Unstimmigkeit: Admin entscheidet
-""",
+"""),
             "start_date": iso_from_now(spec["start_days"]),
             "checkin_start": iso_from_now(spec["checkin_days"]),
-            "default_match_time": "20:00",
-            "default_match_day": "wednesday",
-            "default_match_hour": 19,
-            "auto_schedule_on_window_end": True,
+            "default_match_time": str(spec.get("default_match_time", "20:00")),
+            "default_match_day": str(spec.get("default_match_day", "wednesday")),
+            "default_match_hour": int(spec.get("default_match_hour", 19)),
+            "auto_schedule_on_window_end": bool(spec.get("auto_schedule_on_window_end", True)),
             "status": spec["status"],
             "bracket": None,
             "is_demo": True,
@@ -1053,6 +1064,28 @@ Willkommen zur ersten Season der ARENA 4v4 Search & Destroy Liga für Call of Du
     )
     live_league_bracket = {"type": "league", "rounds": league_rounds, "total_rounds": len(league_rounds)}
 
+    cod_league_reg_keys = [
+        "cod_snd_alpha",
+        "cod_snd_nova",
+        "cod_snd_bravo",
+        "cod_snd_charlie",
+        "cod_snd_pulse",
+        "cod_snd_titan",
+        "cod_snd_vortex",
+        "cod_snd_orbit",
+    ]
+    try:
+        cod_league_start_dt = datetime.fromisoformat(str(tournaments["cod_snd_league"]["start_date"]))
+    except Exception:
+        cod_league_start_dt = now_utc() - timedelta(days=21)
+    cod_league_rounds = build_league_rounds(
+        cod_league_reg_keys,
+        start_dt=cod_league_start_dt,
+        interval_days=int(tournaments["cod_snd_league"].get("matchday_interval_days", 7)),
+        window_days=int(tournaments["cod_snd_league"].get("matchday_window_days", 5)),
+    )
+    cod_snd_league_bracket = {"type": "league", "rounds": cod_league_rounds, "total_rounds": len(cod_league_rounds)}
+
     groups_bracket = {
         "type": "group_stage",
         "group_size": 2,
@@ -1338,6 +1371,7 @@ Willkommen zur ersten Season der ARENA 4v4 Search & Destroy Liga für Call of Du
 
     db.tournaments.update_one({"id": tournaments["live_single"]["id"]}, {"$set": {"bracket": live_single_bracket, "status": "live", "updated_at": ts}})
     db.tournaments.update_one({"id": tournaments["completed_single"]["id"]}, {"$set": {"bracket": completed_single_bracket, "status": "completed", "updated_at": ts}})
+    db.tournaments.update_one({"id": tournaments["cod_snd_league"]["id"]}, {"$set": {"bracket": cod_snd_league_bracket, "status": "live", "updated_at": ts}})
     db.tournaments.update_one({"id": tournaments["live_league"]["id"]}, {"$set": {"bracket": live_league_bracket, "status": "live", "updated_at": ts}})
     db.tournaments.update_one({"id": tournaments["live_groups"]["id"]}, {"$set": {"bracket": groups_bracket, "status": "live", "updated_at": ts}})
     db.tournaments.update_one({"id": tournaments["live_group_playoffs"]["id"]}, {"$set": {"bracket": group_playoffs_bracket, "status": "live", "updated_at": ts}})
