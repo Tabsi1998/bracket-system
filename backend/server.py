@@ -1449,7 +1449,25 @@ SEED_GAMES = [
         "category": "fps",
         "image_url": "https://images.unsplash.com/photo-1552820728-8b83bb6b2b28?w=600",
         "modes": [
-            {"name": "5v5", "team_size": 5, "description": "5v5 Competitive"},
+            {"name": "5v5", "team_size": 5, "description": "5v5 Competitive", "map_ban_enabled": True, "map_vote_enabled": True, "best_of_options": [1, 3, 5]},
+        ],
+        "sub_games": [
+            {
+                "id": "cs2-premier",
+                "name": "Premier",
+                "short_name": "Premier",
+                "release_year": 2023,
+                "active": True,
+                "maps": [
+                    {"id": "cs2-mirage", "name": "Mirage", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "cs2-inferno", "name": "Inferno", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "cs2-dust2", "name": "Dust 2", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "cs2-nuke", "name": "Nuke", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "cs2-ancient", "name": "Ancient", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "cs2-anubis", "name": "Anubis", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "cs2-vertigo", "name": "Vertigo", "image_url": "", "game_modes": ["5v5"]},
+                ]
+            }
         ],
         "platforms": ["PC"],
     },
@@ -1459,7 +1477,27 @@ SEED_GAMES = [
         "category": "fps",
         "image_url": "https://images.unsplash.com/photo-1558008258-ec20a83db196?w=600",
         "modes": [
-            {"name": "5v5", "team_size": 5, "description": "5v5 Competitive"},
+            {"name": "5v5", "team_size": 5, "description": "5v5 Competitive", "map_ban_enabled": True, "map_vote_enabled": True, "best_of_options": [1, 3, 5]},
+        ],
+        "sub_games": [
+            {
+                "id": "val-ranked",
+                "name": "Ranked Competitive",
+                "short_name": "Ranked",
+                "release_year": 2020,
+                "active": True,
+                "maps": [
+                    {"id": "val-ascent", "name": "Ascent", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "val-bind", "name": "Bind", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "val-haven", "name": "Haven", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "val-split", "name": "Split", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "val-icebox", "name": "Icebox", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "val-breeze", "name": "Breeze", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "val-fracture", "name": "Fracture", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "val-lotus", "name": "Lotus", "image_url": "", "game_modes": ["5v5"]},
+                    {"id": "val-sunset", "name": "Sunset", "image_url": "", "game_modes": ["5v5"]},
+                ]
+            }
         ],
         "platforms": ["PC"],
     },
