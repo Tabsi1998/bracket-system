@@ -163,6 +163,8 @@ class TournamentCreate(BaseModel):
     game_id: str
     game_name: str = ""
     game_mode: str = ""
+    sub_game_id: str = ""  # Which sub-game (e.g. Black Ops 6)
+    sub_game_name: str = ""
     participant_mode: str = "team"  # "team" or "solo"
     team_size: int = 1
     max_participants: int = 8
@@ -182,15 +184,21 @@ class TournamentCreate(BaseModel):
     battle_royale_group_size: int = 4
     battle_royale_advance: int = 2
     default_match_time: str = ""
-    default_match_day: str = "wednesday"  # Default day if no team schedules: monday, tuesday, etc.
-    default_match_hour: int = 19  # Default hour (0-23) for auto-scheduling
+    default_match_day: str = "wednesday"
+    default_match_hour: int = 19
     matchday_interval_days: int = 7
     matchday_window_days: int = 7
-    auto_schedule_on_window_end: bool = True  # Auto-assign default time when window ends
+    auto_schedule_on_window_end: bool = True
     points_win: int = 3
     points_draw: int = 1
     points_loss: int = 0
     tiebreakers: List[str] = Field(default_factory=lambda: ["points", "score_diff", "score_for", "team_name"])
+    # Map settings
+    map_pool: List[str] = Field(default_factory=list)  # Available maps for this tournament
+    map_ban_enabled: bool = True
+    map_ban_count: int = 2  # How many maps each team can ban
+    map_vote_enabled: bool = True
+    map_pick_order: str = "ban_ban_pick"  # ban_ban_pick, ban_pick_ban, pick_ban_pick, etc.
 
 class TournamentUpdate(BaseModel):
     name: Optional[str] = None
