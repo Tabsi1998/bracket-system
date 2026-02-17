@@ -1,143 +1,91 @@
 # eSports Tournament Bracket System - PRD
 
-## Problem Statement
-Complete eSports Tournament Bracket System with full sub-games/maps support, map ban/vote system, team profiles with social media, and comprehensive scheduling.
+## Original Problem Statement
+Comprehensive eSports tournament platform with bracket management, team features, and admin tools.
 
-## Latest Update (2026-02-17)
-
-### Features Implemented in This Session
-
-#### 1. Sub-Games System (Smart Implementation)
-- **Only where sensible**: 
-  - CoD: Black Ops 6, Modern Warfare 3 (different games with different maps)
-  - FIFA: EA FC 24, EA FC 25 (different yearly releases)
-- **Direct Maps (no sub-games)**:
-  - CS2: 7 Maps directly on game
-  - Valorant: 9 Maps directly on game
-
-#### 2. Team Profile Pages
-- Complete team detail page with:
-  - Banner and Logo display
-  - Bio/Description
-  - Member list with roles (Owner, Leader, Member)
-  - Sub-teams list
-  - Tournament participation history
-  - Social Media Links (FontAwesome icons)
-
-#### 3. FontAwesome Integration
-- CDN loaded in index.html
-- Social icons: Discord, Twitter, Instagram, Twitch, YouTube, Website
-- Used in TeamDetailPage
-
-#### 4. SMTP Improvements
-- New `/api/admin/smtp-config` endpoint for status check
-- New `/api/admin/smtp-test` endpoint with detailed diagnostics
-- Better error messages showing what's missing
-- Test email includes config details for debugging
-
-#### 5. Homepage for Players
-- Changed "So funktioniert es" from admin-focused to player-focused:
-  - Step 1: Register & Join Team
-  - Step 2: Find & Join Tournament
-  - Step 3: Check-in & Play
-
-#### 6. Team Tournaments API
-- `GET /api/teams/{id}/tournaments` - Public endpoint showing tournament history
+## Core Requirements
+- Tournament creation with various bracket types (League, Swiss, Single/Double Elimination, Battle Royale)
+- Team management with sub-teams, member roles, and social profiles
+- Match scheduling with proposal system and auto-scheduling defaults
+- Map veto/ban system for competitive matches
+- Games with Sub-Games (Versionen) and Maps hierarchy
+- Admin panel for managing games, users, SMTP, PayPal, FAQ
+- Public access for guests to view matches and tournaments
 
 ## Architecture
-- **Backend**: FastAPI + MongoDB
-- **Frontend**: React + Tailwind CSS + FontAwesome + Shadcn UI
+- **Frontend**: React + TailwindCSS + Shadcn/UI, served on port 3000
+- **Backend**: FastAPI + MongoDB (motor async driver), served on port 8001
+- **Auth**: JWT-based authentication
+- **Cron**: APScheduler for daily reminder jobs
+- **Routing**: All API routes prefixed with /api
 
-## API Endpoints (New/Updated)
+## What's Been Implemented
 
-### SMTP
-- `GET /api/admin/smtp-config` - Get SMTP configuration status
-- `POST /api/admin/smtp-test` - Send test email with diagnostics
+### Phase 1 - Core Platform (Complete)
+- User auth (register, login, JWT)
+- Tournament CRUD with bracket generation
+- Match scheduling with proposals and auto-scheduling
+- Score submission and admin approval system
+- Team creation and management with sub-teams
 
-### Teams
-- `GET /api/teams/{id}/tournaments` - Get team's tournament participation
+### Phase 2 - Games/Sub-Games/Maps System (Complete - Feb 2026)
+- Full game hierarchy: Game → Sub-Game (Version) → Maps
+- CRUD endpoints for sub-games: POST/PUT/DELETE /api/games/{id}/sub-games
+- CRUD endpoints for maps: POST/PUT/DELETE /api/games/{id}/sub-games/{sg_id}/maps
+- GamesPage completely overhauled with expandable cards showing modes, sub-games, maps
+- Admin can add/edit/delete sub-games and maps through intuitive UI
+- Map pool selection in tournament creation based on selected sub-game
+- Map veto system shows proper map names (not IDs)
 
-### Games & Maps
-- CS2 and Valorant have maps directly on game object
-- CoD and FIFA have sub_games with maps per sub-game
+### Phase 3 - Admin & UX Improvements (Complete - Feb 2026)
+- Image upload: POST /api/upload/image + GET /api/uploads/{filename}
+- Image upload UI in map management dialogs
+- SMTP improvements: async sending, 30s timeout, thread-based execution
+- Improved SMTP test endpoint with detailed config diagnosis
+- Structured logging added to critical operations (auth, tournament creation, score submission)
+- Cron job: Daily automated reminders via APScheduler at 10:00 UTC
+- Public match endpoint: GET /api/matches/{id}/public for guest access
+- Guest-friendly MatchDetailPage with fallback to public endpoint
+
+### Phase 4 - Team & Content (Complete)
+- Team detail page with biography, members, social links (FontAwesome icons)
+- Tournament history tab on team profile
+- Homepage updated for players and guests
+- FAQ system in admin panel
 
 ## Data Models
+- `games`: id, name, short_name, category, modes[], sub_games[{id, name, maps[]}], platforms[]
+- `tournaments`: id, name, game_id, sub_game_id, bracket_type, bracket{}, map_pool[], status
+- `users`: id, email, username, password_hash, role
+- `teams`: id, name, tag, owner_id, members[], social links
+- `map_vetos`: match_id, map_pool[], banned_maps[], picked_maps[], status, history[]
+- `score_submissions`: tournament_id, match_id, side, score1, score2
 
-### Game (Updated)
-```json
-{
-  "id": "...",
-  "name": "Counter-Strike 2",
-  "maps": [...],  // Direct maps for games without sub-games
-  "sub_games": [...] // Only for CoD, FIFA
-}
-```
-
-### Team (Profile Fields)
-```json
-{
-  "id": "...",
-  "name": "Team Name",
-  "tag": "TAG",
-  "bio": "Team description...",
-  "logo_url": "...",
-  "banner_url": "...",
-  "discord_url": "https://discord.gg/...",
-  "twitter_url": "https://twitter.com/...",
-  "instagram_url": "https://instagram.com/...",
-  "twitch_url": "https://twitch.tv/...",
-  "youtube_url": "https://youtube.com/...",
-  "website_url": "https://..."
-}
-```
-
-## Test Results
-- Backend: 94%
-- Frontend: 100%
-- Integration: 100%
-
-## Demo Data
-- 14 Tournaments (including CoD BO6 4v4 S&D Liga)
-- 8+ Teams with sub-teams
-- 14 Games (CoD with 2 sub-games, FIFA with 2 sub-games)
-
-## Configuration Required
-
-### SMTP (for email notifications)
-Set in Admin Panel → Settings → SMTP:
-- `smtp_host`: SMTP server (e.g., smtp.gmail.com)
-- `smtp_port`: Port (587 for STARTTLS, 465 for SSL)
-- `smtp_user`: Username/Email
-- `smtp_password`: Password (Gmail: App-Password!)
-- `smtp_from_email`: Sender address
-- `smtp_use_starttls`: true/false
-- `smtp_use_ssl`: true/false
-
-### PayPal (optional)
-Set in Admin Panel → Settings → PayPal:
-- `paypal_client_id`: From developer.paypal.com
-- `paypal_secret`: From developer.paypal.com
-- `paypal_mode`: sandbox/live
+## Key API Endpoints
+- POST /api/auth/register, /api/auth/login
+- GET/POST /api/games, GET/PUT/DELETE /api/games/{id}
+- POST/PUT/DELETE /api/games/{id}/sub-games/{sg_id}
+- POST/PUT/DELETE /api/games/{id}/sub-games/{sg_id}/maps/{map_id}
+- POST /api/upload/image, GET /api/uploads/{filename}
+- GET/POST /api/tournaments, GET /api/tournaments/{id}
+- POST /api/tournaments/{id}/generate-bracket
+- GET /api/matches/{id}/public (no auth)
+- GET /api/matches/{id}/map-veto
+- POST /api/admin/smtp-test
+- GET /api/teams/{id}, GET /api/teams/{id}/tournaments
 
 ## Backlog
+### P1
+- None currently
 
-### P0 (Completed)
-- ✅ Sub-Games only where sensible
-- ✅ Team Profile Pages with Social Icons
-- ✅ FontAwesome Integration
-- ✅ SMTP Test & Diagnostics
-- ✅ Player-focused Homepage
+### P2
+- Map images in veto UI (show uploaded images during ban/pick)
 
-### P1 (Next)
-- Actual SMTP configuration (requires credentials)
-- Image upload for maps/games (admin)
-- Simplified tournament/match creation forms
+### P3
+- PayPal live integration (currently MOCKED)
+- i18n / multi-language support
+- Statistics/leaderboard history
 
-### P2 (Medium)
-- Map images
-- Tournament templates
-- Automatic reminder cronjob
-
-### P3 (Low)
-- i18n / Multiple languages
-- Statistics history
+## Test Reports
+- /app/test_reports/iteration_8.json - Sub-games/Maps CRUD: 100% pass
+- /app/test_reports/iteration_9.json - Guest access, image upload, cron, SMTP: 100% pass
