@@ -45,8 +45,9 @@ function SubGameSection({ game, subGame, isAdmin, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
   const [addMapOpen, setAddMapOpen] = useState(false);
   const [editSubGameOpen, setEditSubGameOpen] = useState(false);
-  const [newMap, setNewMap] = useState({ name: "", game_modes: [] });
+  const [newMap, setNewMap] = useState({ name: "", game_modes: [], image_url: "" });
   const [editForm, setEditForm] = useState({ name: "", short_name: "", release_year: 0, active: true });
+  const [uploading, setUploading] = useState(false);
 
   const modes = game.modes?.map(m => m.name) || [];
   const mapCount = subGame.maps?.length || 0;
