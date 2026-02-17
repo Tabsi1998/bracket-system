@@ -4467,15 +4467,22 @@ async def get_map_veto_state(request: Request, match_id: str):
     veto_doc["team1_name"] = match_doc.get("team1_name") or (team1.get("name") if team1 else "Team 1")
     veto_doc["team2_name"] = match_doc.get("team2_name") or (team2.get("name") if team2 else "Team 2")
     
-    # Get sub-game maps if available
+    # Get map details for name display
+    game_id = tournament.get("game_id", "")
     sub_game_id = tournament.get("sub_game_id", "")
-    if sub_game_id:
-        game = await db.games.find_one({"id": tournament.get("game_id", "")}, {"_id": 0, "sub_games": 1})
+    all_maps = []
+    if game_id:
+        game = await db.games.find_one({"id": game_id}, {"_id": 0, "sub_games": 1})
         if game:
             for sg in game.get("sub_games", []):
-                if sg.get("id") == sub_game_id:
-                    veto_doc["available_maps"] = sg.get("maps", [])
+                if sub_game_id and sg.get("id") == sub_game_id:
+                    all_maps = sg.get("maps", [])
                     break
+                elif not sub_game_id:
+                    all_maps.extend(sg.get("maps", []))
+    veto_doc["available_maps"] = all_maps
+    # Build a map_id -> name lookup for frontend convenience
+    veto_doc["map_names"] = {m["id"]: m["name"] for m in all_maps if m.get("id")}
     
     return veto_doc
 
