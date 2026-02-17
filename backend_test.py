@@ -239,6 +239,7 @@ class eSportsTournamentTester:
             return cod_correct and fifa_correct and cs2_correct and valorant_correct
         
         return success
+    def test_games_with_sub_games(self):
         """Test games endpoint and find Call of Duty with sub-games"""
         success, response = self.run_test(
             "GET /api/games - Check for Sub-Games",
