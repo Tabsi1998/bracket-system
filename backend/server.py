@@ -1365,11 +1365,58 @@ SEED_GAMES = [
         "category": "fps",
         "image_url": "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600",
         "modes": [
-            {"name": "1v1", "team_size": 1, "description": "1v1 Gunfight"},
-            {"name": "2v2", "team_size": 2, "description": "2v2 Gunfight"},
-            {"name": "3v3", "team_size": 3, "description": "3v3 Search & Destroy"},
-            {"name": "4v4", "team_size": 4, "description": "4v4 Hardpoint"},
-            {"name": "5v5", "team_size": 5, "description": "5v5 Competitive"},
+            {"name": "1v1", "team_size": 1, "description": "1v1 Gunfight", "map_ban_enabled": True, "map_vote_enabled": True, "best_of_options": [1, 3, 5]},
+            {"name": "2v2", "team_size": 2, "description": "2v2 Gunfight", "map_ban_enabled": True, "map_vote_enabled": True, "best_of_options": [1, 3, 5]},
+            {"name": "S&D", "team_size": 4, "description": "4v4 Search & Destroy", "map_ban_enabled": True, "map_vote_enabled": True, "best_of_options": [1, 3, 5, 7], "special_rules": "Erste Runde: Coin-Flip für Seite. Seitenwechsel nach 5 Runden."},
+            {"name": "Hardpoint", "team_size": 4, "description": "4v4 Hardpoint", "map_ban_enabled": True, "map_vote_enabled": True, "best_of_options": [1, 3, 5]},
+            {"name": "Control", "team_size": 4, "description": "4v4 Control", "map_ban_enabled": True, "map_vote_enabled": True, "best_of_options": [1, 3, 5]},
+        ],
+        "sub_games": [
+            {
+                "id": "cod-bo6",
+                "name": "Black Ops 6",
+                "short_name": "BO6",
+                "release_year": 2024,
+                "active": True,
+                "maps": [
+                    {"id": "bo6-nuketown", "name": "Nuketown", "image_url": "", "game_modes": ["S&D", "Hardpoint", "Control"]},
+                    {"id": "bo6-hacienda", "name": "Hacienda", "image_url": "", "game_modes": ["S&D", "Hardpoint"]},
+                    {"id": "bo6-vault", "name": "Vault", "image_url": "", "game_modes": ["S&D", "Hardpoint", "Control"]},
+                    {"id": "bo6-skyline", "name": "Skyline", "image_url": "", "game_modes": ["S&D", "Hardpoint"]},
+                    {"id": "bo6-red-card", "name": "Red Card", "image_url": "", "game_modes": ["S&D", "Hardpoint", "Control"]},
+                    {"id": "bo6-protocol", "name": "Protocol", "image_url": "", "game_modes": ["S&D", "Control"]},
+                    {"id": "bo6-lowtown", "name": "Lowtown", "image_url": "", "game_modes": ["Hardpoint", "Control"]},
+                    {"id": "bo6-rewind", "name": "Rewind", "image_url": "", "game_modes": ["S&D", "Hardpoint"]},
+                ]
+            },
+            {
+                "id": "cod-mw3",
+                "name": "Modern Warfare 3",
+                "short_name": "MW3",
+                "release_year": 2023,
+                "active": True,
+                "maps": [
+                    {"id": "mw3-skidrow", "name": "Skidrow", "image_url": "", "game_modes": ["S&D", "Hardpoint"]},
+                    {"id": "mw3-karachi", "name": "Karachi", "image_url": "", "game_modes": ["S&D", "Hardpoint", "Control"]},
+                    {"id": "mw3-terminal", "name": "Terminal", "image_url": "", "game_modes": ["S&D", "Hardpoint"]},
+                    {"id": "mw3-invasion", "name": "Invasion", "image_url": "", "game_modes": ["S&D", "Hardpoint", "Control"]},
+                    {"id": "mw3-highrise", "name": "Highrise", "image_url": "", "game_modes": ["S&D", "Control"]},
+                    {"id": "mw3-vista", "name": "Vista", "image_url": "", "game_modes": ["S&D", "Hardpoint"]},
+                ]
+            },
+            {
+                "id": "cod-bocw",
+                "name": "Black Ops Cold War",
+                "short_name": "BOCW",
+                "release_year": 2020,
+                "active": False,
+                "maps": [
+                    {"id": "bocw-raid", "name": "Raid", "image_url": "", "game_modes": ["S&D", "Hardpoint", "Control"]},
+                    {"id": "bocw-moscow", "name": "Moscow", "image_url": "", "game_modes": ["S&D", "Hardpoint"]},
+                    {"id": "bocw-checkmate", "name": "Checkmate", "image_url": "", "game_modes": ["S&D", "Hardpoint", "Control"]},
+                    {"id": "bocw-garrison", "name": "Garrison", "image_url": "", "game_modes": ["Hardpoint", "Control"]},
+                ]
+            }
         ],
         "platforms": ["PC", "PS5", "Xbox"],
     },
