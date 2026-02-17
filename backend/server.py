@@ -4313,8 +4313,8 @@ async def get_match_detail(request: Request, match_id: str):
     tournament, match = await find_tournament_and_match_by_match_id(match_id)
     if not tournament or not match:
         raise HTTPException(404, "Match nicht gefunden")
-    if not await can_user_manage_match(user, match):
-        raise HTTPException(403, "Keine Berechtigung")
+    
+    can_manage = await can_user_manage_match(user, match)
 
     team_reg_ids = [rid for rid in [match.get("team1_id"), match.get("team2_id")] if rid]
     regs = await db.registrations.find({"id": {"$in": team_reg_ids}}, {"_id": 0}).to_list(10)
