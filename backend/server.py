@@ -6061,7 +6061,7 @@ async def create_paypal_order(request: Request, body: PayPalOrderCreate):
         raise HTTPException(500, "PayPal ist nicht konfiguriert. Bitte Admin kontaktieren.")
     
     # Create order record
-    order_id = f"PAYPAL-{uuid4()}"
+    order_id = f"PAYPAL-{uuid.uuid4()}"
     currency = str(tournament.get("currency", "USD")).upper()
     if currency not in ("USD", "EUR", "GBP"):
         currency = "USD"
