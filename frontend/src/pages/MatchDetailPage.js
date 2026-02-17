@@ -270,6 +270,22 @@ export default function MatchDetailPage() {
           </div>
         </div>
 
+        {isReadOnly && (
+          <div data-testid="readonly-banner" className="rounded-lg border border-white/5 bg-zinc-900/50 p-3 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center flex-shrink-0">
+              <Eye className="w-4 h-4 text-zinc-500" />
+            </div>
+            <div>
+              <p className="text-sm text-zinc-300 font-medium">Nur-Lesen-Ansicht</p>
+              <p className="text-xs text-zinc-500">
+                {!user 
+                  ? "Als Gast kannst du Match-Details ansehen, aber keine Aktionen durchführen."
+                  : "Du bist kein Teilnehmer dieses Matches. Ansicht ist schreibgeschützt."}
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="grid lg:grid-cols-2 gap-6">
           <div className="glass rounded-xl border border-white/5 p-5 space-y-4">
             <h2 className="font-['Barlow_Condensed'] text-xl text-white uppercase flex items-center gap-2">
