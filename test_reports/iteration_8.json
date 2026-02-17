@@ -1,0 +1,77 @@
+{
+  "summary": "Completed comprehensive testing of Games/Sub-Games/Maps system for iteration 8. All backend API endpoints working correctly. Frontend GamesPage shows sub-games, maps, and admin controls properly. CreateTournamentPage has working sub-game selection and map pool. TeamDetailPage exists with tournament history tab.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "CreateTournamentPage",
+        "issues": ["Maps show 'Nicht für 1v1' grayed out correctly when mode is incompatible - working as expected"]
+      }
+    ]
+  },
+  "passed_tests": [
+    "GET /api/games - Returns all games with sub_games and maps (14 games, 7 versions, 34 maps)",
+    "CoD game has 3 sub-games (Black Ops 6, Modern Warfare 3, Black Ops Cold War) with 18 maps total",
+    "CS2 game has Premier sub-game with 7 maps",
+    "Valorant game has Ranked sub-game with 9 maps",
+    "POST /api/games/{game_id}/sub-games - Create sub-game works (admin only)",
+    "PUT /api/games/{game_id}/sub-games/{sub_game_id} - Update sub-game works",
+    "DELETE /api/games/{game_id}/sub-games/{sub_game_id} - Delete sub-game works",
+    "POST /api/games/{game_id}/sub-games/{sub_game_id}/maps - Create map works",
+    "PUT /api/games/{game_id}/sub-games/{sub_game_id}/maps/{map_id} - Update map works",
+    "DELETE /api/games/{game_id}/sub-games/{sub_game_id}/maps/{map_id} - Delete map works",
+    "GET /api/games/{game_id}/sub-games - Get sub-games list works",
+    "GET /api/games/{game_id}/sub-games/{sub_game_id}/maps - Get maps list works",
+    "POST /api/upload/image - Image upload endpoint exists (requires admin, rejects without file)",
+    "GET /api/matches/{match_id}/map-veto - Returns 404 for non-existent match (endpoint exists)",
+    "POST /api/admin/smtp-test - Returns detailed SMTP test results",
+    "GET /api/teams/{id}/tournaments - Returns tournament history (tested with ARES Organization)",
+    "GamesPage - Shows all games with sub-game count, map count, and modes",
+    "GamesPage - Clicking game card expands to show modes, sub-games, maps",
+    "GamesPage - Each sub-game shows its maps with game modes badges",
+    "GamesPage - Admin sees edit/delete buttons on games, sub-games, maps",
+    "GamesPage - Category filters (FPS, Sports, etc.) working",
+    "CreateTournamentPage - Game selection shows sub-games dropdown",
+    "CreateTournamentPage - Sub-game selection (Version wählen) populated with options like Black Ops 6",
+    "CreateTournamentPage - Map pool selection shows maps from selected sub-game",
+    "CreateTournamentPage - Maps filtered by game mode compatibility"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_subgames_maps.py",
+    "/app/test_reports/pytest/pytest_results_iter8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_subgames_maps.py"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18 tests passed)",
+    "frontend": "100% (All requested features verified)"
+  },
+  "test_credentials": {
+    "admin": "admin@arena.gg / admin123"
+  },
+  "seed_data_creation": "None - using existing seed data with CoD, CS2, Valorant sub-games/maps",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Games/Sub-Games/Maps system is fully working. GamesPage at /games shows hierarchical game structure with sub-games and maps. CreateTournamentPage at /tournaments/create has working sub-game and map pool selection. Admin controls visible when logged in. All backend CRUD endpoints for sub-games and maps are functional.",
+  "mocked_api": {
+    "PayPal": "MOCKED - PayPal integration is mocked as noted in requirements"
+  },
+  "screenshots_taken": [
+    "games_page_initial.png - Shows GamesPage with 14 games",
+    "games_page_expanded.png - Shows CoD expanded with 3 sub-games listed",
+    "games_page_maps.png - Shows Black Ops 6 maps (Nuketown, Hacienda, etc.)",
+    "games_page_admin.png - Shows admin controls (edit pencil, + Spiel hinzufügen)",
+    "create_tournament_initial.png - Shows CreateTournamentPage form",
+    "create_tournament_game_selected.png - Shows CoD selected with modes (1v1, 2v2, etc.)",
+    "create_tournament_subgame.png - Shows sub-game selector with Black Ops 6 selected",
+    "create_tournament_maps.png - Shows map pool selection grid"
+  ]
+}
