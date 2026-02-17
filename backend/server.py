@@ -4774,9 +4774,12 @@ async def update_map(request: Request, game_id: str, sub_game_id: str, map_id: s
         if sg.get("id") == sub_game_id:
             for m in sg.get("maps", []):
                 if m.get("id") == map_id:
-                    if body.name is not None: m["name"] = body.name
-                    if body.image_url is not None: m["image_url"] = body.image_url
-                    if body.game_modes is not None: m["game_modes"] = body.game_modes
+                    if body.name is not None:
+                        m["name"] = body.name
+                    if body.image_url is not None:
+                        m["image_url"] = body.image_url
+                    if body.game_modes is not None:
+                        m["game_modes"] = body.game_modes
                     found = True
                     break
             break
