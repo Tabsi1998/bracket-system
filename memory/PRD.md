@@ -86,6 +86,17 @@ Comprehensive eSports tournament platform with bracket management, team features
 - i18n / multi-language support
 - Statistics/leaderboard history
 
+### Phase 5 - CRITICAL Security Fix: Permission System (Complete - Feb 2026)
+- Backend: GET /api/matches/{id} returns can_manage_match: true/false instead of 403 for non-participants
+- Frontend: Complete permission overhaul in MatchDetailPage
+  - Guests see "Nur-Lesen-Ansicht" banner, ALL action buttons hidden
+  - Non-participants (logged in, not in match) see same read-only view with different message
+  - Participants see schedule proposal, map veto (on their turn), setup submit, score input
+  - Admins see all controls + "Setup finalisieren (Admin)"
+- Permission variables: isParticipant, canManage, canInteract, canEditSetup, canScore, isReadOnly
+- Backend still enforces auth on POST endpoints (schedule, veto, setup, score)
+
 ## Test Reports
 - /app/test_reports/iteration_8.json - Sub-games/Maps CRUD: 100% pass
 - /app/test_reports/iteration_9.json - Guest access, image upload, cron, SMTP: 100% pass
+- /app/test_reports/iteration_10.json - Permission system security fix: 100% pass (12/12 backend, 4/4 frontend)
