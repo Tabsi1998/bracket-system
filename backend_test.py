@@ -128,7 +128,7 @@ class eSportsTournamentTester:
             if response.get('error'):
                 print(f"      - Error: {response.get('error')}")
             
-            if response.get('config_status'):
+            if response.get('config_status') and isinstance(response.get('config_status'), dict):
                 config = response.get('config_status')
                 print(f"      - Config Valid: {config.get('valid', False)}")
                 print(f"      - Config Error: {config.get('error', 'None')}")
