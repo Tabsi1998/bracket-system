@@ -4674,6 +4674,173 @@ async def get_sub_game_maps(game_id: str, sub_game_id: str):
     
     raise HTTPException(404, "Sub-Game nicht gefunden")
 
+# --- Sub-Game CRUD ---
+
+@api_router.post("/games/{game_id}/sub-games")
+async def create_sub_game(request: Request, game_id: str, body: SubGameCreate):
+    await require_admin(request)
+    game = await db.games.find_one({"id": game_id}, {"_id": 0})
+    if not game:
+        raise HTTPException(404, "Spiel nicht gefunden")
+    sub_game_doc = {
+        "id": f"{game.get('short_name','game').lower()}-{uuid.uuid4().hex[:8]}",
+        "name": body.name,
+        "short_name": body.short_name,
+        "release_year": body.release_year,
+        "active": body.active,
+        "maps": [],
+    }
+    await db.games.update_one({"id": game_id}, {"$push": {"sub_games": sub_game_doc}})
+    return sub_game_doc
+
+@api_router.put("/games/{game_id}/sub-games/{sub_game_id}")
+async def update_sub_game(request: Request, game_id: str, sub_game_id: str, body: SubGameUpdate):
+    await require_admin(request)
+    game = await db.games.find_one({"id": game_id}, {"_id": 0})
+    if not game:
+        raise HTTPException(404, "Spiel nicht gefunden")
+    sub_games = game.get("sub_games", [])
+    found = False
+    for sg in sub_games:
+        if sg.get("id") == sub_game_id:
+            if body.name is not None: sg["name"] = body.name
+            if body.short_name is not None: sg["short_name"] = body.short_name
+            if body.release_year is not None: sg["release_year"] = body.release_year
+            if body.active is not None: sg["active"] = body.active
+            found = True
+            break
+    if not found:
+        raise HTTPException(404, "Sub-Game nicht gefunden")
+    await db.games.update_one({"id": game_id}, {"$set": {"sub_games": sub_games}})
+    return {"status": "ok"}
+
+@api_router.delete("/games/{game_id}/sub-games/{sub_game_id}")
+async def delete_sub_game(request: Request, game_id: str, sub_game_id: str):
+    await require_admin(request)
+    result = await db.games.update_one(
+        {"id": game_id},
+        {"$pull": {"sub_games": {"id": sub_game_id}}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(404, "Sub-Game nicht gefunden")
+    return {"status": "deleted"}
+
+# --- Map CRUD ---
+
+@api_router.post("/games/{game_id}/sub-games/{sub_game_id}/maps")
+async def create_map(request: Request, game_id: str, sub_game_id: str, body: MapCreate):
+    await require_admin(request)
+    game = await db.games.find_one({"id": game_id}, {"_id": 0})
+    if not game:
+        raise HTTPException(404, "Spiel nicht gefunden")
+    map_doc = {
+        "id": f"{sub_game_id}-{body.name.lower().replace(' ', '-').replace('_', '-')[:20]}-{uuid.uuid4().hex[:4]}",
+        "name": body.name,
+        "image_url": body.image_url,
+        "game_modes": body.game_modes,
+    }
+    sub_games = game.get("sub_games", [])
+    found = False
+    for sg in sub_games:
+        if sg.get("id") == sub_game_id:
+            sg.setdefault("maps", []).append(map_doc)
+            found = True
+            break
+    if not found:
+        raise HTTPException(404, "Sub-Game nicht gefunden")
+    await db.games.update_one({"id": game_id}, {"$set": {"sub_games": sub_games}})
+    return map_doc
+
+@api_router.put("/games/{game_id}/sub-games/{sub_game_id}/maps/{map_id}")
+async def update_map(request: Request, game_id: str, sub_game_id: str, map_id: str, body: MapUpdate):
+    await require_admin(request)
+    game = await db.games.find_one({"id": game_id}, {"_id": 0})
+    if not game:
+        raise HTTPException(404, "Spiel nicht gefunden")
+    sub_games = game.get("sub_games", [])
+    found = False
+    for sg in sub_games:
+        if sg.get("id") == sub_game_id:
+            for m in sg.get("maps", []):
+                if m.get("id") == map_id:
+                    if body.name is not None: m["name"] = body.name
+                    if body.image_url is not None: m["image_url"] = body.image_url
+                    if body.game_modes is not None: m["game_modes"] = body.game_modes
+                    found = True
+                    break
+            break
+    if not found:
+        raise HTTPException(404, "Map nicht gefunden")
+    await db.games.update_one({"id": game_id}, {"$set": {"sub_games": sub_games}})
+    return {"status": "ok"}
+
+@api_router.delete("/games/{game_id}/sub-games/{sub_game_id}/maps/{map_id}")
+async def delete_map(request: Request, game_id: str, sub_game_id: str, map_id: str):
+    await require_admin(request)
+    game = await db.games.find_one({"id": game_id}, {"_id": 0})
+    if not game:
+        raise HTTPException(404, "Spiel nicht gefunden")
+    sub_games = game.get("sub_games", [])
+    found = False
+    for sg in sub_games:
+        if sg.get("id") == sub_game_id:
+            original_len = len(sg.get("maps", []))
+            sg["maps"] = [m for m in sg.get("maps", []) if m.get("id") != map_id]
+            if len(sg["maps"]) < original_len:
+                found = True
+            break
+    if not found:
+        raise HTTPException(404, "Map nicht gefunden")
+    await db.games.update_one({"id": game_id}, {"$set": {"sub_games": sub_games}})
+    return {"status": "deleted"}
+
+# --- Image Upload ---
+
+@api_router.post("/upload/image")
+async def upload_image(request: Request):
+    """Upload an image file and return its URL."""
+    await require_admin(request)
+    import shutil
+    
+    form = await request.form()
+    file = form.get("file")
+    if not file:
+        raise HTTPException(400, "Keine Datei hochgeladen")
+    
+    # Validate file type
+    content_type = getattr(file, "content_type", "") or ""
+    if not content_type.startswith("image/"):
+        raise HTTPException(400, "Nur Bilddateien erlaubt")
+    
+    # Create uploads directory
+    upload_dir = ROOT_DIR / "uploads"
+    upload_dir.mkdir(exist_ok=True)
+    
+    # Generate unique filename
+    ext = Path(file.filename or "image.png").suffix or ".png"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    filepath = upload_dir / filename
+    
+    # Save file
+    contents = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(contents)
+    
+    # Return accessible URL
+    image_url = f"/api/uploads/{filename}"
+    return {"url": image_url, "filename": filename}
+
+# --- Serve uploaded files ---
+
+from fastapi.responses import FileResponse
+
+@api_router.get("/uploads/{filename}")
+async def serve_upload(filename: str):
+    filepath = ROOT_DIR / "uploads" / filename
+    if not filepath.exists() or not filepath.is_file():
+        raise HTTPException(404, "Datei nicht gefunden")
+    return FileResponse(filepath)
+
 @api_router.post("/tournaments/{tournament_id}/generate-bracket")
 async def generate_bracket(request: Request, tournament_id: str):
     admin_user = await require_admin(request)
