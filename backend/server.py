@@ -6091,7 +6091,7 @@ async def create_paypal_order_v2(request: Request, body: PayPalOrderCreate):
     }
 
 @api_router.post("/payments/paypal/capture-order")
-async def capture_paypal_order(request: Request, order_id: str = Body(...), paypal_order_id: str = Body(...)):
+async def capture_paypal_order_v2(request: Request, order_id: str = Body(...), paypal_order_id: str = Body(...)):
     """Capture a PayPal order after approval."""
     user = await require_auth(request)
     
