@@ -1,90 +1,130 @@
 # eSports Tournament Bracket System - PRD
 
 ## Problem Statement
-Complete eSports Tournament Bracket System with full access control (admin/player roles), dynamic animated brackets with Bezier curve connectors, payment integration (Stripe + PayPal prepared), pre-built game database, user accounts, team management with join codes/leaders/sub-teams, score submission by teams with auto-confirm/dispute resolution, comments, notifications, admin panel, profile pages, embeddable widget, markdown-rendered rules, and one-command installer for Ubuntu.
+Complete eSports Tournament Bracket System with full access control (admin/player roles), dynamic animated brackets, payment integration (Stripe + PayPal), scheduling system with auto-reminders, pre-built game database, user accounts, team management, score submission, and comprehensive FAQ.
 
 ## Latest Update (2026-02-17)
-### System Analysis & Improvements
-- **Auto-Scheduling System**: New feature where matches get automatic default times (e.g., Wednesday 19:00) if teams don't agree on a time
-- **Extended Demo Data**: More realistic tournament descriptions, rules, and team setups
-- **SMTP Help Improvements**: Admin panel now shows configuration guides for Gmail, Outlook, custom servers
-- **Matchday Overview**: Better structured matchday hierarchy display
+
+### New Features Implemented
+1. **Automatic Scheduling Reminder System**
+   - POST `/api/tournaments/{id}/send-scheduling-reminders` - Send reminders to teams with unscheduled matches
+   - Email notifications 24h before scheduling window ends
+   - In-app notifications for team owners
+   - Default time warning in emails (e.g., "Wednesday 19:00 will be used")
+
+2. **PayPal Payment Integration**
+   - POST `/api/payments/paypal/create-order` - Create PayPal payment order
+   - POST `/api/payments/paypal/capture-order` - Capture approved payment
+   - GET `/api/payments/paypal/config` - Frontend configuration
+   - Admin Panel: PayPal setup help with developer.paypal.com link
+
+3. **Extended FAQ System (10 Detailed Entries)**
+   - How to use the system as new user
+   - Team vs Solo tournaments
+   - Matchday scheduling process
+   - Payment and check-in help
+   - Scheduling workflow explanation
+   - Sub-teams explanation
+   - Check-in process
+   - Tournament formats overview
+   - Score submission guide
+   - Notification system
+
+4. **Admin Panel Improvements**
+   - PayPal configuration help section
+   - SMTP configuration help (Gmail, Outlook, custom server)
+   - Auto-Termine button on tournament detail page
+   - Erinnerungen senden button for scheduling reminders
+
+5. **Auto-Scheduling System**
+   - Default match day/hour settings per tournament
+   - Auto-assign default times when teams don't agree
+   - POST `/api/tournaments/{id}/auto-schedule-unscheduled`
+   - GET `/api/tournaments/{id}/scheduling-status`
 
 ## Architecture
 - **Backend**: FastAPI + MongoDB (server.py)
 - **Frontend**: React + Tailwind CSS + Shadcn UI + Framer Motion
-- **Database**: MongoDB (collections: games, tournaments, registrations, payment_transactions, users, teams, comments, notifications, schedule_proposals, admin_settings, score_submissions, match_setups)
-- **Payment**: Stripe (integrated), PayPal (prepared in admin settings)
+- **Database**: MongoDB
+- **Payment**: Stripe (integrated) + PayPal (integrated)
 - **E-Mail**: SMTP (configurable in Admin Panel)
 
 ## User Personas
-1. **Admin** - Full control: Create tournaments, manage games, approve scores, configure settings
-2. **Team Owner** - Create teams, manage sub-teams, join codes, promote leaders
-3. **Team Leader** - Manage team members, submit scores, propose match times
-4. **Player** - Join teams, participate in tournaments, check-in
+1. **Admin** - Full control over tournaments, settings, payments
+2. **Team Owner** - Create teams, manage members, schedule matches
+3. **Team Leader** - Submit scores, propose match times
+4. **Player** - Join teams, participate in tournaments
 
 ## Core Features (Implemented)
 
 ### Tournament System
-- Multiple bracket types: Single/Double Elimination, Round Robin, League, Group Stage, Group+Playoffs, Swiss, Ladder, King of Hill, Battle Royale
+- Multiple bracket types: Single/Double Elimination, Round Robin, League, Group Stage, Swiss, Battle Royale
 - Configurable matchday intervals and windows
-- **NEW**: Auto-scheduling with default day/hour settings
-- Scoring system with customizable points (win/draw/loss)
-- Tiebreaker configuration
+- Auto-scheduling with default day/hour settings
+- Scoring system with customizable points
 
 ### Team Management
-- Main teams with sub-teams for tournament participation
-- Join codes for team membership
+- Main teams with sub-teams
+- Join codes for membership
 - Owner/Leader/Member roles
-- Profile inheritance from parent team
 
 ### Match Scheduling System
 - Teams propose times via Match Hub
-- Other team accepts or counter-proposes
-- **NEW**: Default time applied if no agreement (configurable per tournament)
-- Window-based scheduling for league formats
+- Accept/counter-propose workflow
+- Default time applied if no agreement
+- Admin can send reminders and auto-schedule
+
+### Payment System
+- **Stripe**: Credit card payments
+- **PayPal**: Alternative payment method
+- Entry fee management
+- Payment status tracking
 
 ### Admin Panel
-- Dashboard with statistics
 - User/Team/Tournament management
 - SMTP configuration with provider guides
-- Payment provider setup (Stripe/PayPal)
+- PayPal/Stripe setup with help sections
 - FAQ management
 
-## API Endpoints (Key New Additions)
+## API Endpoints (New)
 
 ### Scheduling
 - `GET /api/tournaments/{id}/scheduling-status` - Overview of scheduled/unscheduled matches
-- `POST /api/tournaments/{id}/auto-schedule-unscheduled` - Auto-assign default times to all unscheduled matches
+- `POST /api/tournaments/{id}/auto-schedule-unscheduled` - Auto-assign default times
+- `POST /api/tournaments/{id}/send-scheduling-reminders` - Send reminder emails
+
+### PayPal
+- `POST /api/payments/paypal/create-order` - Create payment order
+- `POST /api/payments/paypal/capture-order` - Capture approved payment
+- `GET /api/payments/paypal/config` - Frontend configuration
 
 ### Tournament Config
-- `default_match_day` - Default day for auto-scheduling (monday-sunday)
+- `default_match_day` - Default day for auto-scheduling
 - `default_match_hour` - Default hour (0-23)
 - `auto_schedule_on_window_end` - Enable auto-scheduling
 
 ## Demo Data
-- **13 Tournament Types**: Various bracket types and statuses
-- **8 Main Teams**: ARES, NOVA, PULSE, TITAN, VORTEX, ORBIT
-- **14 Sub-Teams**: For tournament participation
-- **18 Demo Users**: Including demo admin
-- **14 Games**: Call of Duty, FIFA, Rocket League, CS2, Valorant, LoL, etc.
+- 13 Tournament Types
+- 8 Main Teams with Sub-Teams
+- 18 Demo Users
+- 14 Games
 
 ### Demo Credentials
 - `admin@arena.gg / admin123` - Main admin
 - `demo.admin@arena.gg / demo123` - Demo admin
-- `demo.alpha1@arena.gg / demo123` - Demo player
 
 ## Prioritized Backlog
 
-### P0 (Completed in this session)
-- ✅ Auto-Scheduling System for unscheduled matches
-- ✅ Extended Demo Data with realistic rules/descriptions
-- ✅ SMTP Configuration Help in Admin Panel
-- ✅ Tournament creation with default scheduling options
+### P0 (Completed)
+- ✅ Auto-Scheduling System
+- ✅ Scheduling Reminder Emails
+- ✅ PayPal Integration
+- ✅ Extended FAQ (10 entries)
+- ✅ Admin Panel Improvements
 
 ### P1 (High Priority - Next)
 - SMTP actual sending (requires user's SMTP credentials)
-- PayPal actual checkout integration
+- PayPal Live Mode (requires user's PayPal credentials)
 - WebSocket real-time updates
 
 ### P2 (Medium)
@@ -101,4 +141,9 @@ Complete eSports Tournament Bracket System with full access control (admin/playe
 - All timestamps in UTC ISO format
 - MongoDB ObjectId exclusion in API responses
 - JWT authentication with 7-day expiry
-- CORS enabled for frontend integration
+- PayPal sandbox mode by default
+
+## Configuration Required
+1. **SMTP**: Set in Admin Panel → Settings → SMTP
+2. **PayPal**: Set in Admin Panel → Settings → PayPal (Client ID + Secret from developer.paypal.com)
+3. **Stripe**: Already configured via environment variables
