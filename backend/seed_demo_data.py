@@ -603,11 +603,30 @@ def seed_demo_data(reset: bool = False) -> None:
             "entry_fee": 0.0,
             "currency": "usd",
             "prize_pool": "$250",
-            "description": "Automatisch erzeugte Demo-Daten",
-            "rules": "Demo-Regeln",
+            "description": "Automatisch erzeugte Demo-Daten für die Systemvorschau. Dieses Turnier zeigt die wichtigsten Funktionen der Plattform.",
+            "rules": """# Turnier-Regeln
+
+## Allgemein
+- Fair Play ist Pflicht
+- Cheating führt zur Disqualifikation
+- Admin-Entscheidungen sind endgültig
+
+## Terminabstimmung
+1. Teams schlagen Termine im Match-Hub vor
+2. Gegner bestätigt oder macht Gegenvorschlag
+3. Bei keiner Einigung: Default-Zeit gilt (Mittwoch 19:00 Uhr)
+
+## Ergebnismeldung
+- Beide Teams melden das Ergebnis
+- Bei Übereinstimmung: automatische Bestätigung
+- Bei Unstimmigkeit: Admin entscheidet
+""",
             "start_date": iso_from_now(spec["start_days"]),
             "checkin_start": iso_from_now(spec["checkin_days"]),
             "default_match_time": "20:00",
+            "default_match_day": "wednesday",
+            "default_match_hour": 19,
+            "auto_schedule_on_window_end": True,
             "status": spec["status"],
             "bracket": None,
             "is_demo": True,
