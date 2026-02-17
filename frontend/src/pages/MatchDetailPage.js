@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Calendar, Clock, MessageSquare, Settings2, Trophy } from "lucide-react";
+import { Calendar, Clock, Eye, MessageSquare, Settings2, Trophy } from "lucide-react";
 import CommentSection from "@/components/CommentSection";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
