@@ -325,49 +325,59 @@ export default function MatchDetailPage() {
                       const isBanned = mapVetoState?.banned_maps?.includes(mapId);
                       const isPicked = mapVetoState?.picked_maps?.includes(mapId);
                       const isAvailable = !isBanned && !isPicked;
+                      const mapName = mapVetoState?.map_names?.[mapId] || mapId.split("-").pop()?.replace(/_/g, " ") || mapId;
+                      const mapInfo = (mapVetoState?.available_maps || []).find(m => m.id === mapId);
                       
                       return (
                         <div
                           key={mapId}
-                          className={`rounded-lg p-3 border transition-all ${
+                          data-testid={`veto-map-${mapId}`}
+                          className={`rounded-lg border transition-all overflow-hidden ${
                             isBanned ? "bg-red-500/5 border-red-500/20 opacity-50" :
                             isPicked ? "bg-green-500/10 border-green-500/30" :
                             "bg-zinc-900/50 border-white/5 hover:border-yellow-500/30"
                           }`}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className={`text-sm ${isBanned ? "line-through text-zinc-600" : isPicked ? "text-green-400 font-semibold" : "text-white"}`}>
-                              {mapId.split("-").pop()?.replace(/_/g, " ") || mapId}
-                            </span>
-                            {isBanned && <Badge className="text-[9px] bg-red-500/10 text-red-400">Gebannt</Badge>}
-                            {isPicked && <Badge className="text-[9px] bg-green-500/10 text-green-400">Gepickt</Badge>}
-                          </div>
-                          {isAvailable && mapVetoState?.status !== "completed" && (
-                            <div className="flex gap-1 mt-2">
-                              {mapVetoState?.current_action === "ban" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-[10px] h-6 border-red-500/30 text-red-400 hover:bg-red-500/10"
-                                  onClick={() => handleMapVetoAction("ban", mapId)}
-                                  disabled={mapVetoLoading}
-                                >
-                                  Bannen
-                                </Button>
-                              )}
-                              {mapVetoState?.current_action === "pick" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-[10px] h-6 border-green-500/30 text-green-400 hover:bg-green-500/10"
-                                  onClick={() => handleMapVetoAction("pick", mapId)}
-                                  disabled={mapVetoLoading}
-                                >
-                                  Picken
-                                </Button>
-                              )}
+                          {mapInfo?.image_url && (
+                            <div className="aspect-video bg-zinc-800">
+                              <img src={mapInfo.image_url} alt={mapName} className="w-full h-full object-cover" />
                             </div>
                           )}
+                          <div className="p-3">
+                            <div className="flex items-center justify-between">
+                              <span className={`text-sm ${isBanned ? "line-through text-zinc-600" : isPicked ? "text-green-400 font-semibold" : "text-white"}`}>
+                                {mapName}
+                              </span>
+                              {isBanned && <Badge className="text-[9px] bg-red-500/10 text-red-400">Gebannt</Badge>}
+                              {isPicked && <Badge className="text-[9px] bg-green-500/10 text-green-400">Gepickt</Badge>}
+                            </div>
+                            {isAvailable && mapVetoState?.status !== "completed" && (
+                              <div className="flex gap-1 mt-2">
+                                {mapVetoState?.current_action === "ban" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-[10px] h-6 border-red-500/30 text-red-400 hover:bg-red-500/10"
+                                    onClick={() => handleMapVetoAction("ban", mapId)}
+                                    disabled={mapVetoLoading}
+                                  >
+                                    Bannen
+                                  </Button>
+                                )}
+                                {mapVetoState?.current_action === "pick" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-[10px] h-6 border-green-500/30 text-green-400 hover:bg-green-500/10"
+                                    onClick={() => handleMapVetoAction("pick", mapId)}
+                                    disabled={mapVetoLoading}
+                                  >
+                                    Picken
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -380,7 +390,7 @@ export default function MatchDetailPage() {
                     <div className="flex gap-2 flex-wrap">
                       {mapVetoState.picked_maps.map((mapId, idx) => (
                         <Badge key={mapId} className="bg-green-500/10 text-green-400 border border-green-500/20">
-                          Map {idx + 1}: {mapId.split("-").pop()?.replace(/_/g, " ") || mapId}
+                          Map {idx + 1}: {mapVetoState?.map_names?.[mapId] || mapId.split("-").pop()?.replace(/_/g, " ") || mapId}
                         </Badge>
                       ))}
                     </div>
@@ -399,7 +409,7 @@ export default function MatchDetailPage() {
                             {entry.action === "ban" ? "bannte" : "pickte"}
                           </span>
                           {" "}
-                          <span className="text-white">{entry.map_id.split("-").pop() || entry.map_id}</span>
+                          <span className="text-white">{mapVetoState?.map_names?.[entry.map_id] || entry.map_id.split("-").pop() || entry.map_id}</span>
                         </div>
                       ))}
                     </div>
