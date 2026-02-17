@@ -57,11 +57,28 @@ function SubGameSection({ game, subGame, isAdmin, onRefresh }) {
     try {
       await axios.post(`${API}/games/${game.id}/sub-games/${subGame.id}/maps`, newMap);
       toast.success(`Map "${newMap.name}" hinzugefügt`);
-      setNewMap({ name: "", game_modes: [] });
+      setNewMap({ name: "", game_modes: [], image_url: "" });
       setAddMapOpen(false);
       onRefresh();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Fehler beim Hinzufügen");
+    }
+  };
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await axios.post(`${API}/upload/image`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+      setNewMap(prev => ({ ...prev, image_url: res.data.url }));
+      toast.success("Bild hochgeladen");
+    } catch (e) {
+      toast.error("Fehler beim Hochladen");
+    } finally {
+      setUploading(false);
     }
   };
 
