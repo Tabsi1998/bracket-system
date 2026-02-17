@@ -600,6 +600,15 @@ export default function AdminPage() {
                 <h3 className="font-['Barlow_Condensed'] text-lg font-bold text-white uppercase mb-4 flex items-center gap-2">
                   <Settings className="w-5 h-5 text-yellow-500" />E-Mail (SMTP) Einstellungen
                 </h3>
+                <div className="mb-4 p-4 rounded-lg bg-blue-500/5 border border-blue-500/20">
+                  <h4 className="text-sm text-blue-400 font-semibold mb-2">📧 SMTP-Konfiguration Hilfe</h4>
+                  <div className="text-xs text-zinc-400 space-y-1">
+                    <p><strong>Gmail:</strong> Host: smtp.gmail.com, Port: 587, STARTTLS: true, SSL: false</p>
+                    <p><strong>Outlook:</strong> Host: smtp-mail.outlook.com, Port: 587, STARTTLS: true, SSL: false</p>
+                    <p><strong>Eigener Server:</strong> Verwende deine Server-Einstellungen (z.B. Port 465 mit SSL)</p>
+                    <p className="text-amber-400 mt-2">⚠️ Bei Gmail: "App-Passwort" in den Google-Kontoeinstellungen erstellen!</p>
+                  </div>
+                </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   {settingKeys.filter(s => s.key.startsWith("smtp")).map(sk => (
                     <div key={sk.key}>
