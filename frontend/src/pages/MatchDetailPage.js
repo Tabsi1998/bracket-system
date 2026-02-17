@@ -49,11 +49,22 @@ export default function MatchDetailPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [detailRes, scheduleRes, setupRes] = await Promise.all([
-        axios.get(`${API}/matches/${matchId}`),
-        axios.get(`${API}/matches/${matchId}/schedule`),
-        axios.get(`${API}/matches/${matchId}/setup`),
-      ]);
+      let detailRes, scheduleRes, setupRes;
+      
+      if (user) {
+        // Authenticated user - full detail
+        [detailRes, scheduleRes, setupRes] = await Promise.all([
+          axios.get(`${API}/matches/${matchId}`),
+          axios.get(`${API}/matches/${matchId}/schedule`),
+          axios.get(`${API}/matches/${matchId}/setup`),
+        ]);
+      } else {
+        // Guest - public endpoint only
+        detailRes = await axios.get(`${API}/matches/${matchId}/public`);
+        scheduleRes = { data: [] };
+        setupRes = { data: {} };
+      }
+      
       setMatchData(detailRes.data);
       setScheduleItems(Array.isArray(scheduleRes.data) ? scheduleRes.data : []);
       const setupPayload = (setupRes.data || {}).setup || null;
@@ -73,14 +84,31 @@ export default function MatchDetailPage() {
         score2: Number(match.score2 || 0),
       });
       
-      // Fetch map veto state
-      fetchMapVeto();
+      // Fetch map veto state (or use from public endpoint)
+      if (detailRes.data?.map_veto) {
+        setMapVetoState(detailRes.data.map_veto);
+      } else {
+        fetchMapVeto();
+      }
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Match konnte nicht geladen werden");
+      // Fallback to public endpoint if authenticated endpoint fails
+      if (user) {
+        try {
+          const publicRes = await axios.get(`${API}/matches/${matchId}/public`);
+          setMatchData(publicRes.data);
+          if (publicRes.data?.map_veto) {
+            setMapVetoState(publicRes.data.map_veto);
+          }
+        } catch {
+          toast.error("Match konnte nicht geladen werden");
+        }
+      } else {
+        toast.error(e.response?.data?.detail || "Match konnte nicht geladen werden");
+      }
     } finally {
       setLoading(false);
     }
-  }, [matchId, fetchMapVeto]);
+  }, [matchId, user, fetchMapVeto]);
 
   useEffect(() => {
     fetchData();
