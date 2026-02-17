@@ -11,25 +11,61 @@ const FALLBACK_FAQ_ITEMS = [
     id: "faq-public-overview",
     question: "Wie nutze ich das System als neuer Benutzer?",
     answer:
-      "1) Registrieren/Einloggen  2) Team erstellen oder Team beitreten  3) Turnier öffnen und registrieren  4) Im Match-Hub Termin, Setup und Ergebnis verwalten.",
+      "1) Registrieren/Einloggen\n2) Team erstellen oder Team beitreten\n3) Turnier öffnen und registrieren\n4) Im Match-Hub Termin, Setup und Ergebnis verwalten.\n\nTipp: Schau dir zuerst die Turnier-Regeln an!",
   },
   {
     id: "faq-public-team-vs-solo",
     question: "Wann spiele ich als Team und wann Solo?",
     answer:
-      "Bei Team-Turnieren meldest du ein passendes Sub-Team an. Bei Solo-Turnieren spielst du direkt als Benutzer ohne Team-Auswahl.",
+      "Bei Team-Turnieren meldest du ein passendes Sub-Team an. Bei Solo-Turnieren spielst du direkt als Benutzer ohne Team-Auswahl.\n\nSub-Teams werden vom Hauptteam erstellt und können für verschiedene Turniere genutzt werden.",
   },
   {
     id: "faq-public-matchday",
     question: "Wie funktionieren Liga-Spieltage / Wochen?",
     answer:
-      "In Liga- oder Round-Robin-Formaten gibt es pro Spieltag feste Wochenfenster. Das konkrete Match-Datum/Uhrzeit stimmen die Teams im Match-Hub ab.",
+      "In Liga- oder Round-Robin-Formaten gibt es pro Spieltag feste Wochenfenster. Das konkrete Match-Datum/Uhrzeit stimmen die Teams im Match-Hub ab.\n\n⏰ Terminabstimmung:\n• Ein Team schlägt einen Termin vor\n• Das andere Team bestätigt oder macht Gegenvorschlag\n• Bei keiner Einigung gilt der Standard-Termin (z.B. Mittwoch 19:00)",
   },
   {
     id: "faq-public-payment",
     question: "Was passiert bei Problemen mit Zahlung oder Check-in?",
     answer:
-      "Bei kostenpflichtigen Turnieren ist Check-in nur nach erfolgreicher Zahlung möglich. Fehlgeschlagene Zahlungen können über den Retry-Flow erneut gestartet werden.",
+      "Bei kostenpflichtigen Turnieren ist Check-in nur nach erfolgreicher Zahlung möglich. Fehlgeschlagene Zahlungen können über den Retry-Flow erneut gestartet werden.\n\nZahlungsmethoden:\n• Stripe (Kreditkarte)\n• PayPal (falls aktiviert)",
+  },
+  {
+    id: "faq-scheduling",
+    question: "Wie läuft die Termin-Abstimmung ab?",
+    answer:
+      "1. Gehe zum Match-Hub deines Matches\n2. Schlage einen Termin vor (Datum + Uhrzeit)\n3. Dein Gegner sieht den Vorschlag und kann:\n   • Den Termin bestätigen\n   • Einen Gegenvorschlag machen\n4. Sobald ein Team einen Vorschlag akzeptiert, ist der Termin fest\n\n⚠️ Falls keine Einigung: Der Standard-Termin wird automatisch gesetzt!",
+  },
+  {
+    id: "faq-subteams",
+    question: "Was sind Sub-Teams und wofür brauche ich sie?",
+    answer:
+      "Sub-Teams sind Unterteams deines Hauptteams. Vorteile:\n\n• Verschiedene Rosters für verschiedene Turniere\n• Erben automatisch Profil-Infos vom Hauptteam\n• Ermöglichen flexible Team-Aufstellungen\n\nSo erstellst du ein Sub-Team:\n1. Gehe zu 'Meine Teams'\n2. Klicke bei deinem Hauptteam auf 'Sub-Team'\n3. Gib Name und Tag ein",
+  },
+  {
+    id: "faq-checkin",
+    question: "Was bedeutet Check-in und wie funktioniert es?",
+    answer:
+      "Der Check-in ist die Bestätigung, dass dein Team am Turnier teilnimmt.\n\n⏰ Ablauf:\n1. Check-in-Phase startet (meist 30 Min. vor Turnierbeginn)\n2. Gehe zur Turnier-Seite und klicke 'Check-in'\n3. Nach Ende der Phase werden nur eingecheckte Teams in den Bracket aufgenommen\n\n⚠️ Ohne Check-in = Keine Teilnahme!",
+  },
+  {
+    id: "faq-bracket-types",
+    question: "Welche Turnier-Formate gibt es?",
+    answer:
+      "Unterstützte Formate:\n\n🏆 Single Elimination - Eine Niederlage = Raus\n🏆 Double Elimination - 2 Niederlagen = Raus (Winner/Loser Bracket)\n📊 Liga / Round Robin - Jeder gegen jeden\n📊 Gruppenphase + Playoffs - Erst Gruppen, dann KO\n🔄 Swiss System - Ähnlich starke Teams spielen gegeneinander\n👑 King of the Hill - Verteidiger vs. Herausforderer",
+  },
+  {
+    id: "faq-score-submission",
+    question: "Wie melde ich ein Match-Ergebnis?",
+    answer:
+      "1. Öffne den Match-Hub nach dem Spiel\n2. Klicke 'Ergebnis eintragen'\n3. Gib den Score ein\n4. Das andere Team bestätigt das Ergebnis\n\n✅ Bei Übereinstimmung: Automatische Bestätigung\n❌ Bei Widerspruch: Admin entscheidet\n\nBeweis-Screenshots können hochgeladen werden.",
+  },
+  {
+    id: "faq-notifications",
+    question: "Wie erhalte ich Benachrichtigungen?",
+    answer:
+      "Das System benachrichtigt dich automatisch über:\n\n• Neue Matches und Spieltermine\n• Check-in Erinnerungen\n• Ergebnis-Bestätigungen\n• Termin-Erinnerungen (24h vor Ablauf)\n• Team-Einladungen\n\nBenachrichtigungen siehst du im Glocken-Symbol oben rechts.",
   },
 ];
 
