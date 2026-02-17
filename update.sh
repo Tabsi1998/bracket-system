@@ -125,6 +125,9 @@ Usage: ./update.sh [options]
 Options:
   --force           update auch bei lokalen Änderungen an getrackten Dateien
   --branch <name>   expliziter Git-Branch (Standard: aktueller Branch)
+  --auto            keine interaktiven Rückfragen (Admin/Demo optional überspringen)
+  --frontend-memory Frontend Build RAM in MB (z. B. 3072)
+  --frontend-timeout Frontend Build Timeout (z. B. 30m, 1800s)
   --admin-reset     Admin-Konto zurücksetzen/neu anlegen (CLI)
   --admin-email     E-Mail für Admin-Reset
   --admin-password  Passwort für Admin-Reset
@@ -133,6 +136,119 @@ Options:
   --seed-demo-reset Vorhandene Demo-Daten vor Import löschen
   -h, --help        Hilfe anzeigen
 EOF
+}
+
+is_positive_int() {
+  [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]
+}
+
+resolve_frontend_build_memory_mb() {
+  if [ -n "${FRONTEND_BUILD_MEMORY_MB:-}" ]; then
+    if is_positive_int "$FRONTEND_BUILD_MEMORY_MB"; then
+      printf '%s' "$FRONTEND_BUILD_MEMORY_MB"
+      return 0
+    fi
+    warn "FRONTEND_BUILD_MEMORY_MB ist ungültig: $FRONTEND_BUILD_MEMORY_MB"
+  fi
+
+  local mem_total_mb="0"
+  if [ -r /proc/meminfo ]; then
+    mem_total_mb="$(awk '/MemTotal:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
+  fi
+
+  if [ "$mem_total_mb" -ge 8192 ]; then
+    printf '4096'
+  elif [ "$mem_total_mb" -ge 4096 ]; then
+    printf '3072'
+  elif [ "$mem_total_mb" -ge 2048 ]; then
+    printf '2048'
+  else
+    printf '1536'
+  fi
+}
+
+resolve_frontend_manager() {
+  if command -v yarn >/dev/null 2>&1; then
+    echo "yarn"
+    return 0
+  fi
+  if command -v npm >/dev/null 2>&1; then
+    echo "npm"
+    return 0
+  fi
+  return 1
+}
+
+run_frontend_install() {
+  local manager="$1"
+  if [ "$manager" = "yarn" ]; then
+    if [ -f yarn.lock ]; then
+      yarn install --frozen-lockfile --silent 2>/dev/null || yarn install --silent
+    else
+      yarn install --silent
+    fi
+    return 0
+  fi
+
+  if [ -f package-lock.json ]; then
+    npm ci --silent 2>/dev/null || npm install --silent
+  else
+    npm install --silent
+  fi
+}
+
+run_frontend_build_command() {
+  local manager="$1"
+  local timeout_value="$2"
+
+  if command -v timeout >/dev/null 2>&1 && [ -n "$timeout_value" ]; then
+    if [ "$manager" = "yarn" ]; then
+      timeout --foreground "$timeout_value" yarn build
+    else
+      timeout --foreground "$timeout_value" npm run build
+    fi
+    return $?
+  fi
+
+  if [ "$manager" = "yarn" ]; then
+    yarn build
+  else
+    npm run build
+  fi
+}
+
+show_build_failure_diagnostics() {
+  warn "Frontend Build fehlgeschlagen. Sammle Kurzdiagnose..."
+  if command -v free >/dev/null 2>&1; then
+    free -h || true
+  fi
+  if command -v dmesg >/dev/null 2>&1; then
+    local oom_lines
+    oom_lines="$(dmesg -T 2>/dev/null | grep -Ei 'oom|out of memory|killed process' | tail -n 8 || true)"
+    if [ -n "$oom_lines" ]; then
+      warn "Mögliche OOM Hinweise aus dmesg:"
+      printf '%s\n' "$oom_lines"
+    fi
+  fi
+}
+
+run_frontend_build_with_memory() {
+  local manager="$1"
+  local memory_mb="$2"
+  local timeout_value="$3"
+  local base_node_options="${NODE_OPTIONS:-}"
+
+  export CI=false
+  export BROWSERSLIST_IGNORE_OLD_DATA=1
+
+  if printf ' %s ' "$base_node_options" | grep -Eq -- '--max-old-space-size(=|[[:space:]])'; then
+    export NODE_OPTIONS="$base_node_options"
+  else
+    export NODE_OPTIONS="--max-old-space-size=${memory_mb}${base_node_options:+ $base_node_options}"
+  fi
+
+  log "Frontend Build startet (manager=$manager, memory=${memory_mb}MB, timeout=${timeout_value})"
+  run_frontend_build_command "$manager" "$timeout_value"
 }
 
 SUDO=""
@@ -149,6 +265,7 @@ ADMIN_PASSWORD_OVERRIDE=""
 ADMIN_USERNAME_OVERRIDE=""
 DEMO_SEED=0
 DEMO_RESET=0
+AUTO_MODE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force)
@@ -158,6 +275,20 @@ while [[ $# -gt 0 ]]; do
     --branch)
       [ $# -ge 2 ] || err "--branch benötigt einen Wert"
       BRANCH="$2"
+      shift 2
+      ;;
+    --auto)
+      AUTO_MODE=1
+      shift
+      ;;
+    --frontend-memory)
+      [ $# -ge 2 ] || err "--frontend-memory benötigt einen Wert"
+      FRONTEND_BUILD_MEMORY_MB="$2"
+      shift 2
+      ;;
+    --frontend-timeout)
+      [ $# -ge 2 ] || err "--frontend-timeout benötigt einen Wert"
+      FRONTEND_BUILD_TIMEOUT="$2"
       shift 2
       ;;
     --admin-reset)
@@ -359,6 +490,11 @@ if [ -n "$ADMIN_EMAIL_OVERRIDE" ] || [ -n "$ADMIN_PASSWORD_OVERRIDE" ] || [ -n "
   ADMIN_RESET=1
 fi
 
+FRONTEND_BUILD_TIMEOUT="${FRONTEND_BUILD_TIMEOUT:-30m}"
+if [ -z "$FRONTEND_BUILD_TIMEOUT" ]; then
+  FRONTEND_BUILD_TIMEOUT="30m"
+fi
+
 TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
 UNTRACKED_CHANGES="$(collect_untracked_changes || true)"
 
@@ -420,7 +556,7 @@ else
 fi
 
 step "Admin Konto (optional)"
-if [ "$ADMIN_RESET" -ne 1 ] && [ -t 0 ]; then
+if [ "$ADMIN_RESET" -ne 1 ] && [ "$AUTO_MODE" -ne 1 ] && [ -t 0 ]; then
   read -rp "Admin-Konto zurücksetzen/neu anlegen? [j/N] " admin_choice
   case "$admin_choice" in
     j|J|y|Y) ADMIN_RESET=1 ;;
@@ -441,7 +577,7 @@ if [ "$ADMIN_RESET" -eq 1 ]; then
   admin_password="$ADMIN_PASSWORD_OVERRIDE"
   admin_username="$ADMIN_USERNAME_OVERRIDE"
 
-  if [ -t 0 ]; then
+  if [ "$AUTO_MODE" -ne 1 ] && [ -t 0 ]; then
     read -rp "Admin E-Mail [$default_admin_email]: " input_email
     if [ -z "$admin_email" ]; then
       admin_email="${input_email:-$default_admin_email}"
@@ -468,7 +604,7 @@ else
 fi
 
 step "Demo-Daten (optional)"
-if [ "$DEMO_SEED" -ne 1 ] && [ -t 0 ]; then
+if [ "$DEMO_SEED" -ne 1 ] && [ "$AUTO_MODE" -ne 1 ] && [ -t 0 ]; then
   read -rp "Demo-Daten importieren? [j/N] " demo_choice
   case "$demo_choice" in
     j|J|y|Y) DEMO_SEED=1 ;;
@@ -476,7 +612,7 @@ if [ "$DEMO_SEED" -ne 1 ] && [ -t 0 ]; then
   esac
 fi
 
-if [ "$DEMO_SEED" -eq 1 ] && [ "$DEMO_RESET" -ne 1 ] && [ -t 0 ]; then
+if [ "$DEMO_SEED" -eq 1 ] && [ "$DEMO_RESET" -ne 1 ] && [ "$AUTO_MODE" -ne 1 ] && [ -t 0 ]; then
   read -rp "Vorhandene Demo-Daten vorher löschen? [j/N] " demo_reset_choice
   case "$demo_reset_choice" in
     j|J|y|Y) DEMO_RESET=1 ;;
@@ -493,18 +629,38 @@ fi
 step "Frontend aktualisieren"
 [ -d frontend ] || err "frontend/ nicht gefunden"
 cd frontend
-if ! command -v yarn >/dev/null 2>&1; then
-  command -v npm >/dev/null 2>&1 || err "weder yarn noch npm gefunden"
-  warn "Yarn nicht gefunden, versuche globale Installation"
-  $SUDO npm install -g yarn >/dev/null 2>&1 || err "Yarn-Installation fehlgeschlagen"
+
+FRONTEND_MANAGER="$(resolve_frontend_manager || true)"
+if [ -z "$FRONTEND_MANAGER" ]; then
+  err "weder yarn noch npm gefunden"
+fi
+if [ "$FRONTEND_MANAGER" = "npm" ] && [ -f yarn.lock ]; then
+  warn "yarn.lock gefunden, aber yarn fehlt. Versuche yarn automatisch zu installieren."
+  $SUDO npm install -g yarn >/dev/null 2>&1 || true
+  FRONTEND_MANAGER="$(resolve_frontend_manager || true)"
+fi
+[ -n "$FRONTEND_MANAGER" ] || err "kein Frontend-Paketmanager verfügbar"
+
+run_frontend_install "$FRONTEND_MANAGER"
+
+frontend_memory_mb="$(resolve_frontend_build_memory_mb)"
+if ! run_frontend_build_with_memory "$FRONTEND_MANAGER" "$frontend_memory_mb" "$FRONTEND_BUILD_TIMEOUT"; then
+  retry_memory_mb=$((frontend_memory_mb + 1024))
+  if [ "$retry_memory_mb" -gt 6144 ]; then
+    retry_memory_mb=6144
+  fi
+  if [ "$retry_memory_mb" -gt "$frontend_memory_mb" ]; then
+    warn "Frontend Build Retry mit mehr RAM: ${retry_memory_mb}MB"
+    run_frontend_build_with_memory "$FRONTEND_MANAGER" "$retry_memory_mb" "$FRONTEND_BUILD_TIMEOUT" || {
+      show_build_failure_diagnostics
+      err "Frontend Build fehlgeschlagen (auch nach Retry)."
+    }
+  else
+    show_build_failure_diagnostics
+    err "Frontend Build fehlgeschlagen."
+  fi
 fi
 
-if [ -f yarn.lock ]; then
-  yarn install --frozen-lockfile --silent 2>/dev/null || yarn install --silent
-else
-  yarn install --silent
-fi
-yarn build
 cd "$SCRIPT_DIR"
 log "Frontend Build aktualisiert"
 

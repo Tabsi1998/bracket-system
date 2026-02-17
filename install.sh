@@ -54,6 +54,76 @@ dotenv_quote() {
   printf '"%s"' "$value"
 }
 
+is_positive_int() {
+  [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]
+}
+
+resolve_frontend_build_memory_mb() {
+  if [ -n "${FRONTEND_BUILD_MEMORY_MB:-}" ]; then
+    if is_positive_int "$FRONTEND_BUILD_MEMORY_MB"; then
+      printf '%s' "$FRONTEND_BUILD_MEMORY_MB"
+      return 0
+    fi
+    warn "FRONTEND_BUILD_MEMORY_MB ist ungültig: $FRONTEND_BUILD_MEMORY_MB"
+  fi
+
+  local mem_total_mb="0"
+  if [ -r /proc/meminfo ]; then
+    mem_total_mb="$(awk '/MemTotal:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
+  fi
+
+  if [ "$mem_total_mb" -ge 8192 ]; then
+    printf '4096'
+  elif [ "$mem_total_mb" -ge 4096 ]; then
+    printf '3072'
+  elif [ "$mem_total_mb" -ge 2048 ]; then
+    printf '2048'
+  else
+    printf '1536'
+  fi
+}
+
+run_frontend_build_command() {
+  local timeout_value="$1"
+  if command -v timeout >/dev/null 2>&1 && [ -n "$timeout_value" ]; then
+    timeout --foreground "$timeout_value" yarn build
+    return $?
+  fi
+  yarn build
+}
+
+show_frontend_build_diagnostics() {
+  warn "Frontend Build fehlgeschlagen. Kurzdiagnose:"
+  if command -v free >/dev/null 2>&1; then
+    free -h || true
+  fi
+  if command -v dmesg >/dev/null 2>&1; then
+    local oom_lines
+    oom_lines="$(dmesg -T 2>/dev/null | grep -Ei 'oom|out of memory|killed process' | tail -n 8 || true)"
+    if [ -n "$oom_lines" ]; then
+      warn "Mögliche OOM Hinweise aus dmesg:"
+      printf '%s\n' "$oom_lines"
+    fi
+  fi
+}
+
+run_frontend_build_with_memory() {
+  local memory_mb="$1"
+  local timeout_value="$2"
+  local base_node_options="${NODE_OPTIONS:-}"
+
+  export CI=false
+  export BROWSERSLIST_IGNORE_OLD_DATA=1
+  if printf ' %s ' "$base_node_options" | grep -Eq -- '--max-old-space-size(=|[[:space:]])'; then
+    export NODE_OPTIONS="$base_node_options"
+  else
+    export NODE_OPTIONS="--max-old-space-size=${memory_mb}${base_node_options:+ $base_node_options}"
+  fi
+
+  log "Frontend Build startet (memory=${memory_mb}MB, timeout=${timeout_value})"
+  run_frontend_build_command "$timeout_value"
+}
+
 run_demo_seed_install() {
   local install_dir="$1"
   local reset_flag="${2:-0}"
@@ -242,7 +312,19 @@ REACT_APP_BACKEND_URL=
 EOF
 
 yarn install --frozen-lockfile --silent 2>/dev/null || yarn install --silent
-yarn build
+FRONTEND_BUILD_TIMEOUT="${FRONTEND_BUILD_TIMEOUT:-30m}"
+frontend_memory_mb="$(resolve_frontend_build_memory_mb)"
+if ! run_frontend_build_with_memory "$frontend_memory_mb" "$FRONTEND_BUILD_TIMEOUT"; then
+  retry_memory_mb=$((frontend_memory_mb + 1024))
+  if [ "$retry_memory_mb" -gt 6144 ]; then
+    retry_memory_mb=6144
+  fi
+  warn "Frontend Build Retry mit mehr RAM: ${retry_memory_mb}MB"
+  run_frontend_build_with_memory "$retry_memory_mb" "$FRONTEND_BUILD_TIMEOUT" || {
+    show_frontend_build_diagnostics
+    err "Frontend Build fehlgeschlagen (auch nach Retry)"
+  }
+fi
 log "Frontend gebaut (Production Build)"
 
 # ═══════════════════════════════════════════════════
