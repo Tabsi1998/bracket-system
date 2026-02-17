@@ -5749,6 +5749,174 @@ async def accept_schedule(request: Request, match_id: str, proposal_id: str):
         await db.notifications.insert_one(notif)
     return {"status": "accepted"}
 
+# --- Auto-Scheduling System ---
+
+WEEKDAY_MAP = {
+    "monday": 0, "montag": 0,
+    "tuesday": 1, "dienstag": 1,
+    "wednesday": 2, "mittwoch": 2,
+    "thursday": 3, "donnerstag": 3,
+    "friday": 4, "freitag": 4,
+    "saturday": 5, "samstag": 5,
+    "sunday": 6, "sonntag": 6,
+}
+
+def get_default_match_datetime(tournament: Dict, window_start: Optional[datetime], window_end: Optional[datetime]) -> Optional[datetime]:
+    """Calculate default match datetime based on tournament settings."""
+    default_day = str(tournament.get("default_match_day", "wednesday") or "wednesday").strip().lower()
+    default_hour = max(0, min(23, int(tournament.get("default_match_hour", 19) or 19)))
+    
+    target_weekday = WEEKDAY_MAP.get(default_day, 2)  # Wednesday as fallback
+    
+    if window_start:
+        base_date = window_start
+    elif window_end:
+        base_date = window_end - timedelta(days=3)
+    else:
+        base_date = datetime.now(timezone.utc)
+    
+    # Find the target weekday within the window
+    days_until_target = (target_weekday - base_date.weekday()) % 7
+    if days_until_target == 0 and base_date.hour > default_hour:
+        days_until_target = 7
+    
+    target_date = base_date + timedelta(days=days_until_target)
+    result = target_date.replace(hour=default_hour, minute=0, second=0, microsecond=0)
+    
+    # Ensure it's within the window
+    if window_end and result > window_end:
+        result = window_end.replace(hour=default_hour, minute=0, second=0, microsecond=0)
+    
+    return result
+
+@api_router.post("/tournaments/{tournament_id}/auto-schedule-unscheduled")
+async def auto_schedule_unscheduled_matches(request: Request, tournament_id: str):
+    """Admin endpoint to auto-schedule all unscheduled matches with default time."""
+    await require_admin(request)
+    tournament = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
+    if not tournament:
+        raise HTTPException(404, "Turnier nicht gefunden")
+    if not tournament.get("bracket"):
+        raise HTTPException(400, "Bracket noch nicht generiert")
+    
+    bracket = tournament["bracket"]
+    bracket_type = bracket.get("type", "")
+    scheduled_count = 0
+    
+    def schedule_match(match: Dict, window_start: Optional[datetime], window_end: Optional[datetime]) -> bool:
+        nonlocal scheduled_count
+        if match.get("scheduled_for"):
+            return False
+        if match.get("status") == "completed":
+            return False
+        if not match.get("team1_id") or not match.get("team2_id"):
+            return False
+        
+        default_time = get_default_match_datetime(tournament, window_start, window_end)
+        if default_time:
+            match["scheduled_for"] = default_time.isoformat()
+            match["auto_scheduled"] = True
+            scheduled_count += 1
+            return True
+        return False
+    
+    # Process based on bracket type
+    if bracket_type in ("league", "round_robin"):
+        for round_doc in bracket.get("rounds", []):
+            window_start = parse_optional_datetime(str(round_doc.get("window_start", "") or ""))
+            window_end = parse_optional_datetime(str(round_doc.get("window_end", "") or ""))
+            for match in round_doc.get("matches", []):
+                schedule_match(match, window_start, window_end)
+    
+    elif bracket_type in ("group_stage", "group_playoffs"):
+        for group in bracket.get("groups", []):
+            for round_doc in group.get("rounds", []):
+                window_start = parse_optional_datetime(str(round_doc.get("window_start", "") or ""))
+                window_end = parse_optional_datetime(str(round_doc.get("window_end", "") or ""))
+                for match in round_doc.get("matches", []):
+                    schedule_match(match, window_start, window_end)
+        if bracket_type == "group_playoffs" and bracket.get("playoffs"):
+            for round_doc in bracket["playoffs"].get("rounds", []):
+                for match in round_doc.get("matches", []):
+                    schedule_match(match, None, None)
+    
+    elif bracket_type in ("single_elimination", "double_elimination", "swiss_system", "ladder_system", "king_of_the_hill"):
+        for round_doc in bracket.get("rounds", []):
+            for match in round_doc.get("matches", []):
+                schedule_match(match, None, None)
+    
+    if scheduled_count > 0:
+        await db.tournaments.update_one(
+            {"id": tournament_id},
+            {"$set": {"bracket": bracket, "updated_at": now_iso()}}
+        )
+    
+    return {
+        "status": "ok",
+        "scheduled_count": scheduled_count,
+        "message": f"{scheduled_count} Matches wurden automatisch terminiert"
+    }
+
+@api_router.get("/tournaments/{tournament_id}/scheduling-status")
+async def get_scheduling_status(request: Request, tournament_id: str):
+    """Get overview of scheduled vs unscheduled matches."""
+    tournament = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
+    if not tournament:
+        raise HTTPException(404, "Turnier nicht gefunden")
+    if not tournament.get("bracket"):
+        return {"total": 0, "scheduled": 0, "unscheduled": 0, "completed": 0, "pending": 0}
+    
+    bracket = tournament["bracket"]
+    bracket_type = bracket.get("type", "")
+    
+    stats = {"total": 0, "scheduled": 0, "unscheduled": 0, "completed": 0, "pending": 0, "auto_scheduled": 0}
+    
+    def count_match(match: Dict):
+        stats["total"] += 1
+        if match.get("status") == "completed":
+            stats["completed"] += 1
+        else:
+            stats["pending"] += 1
+        if match.get("scheduled_for"):
+            stats["scheduled"] += 1
+        else:
+            stats["unscheduled"] += 1
+        if match.get("auto_scheduled"):
+            stats["auto_scheduled"] += 1
+    
+    if bracket_type in ("league", "round_robin", "swiss_system", "ladder_system", "king_of_the_hill"):
+        for round_doc in bracket.get("rounds", []):
+            for match in round_doc.get("matches", []):
+                count_match(match)
+    elif bracket_type in ("group_stage", "group_playoffs"):
+        for group in bracket.get("groups", []):
+            for round_doc in group.get("rounds", []):
+                for match in round_doc.get("matches", []):
+                    count_match(match)
+        if bracket_type == "group_playoffs" and bracket.get("playoffs"):
+            for round_doc in bracket["playoffs"].get("rounds", []):
+                for match in round_doc.get("matches", []):
+                    count_match(match)
+    elif bracket_type == "single_elimination":
+        for round_doc in bracket.get("rounds", []):
+            for match in round_doc.get("matches", []):
+                count_match(match)
+    elif bracket_type == "double_elimination":
+        for round_doc in bracket.get("winners_bracket", {}).get("rounds", []):
+            for match in round_doc.get("matches", []):
+                count_match(match)
+        for round_doc in bracket.get("losers_bracket", {}).get("rounds", []):
+            for match in round_doc.get("matches", []):
+                count_match(match)
+        if bracket.get("grand_final"):
+            count_match(bracket["grand_final"])
+    
+    stats["default_day"] = tournament.get("default_match_day", "wednesday")
+    stats["default_hour"] = tournament.get("default_match_hour", 19)
+    stats["auto_schedule_enabled"] = tournament.get("auto_schedule_on_window_end", True)
+    
+    return stats
+
 # --- Admin Endpoints ---
 
 @api_router.get("/admin/settings")
