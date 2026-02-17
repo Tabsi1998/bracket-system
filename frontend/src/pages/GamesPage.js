@@ -453,8 +453,7 @@ function GameCard({ game, isAdmin, onRefresh }) {
                     {game.modes.map(m => (
                       <div key={m.name} className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/5 text-xs">
                         <span className="text-white font-medium">{m.name}</span>
-                        <span className="text-zinc-500 ml-2">{m.team_size}v{m.team_size}</span>
-                        {m.description && <span className="text-zinc-600 ml-2">{m.description}</span>}
+                        {m.description && <span className="text-zinc-600 ml-2">- {m.description}</span>}
                       </div>
                     ))}
                   </div>
