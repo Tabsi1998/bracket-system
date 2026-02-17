@@ -4322,8 +4322,8 @@ async def get_match_detail(request: Request, match_id: str):
     team1_reg = reg_by_id.get(str(match.get("team1_id", "")).strip())
     team2_reg = reg_by_id.get(str(match.get("team2_id", "")).strip())
 
-    side = await resolve_user_match_side(user, team1_reg, team2_reg)
-    setup_doc = await db.match_setups.find_one({"tournament_id": tournament["id"], "match_id": match_id}, {"_id": 0})
+    side = await resolve_user_match_side(user, team1_reg, team2_reg) if can_manage else None
+    setup_doc = await db.match_setups.find_one({"tournament_id": tournament["id"], "match_id": match_id}, {"_id": 0}) if can_manage else None
     accepted_schedule = await db.schedule_proposals.find_one(
         {
             "match_id": match_id,
