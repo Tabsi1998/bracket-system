@@ -117,7 +117,7 @@ class eSportsTournamentTester:
             "POST",
             "admin/smtp-test",
             200,
-            data={"email": test_email}
+            data={"test_email": test_email}
         )
         
         if success:
