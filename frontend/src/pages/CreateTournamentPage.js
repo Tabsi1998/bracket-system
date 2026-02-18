@@ -38,6 +38,7 @@ export default function CreateTournamentPage() {
   const [form, setForm] = useState({
     name: "",
     game_id: "",
+    game_category: "",
     game_mode: "",
     sub_game_id: "",
     sub_game_name: "",
@@ -67,6 +68,8 @@ export default function CreateTournamentPage() {
     points_draw: 1,
     points_loss: 0,
     tiebreakers: "points,score_diff,score_for,team_name",
+    score_unit_label: "Score",
+    score_entry_hint: "",
     map_pool: [],
     map_ban_enabled: true,
     map_ban_count: 2,
@@ -80,13 +83,39 @@ export default function CreateTournamentPage() {
     axios.get(`${API}/games`).then(r => setGames(r.data)).catch(() => {});
   }, []);
 
+  const applyPresetValues = useCallback((base, preset = {}) => {
+    if (!preset || typeof preset !== "object") return base;
+    const participantMode = preset.participant_mode || base.participant_mode;
+    const groupSize = Math.max(2, Number(preset.group_size || base.group_size || 4));
+    const battleRoyaleGroupSize = Math.max(2, Number(preset.battle_royale_group_size || base.battle_royale_group_size || 4));
+    return {
+      ...base,
+      bracket_type: preset.bracket_type || base.bracket_type,
+      best_of: Math.max(1, Number(preset.best_of || base.best_of || 1)),
+      participant_mode: participantMode,
+      team_size: participantMode === "solo" ? 1 : base.team_size,
+      matchday_interval_days: Math.max(1, Number(preset.matchday_interval_days || base.matchday_interval_days || 7)),
+      matchday_window_days: Math.max(1, Number(preset.matchday_window_days || base.matchday_window_days || 7)),
+      group_size: groupSize,
+      advance_per_group: Math.min(groupSize, Math.max(1, Number(preset.advance_per_group || base.advance_per_group || 2))),
+      swiss_rounds: Math.max(1, Number(preset.swiss_rounds || base.swiss_rounds || 5)),
+      battle_royale_group_size: battleRoyaleGroupSize,
+      battle_royale_advance: Math.min(
+        battleRoyaleGroupSize - 1,
+        Math.max(1, Number(preset.battle_royale_advance || base.battle_royale_advance || 2)),
+      ),
+    };
+  }, []);
+
   const applyGuidanceToForm = useCallback((guidance, modeName = "") => {
     if (!guidance) return;
     const recommendedBracket = guidance.default_bracket_type || "single_elimination";
     const recommendedBestOf = Number(guidance.default_best_of || 1);
     const recommendedParticipantMode = guidance.default_participant_mode || "team";
+    const guidancePresets = Array.isArray(guidance.format_presets) ? guidance.format_presets : [];
+    const defaultPreset = guidancePresets.find((p) => p?.bracket_type === recommendedBracket) || guidancePresets[0] || null;
     setForm(prev => {
-      const next = {
+      let next = {
         ...prev,
         bracket_type: recommendedBracket,
         best_of: Math.max(1, recommendedBestOf),
@@ -96,7 +125,12 @@ export default function CreateTournamentPage() {
         map_vote_enabled: Boolean(guidance.map_vote_enabled),
         map_ban_count: Math.max(1, Number(guidance.map_ban_count || 2)),
         map_pick_order: guidance.map_pick_order || prev.map_pick_order,
+        score_unit_label: guidance.score_unit_label || prev.score_unit_label || "Score",
+        score_entry_hint: guidance.score_entry_hint || prev.score_entry_hint || "",
       };
+      if (defaultPreset) {
+        next = applyPresetValues(next, defaultPreset);
+      }
       if (modeName) {
         const mode = selectedGame?.modes?.find(m => m.name === modeName);
         if (mode && next.participant_mode !== "solo") {
@@ -105,7 +139,7 @@ export default function CreateTournamentPage() {
       }
       return next;
     });
-  }, [selectedGame?.modes]);
+  }, [applyPresetValues, selectedGame?.modes]);
 
   const fetchFormatGuidance = useCallback(async (gameId, modeName = "") => {
     if (!gameId) {
@@ -129,7 +163,18 @@ export default function CreateTournamentPage() {
     setSubGames(game?.sub_games || []);
     setSelectedSubGame(null);
     setAvailableMaps([]);
-    setForm(prev => ({ ...prev, game_id: gameId, game_mode: "", team_size: 1, sub_game_id: "", sub_game_name: "", map_pool: [] }));
+    setForm(prev => ({
+      ...prev,
+      game_id: gameId,
+      game_category: game?.category || "",
+      game_mode: "",
+      team_size: 1,
+      sub_game_id: "",
+      sub_game_name: "",
+      map_pool: [],
+      score_unit_label: game?.category === "racing" ? "Punkte" : "Score",
+      score_entry_hint: "",
+    }));
     fetchFormatGuidance(gameId).then(guidance => {
       if (guidance) applyGuidanceToForm(guidance);
     });
@@ -173,6 +218,11 @@ export default function CreateTournamentPage() {
       }
       return { ...prev, map_pool: [...current, mapId] };
     });
+  };
+
+  const applyPresetToForm = (preset) => {
+    if (!preset || typeof preset !== "object") return;
+    setForm((prev) => applyPresetValues(prev, preset));
   };
 
   const handleSubmit = async () => {
@@ -327,6 +377,24 @@ export default function CreateTournamentPage() {
                         <li key={idx}>• {note}</li>
                       ))}
                     </ul>
+                  )}
+                  {Array.isArray(formatGuidance.format_presets) && formatGuidance.format_presets.length > 0 && (
+                    <div className="pt-1 space-y-1">
+                      <p className="text-[11px] text-cyan-200 uppercase tracking-wider">Preset-Vorschläge</p>
+                      <div className="flex flex-wrap gap-2">
+                        {formatGuidance.format_presets.slice(0, 4).map((preset) => (
+                          <button
+                            key={preset.id || `${preset.bracket_type}-${preset.label}`}
+                            type="button"
+                            onClick={() => applyPresetToForm(preset)}
+                            className="px-2 py-1 rounded border border-cyan-500/30 text-cyan-300 text-[11px] hover:bg-cyan-500/10 transition-colors"
+                            title={preset.description || ""}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                   {Array.isArray(formatGuidance.source_urls) && formatGuidance.source_urls.length > 0 && (
                     <div className="flex flex-wrap gap-2 pt-1">
@@ -623,11 +691,33 @@ export default function CreateTournamentPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-950 border-white/10">
-                      {[1, 3, 5, 7].map(n => (
+                      {Array.from(new Set([
+                        1, 2, 3, 4, 5, 7,
+                        ...(selectedGame?.modes?.find((m) => m.name === form.game_mode)?.best_of_options || []),
+                        Number(formatGuidance?.default_best_of || 1),
+                      ].map((x) => Number(x)).filter((x) => Number.isFinite(x) && x >= 1))).sort((a, b) => a - b).map(n => (
                         <SelectItem key={n} value={String(n)}>Best of {n}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <Label className="text-zinc-400 text-sm">Score-Einheit</Label>
+                  <Input
+                    value={form.score_unit_label}
+                    onChange={e => setForm({ ...form, score_unit_label: e.target.value })}
+                    placeholder="z.B. Punkte, Games, Kills"
+                    className="bg-zinc-900 border-white/10 text-white mt-1"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="text-zinc-400 text-sm">Score-Hinweis (optional)</Label>
+                  <Input
+                    value={form.score_entry_hint}
+                    onChange={e => setForm({ ...form, score_entry_hint: e.target.value })}
+                    placeholder="z.B. Gesamtpunkte nach 4 Rennen eintragen"
+                    className="bg-zinc-900 border-white/10 text-white mt-1"
+                  />
                 </div>
                 <div>
                   <Label className="text-zinc-400 text-sm">Startdatum</Label>

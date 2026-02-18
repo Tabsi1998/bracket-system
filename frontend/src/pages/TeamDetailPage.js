@@ -4,39 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Users, Trophy, Calendar, Shield, Crown, User } from "lucide-react";
+import { Users, Trophy, Shield, Crown, User } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import SocialLinks from "@/components/SocialLinks";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
-
-// Social Media Icons using FontAwesome classes
-const SocialIcon = ({ type, url }) => {
-  if (!url) return null;
-  
-  const iconMap = {
-    discord: { icon: "fab fa-discord", color: "text-[#5865F2]", hoverBorderClass: "hover:border-[#5865F2]/50", label: "Discord" },
-    twitter: { icon: "fab fa-twitter", color: "text-[#1DA1F2]", hoverBorderClass: "hover:border-[#1DA1F2]/50", label: "Twitter" },
-    instagram: { icon: "fab fa-instagram", color: "text-[#E4405F]", hoverBorderClass: "hover:border-[#E4405F]/50", label: "Instagram" },
-    twitch: { icon: "fab fa-twitch", color: "text-[#9146FF]", hoverBorderClass: "hover:border-[#9146FF]/50", label: "Twitch" },
-    youtube: { icon: "fab fa-youtube", color: "text-[#FF0000]", hoverBorderClass: "hover:border-[#FF0000]/50", label: "YouTube" },
-    website: { icon: "fas fa-globe", color: "text-zinc-400", hoverBorderClass: "hover:border-zinc-400/50", label: "Website" },
-  };
-  
-  const config = iconMap[type] || iconMap.website;
-  
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`w-10 h-10 rounded-lg bg-zinc-900 border border-white/5 flex items-center justify-center transition-all group ${config.hoverBorderClass}`}
-      title={config.label}
-    >
-      <i className={`${config.icon} text-lg ${config.color} group-hover:scale-110 transition-transform`}></i>
-    </a>
-  );
-};
 
 export default function TeamDetailPage() {
   const { id } = useParams();
@@ -51,20 +24,19 @@ export default function TeamDetailPage() {
       const res = await axios.get(`${API}/teams/${id}`);
       setTeam(res.data);
       
-      // Fetch sub-teams only for users who are allowed to view them.
+      // Main-team pages expose sub-teams publicly for better discoverability.
       if (!res.data.parent_team_id) {
-        const canViewSubTeams = Boolean(
-          user && (isAdmin || res.data.owner_id === user.id || (res.data.member_ids || []).includes(user.id))
-        );
-        if (canViewSubTeams) {
+        try {
+          const subRes = await axios.get(`${API}/teams/${id}/sub-teams`);
+          setSubTeams(Array.isArray(subRes.data) ? subRes.data : []);
+        } catch {
           try {
-            const subRes = await axios.get(`${API}/teams/${id}/sub-teams`);
-            setSubTeams(Array.isArray(subRes.data) ? subRes.data : []);
+            const publicRes = await axios.get(`${API}/teams/public`);
+            const parentEntry = (Array.isArray(publicRes.data) ? publicRes.data : []).find((row) => row?.id === id);
+            setSubTeams(Array.isArray(parentEntry?.sub_teams) ? parentEntry.sub_teams : []);
           } catch {
             setSubTeams([]);
           }
-        } else {
-          setSubTeams([]);
         }
       }
       
@@ -76,14 +48,13 @@ export default function TeamDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [id, isAdmin, user]);
+  }, [id]);
 
   useEffect(() => {
     fetchTeam();
   }, [fetchTeam]);
 
   const isOwner = user && team?.owner_id === user.id;
-  const isLeader = user && (team?.leader_ids || []).includes(user.id);
   const isMember = user && (team?.members || []).some(m => (m.id || m.user_id) === user.id);
   const canEdit = isAdmin || isOwner;
 
@@ -169,13 +140,8 @@ export default function TeamDetailPage() {
 
       {/* Social Links */}
       {(team.discord_url || team.twitter_url || team.instagram_url || team.twitch_url || team.youtube_url || team.website_url) && (
-        <div className="flex gap-2 mb-8 flex-wrap">
-          <SocialIcon type="discord" url={team.discord_url} />
-          <SocialIcon type="twitter" url={team.twitter_url} />
-          <SocialIcon type="instagram" url={team.instagram_url} />
-          <SocialIcon type="twitch" url={team.twitch_url} />
-          <SocialIcon type="youtube" url={team.youtube_url} />
-          <SocialIcon type="website" url={team.website_url} />
+        <div className="mb-8">
+          <SocialLinks entity={team} />
         </div>
       )}
 

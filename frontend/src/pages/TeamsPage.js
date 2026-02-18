@@ -10,6 +10,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Users, Plus, Trash2, UserPlus, Crown, X, Key, Copy, RefreshCw, ChevronDown, ChevronRight, Shield, Pencil } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import SocialLinks from "@/components/SocialLinks";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_BACKEND_URL || ""}/api`;
@@ -216,22 +217,6 @@ export default function TeamsPage() {
     toast.success("Kopiert!");
   };
 
-  const renderSocialLinks = (team, compact = false) => {
-    const cls = compact
-      ? "text-[11px] px-2 py-1 rounded border border-white/10 bg-zinc-900/60 hover:border-yellow-500/40"
-      : "text-[11px] px-2 py-1 rounded border border-white/10 bg-zinc-950/70 hover:border-yellow-500/40";
-    return (
-      <div className="flex flex-wrap gap-2">
-        {team.discord_url && <a href={team.discord_url} target="_blank" rel="noreferrer" className={`${cls} text-cyan-300`}>💬 Discord</a>}
-        {team.website_url && <a href={team.website_url} target="_blank" rel="noreferrer" className={`${cls} text-zinc-200`}>🌐 Website</a>}
-        {team.twitter_url && <a href={team.twitter_url} target="_blank" rel="noreferrer" className={`${cls} text-sky-300`}>🐦 X/Twitter</a>}
-        {team.instagram_url && <a href={team.instagram_url} target="_blank" rel="noreferrer" className={`${cls} text-pink-300`}>📸 Instagram</a>}
-        {team.twitch_url && <a href={team.twitch_url} target="_blank" rel="noreferrer" className={`${cls} text-purple-300`}>🎮 Twitch</a>}
-        {team.youtube_url && <a href={team.youtube_url} target="_blank" rel="noreferrer" className={`${cls} text-red-300`}>▶️ YouTube</a>}
-      </div>
-    );
-  };
-
   if (!user) return (
     <div className="pt-20 min-h-screen">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -274,13 +259,15 @@ export default function TeamsPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="font-['Barlow_Condensed'] text-2xl text-white">{team.name}</h2>
+                        <Link to={`/teams/${team.id}`} className="font-['Barlow_Condensed'] text-2xl text-white hover:text-yellow-400 transition-colors">
+                          {team.name}
+                        </Link>
                         {team.tag ? <Badge className="bg-zinc-800 text-zinc-300 text-xs">[{team.tag}]</Badge> : null}
                         <Badge className="bg-cyan-500/10 text-cyan-300 text-xs">{team.member_count || 0} Mitglieder</Badge>
                         <Badge className="bg-purple-500/10 text-purple-300 text-xs">{team.sub_team_count || 0} Sub-Teams</Badge>
                       </div>
                       {team.bio ? <p className="text-sm text-zinc-400 mt-2 whitespace-pre-wrap">{team.bio}</p> : null}
-                      <div className="mt-3">{renderSocialLinks(team, true)}</div>
+                      <div className="mt-3"><SocialLinks entity={team} compact /></div>
                     </div>
                   </div>
 
@@ -290,11 +277,13 @@ export default function TeamsPage() {
                       {(team.sub_teams || []).map((sub) => (
                         <div key={`public-sub-${sub.id}`} className="rounded-lg border border-white/5 bg-zinc-900/40 p-3">
                           <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <span className="text-sm font-semibold text-white">{sub.name}</span>
+                            <Link to={`/teams/${sub.id}`} className="text-sm font-semibold text-white hover:text-yellow-400 transition-colors">
+                              {sub.name}
+                            </Link>
                             {sub.tag ? <span className="text-xs text-zinc-500 font-mono">[{sub.tag}]</span> : null}
                             <span className="text-xs text-zinc-600">{sub.member_count || 0} Mitglieder</span>
                           </div>
-                          {renderSocialLinks(sub, true)}
+                          <SocialLinks entity={sub} compact />
                         </div>
                       ))}
                     </div>
@@ -393,7 +382,9 @@ export default function TeamsPage() {
                         )}
                       </div>
                       <div>
-                        <h3 className="font-['Barlow_Condensed'] text-xl font-bold text-white">{team.name}</h3>
+                        <Link to={`/teams/${team.id}`} className="font-['Barlow_Condensed'] text-xl font-bold text-white hover:text-yellow-400 transition-colors">
+                          {team.name}
+                        </Link>
                         {team.tag && <span className="text-xs text-zinc-500 font-mono">[{team.tag}]</span>}
                       </div>
                       {isOwner(team) && <Badge className="bg-yellow-500/10 text-yellow-500 text-xs">Owner</Badge>}
@@ -447,7 +438,7 @@ export default function TeamsPage() {
                   {(team.bio || team.discord_url || team.website_url || team.twitter_url || team.instagram_url || team.twitch_url || team.youtube_url) && (
                     <div className="mb-4 p-3 rounded-lg bg-zinc-900/40 border border-white/5 space-y-2">
                       {team.bio && <p className="text-xs text-zinc-400 whitespace-pre-wrap">{team.bio}</p>}
-                      {renderSocialLinks(team)}
+                      <SocialLinks entity={team} />
                     </div>
                   )}
 
@@ -505,14 +496,16 @@ export default function TeamsPage() {
                                 </div>
                                 <div>
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm text-white font-semibold">{st.name}</span>
+                                    <Link to={`/teams/${st.id}`} className="text-sm text-white font-semibold hover:text-yellow-400 transition-colors">
+                                      {st.name}
+                                    </Link>
                                     {st.tag && <span className="text-xs text-zinc-500 font-mono">[{st.tag}]</span>}
                                     <span className="text-xs text-zinc-600">{st.members?.length || 0} Mitglieder</span>
                                   </div>
                                   {(st.inherited_fields || []).length > 0 && (
                                     <p className="text-[10px] text-zinc-600 mt-1">Übernimmt Profilfelder vom Hauptteam</p>
                                   )}
-                                  <div className="mt-2">{renderSocialLinks(st, true)}</div>
+                                  <div className="mt-2"><SocialLinks entity={st} compact /></div>
                                 </div>
                               </div>
                               {isOwner(team) && (
@@ -564,17 +557,21 @@ export default function TeamsPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-white font-semibold">{team.name}</span>
+                        <Link to={`/teams/${team.id}`} className="text-white font-semibold hover:text-yellow-400 transition-colors">
+                          {team.name}
+                        </Link>
                         {team.tag ? <span className="text-xs text-zinc-500 font-mono">[{team.tag}]</span> : null}
                         <span className="text-xs text-zinc-600">{team.sub_team_count || 0} Sub-Teams</span>
                       </div>
-                      <div className="mt-2">{renderSocialLinks(team, true)}</div>
+                      <div className="mt-2"><SocialLinks entity={team} compact /></div>
                       {(team.sub_teams || []).length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-1">
                           {(team.sub_teams || []).map((sub) => (
-                            <Badge key={`finder-sub-${sub.id}`} className="bg-cyan-500/10 text-cyan-300 text-xs">
-                              {sub.name}{sub.tag ? ` [${sub.tag}]` : ""}
-                            </Badge>
+                            <Link key={`finder-sub-${sub.id}`} to={`/teams/${sub.id}`}>
+                              <Badge className="bg-cyan-500/10 text-cyan-300 text-xs hover:bg-cyan-500/20">
+                                {sub.name}{sub.tag ? ` [${sub.tag}]` : ""}
+                              </Badge>
+                            </Link>
                           ))}
                         </div>
                       )}

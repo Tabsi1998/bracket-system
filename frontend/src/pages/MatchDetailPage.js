@@ -35,6 +35,7 @@ export default function MatchDetailPage() {
   const [resolveJson, setResolveJson] = useState("{}");
   const [resolveNote, setResolveNote] = useState("");
   const [scoreForm, setScoreForm] = useState({ score1: 0, score2: 0 });
+  const [scoreDetailNotes, setScoreDetailNotes] = useState("");
   const [mapVetoState, setMapVetoState] = useState(null);
   const [mapVetoLoading, setMapVetoLoading] = useState(false);
 
@@ -85,6 +86,7 @@ export default function MatchDetailPage() {
           score1: Number(matchObj.score1 || 0),
           score2: Number(matchObj.score2 || 0),
         });
+        setScoreDetailNotes(String(matchObj?.score_details?.notes || ""));
         
         if (hasAccess) {
           fetchMapVeto();
@@ -101,6 +103,7 @@ export default function MatchDetailPage() {
           score1: Number(matchObj.score1 || 0),
           score2: Number(matchObj.score2 || 0),
         });
+        setScoreDetailNotes(String(matchObj?.score_details?.notes || ""));
         
         if (detailRes.data?.map_veto) {
           setMapVetoState(detailRes.data.map_veto);
@@ -214,10 +217,18 @@ export default function MatchDetailPage() {
 
   const submitScore = async () => {
     try {
+      const payload = {
+        ...scoreForm,
+        details: {
+          notes: scoreDetailNotes.trim(),
+          score_unit_label: tournament?.score_unit_label || "Score",
+          best_of: Number(tournament?.best_of || 1),
+        },
+      };
       if (isAdmin) {
-        await axios.put(`${API}/tournaments/${id}/matches/${matchId}/score`, scoreForm);
+        await axios.put(`${API}/tournaments/${id}/matches/${matchId}/score`, payload);
       } else {
-        await axios.post(`${API}/tournaments/${id}/matches/${matchId}/submit-score`, scoreForm);
+        await axios.post(`${API}/tournaments/${id}/matches/${matchId}/submit-score`, payload);
       }
       toast.success("Ergebnis gespeichert");
       fetchData();
@@ -248,6 +259,8 @@ export default function MatchDetailPage() {
   const viewer = matchData.viewer || {};
   const schedule = matchData.schedule || {};
   const setupStatus = setupState?.status || "pending";
+  const scoreUnitLabel = tournament?.score_unit_label || "Score";
+  const scoreEntryHint = tournament?.score_entry_hint || "";
   
   // --- PERMISSION SYSTEM ---
   // viewer.can_manage_match: true only if user is part of this match (team member/owner/leader) or admin
@@ -564,9 +577,11 @@ export default function MatchDetailPage() {
           </h2>
           {canScore || isAdmin ? (
             <>
+              {scoreEntryHint ? <p className="text-xs text-cyan-400">{scoreEntryHint}</p> : null}
               <div className="grid sm:grid-cols-[1fr_auto_1fr_auto] gap-3 items-end">
                 <div>
                   <Label className="text-zinc-400 text-xs">{match.team1_name || "Team 1"}</Label>
+                  <p className="text-[10px] text-zinc-500 mt-1">{scoreUnitLabel}</p>
                   <Input
                     data-testid="score-team1-input"
                     type="number"
@@ -579,6 +594,7 @@ export default function MatchDetailPage() {
                 <div className="text-zinc-500 text-sm pb-2">vs</div>
                 <div>
                   <Label className="text-zinc-400 text-xs">{match.team2_name || "Team 2"}</Label>
+                  <p className="text-[10px] text-zinc-500 mt-1">{scoreUnitLabel}</p>
                   <Input
                     data-testid="score-team2-input"
                     type="number"
@@ -596,6 +612,15 @@ export default function MatchDetailPage() {
                 >
                   Speichern
                 </Button>
+              </div>
+              <div>
+                <Label className="text-zinc-400 text-xs">Details (optional)</Label>
+                <Input
+                  value={scoreDetailNotes}
+                  onChange={(e) => setScoreDetailNotes(e.target.value)}
+                  className="bg-zinc-900 border-white/10 text-white mt-1"
+                  placeholder="z.B. Gesamtpunkte nach 4 Rennen"
+                />
               </div>
               {match.status === "completed" && !isAdmin && <p className="text-xs text-zinc-600">Ergebnis ist bereits abgeschlossen.</p>}
             </>

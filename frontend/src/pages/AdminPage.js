@@ -156,7 +156,10 @@ export default function AdminPage() {
     }
   };
 
-  const getSetting = (key) => settings.find(s => s.key === key)?.value || "";
+  const getSettingRow = (key) => settings.find((s) => s.key === key) || null;
+  const getSetting = (key) => getSettingRow(key)?.value || "";
+  const isSettingSensitive = (key) => Boolean(getSettingRow(key)?.is_sensitive);
+  const isSettingConfigured = (key) => Boolean(getSettingRow(key)?.is_set);
   const adminCount = users.filter((u) => u.role === "admin").length;
   const userNameById = Object.fromEntries(users.map((u) => [u.id, u.username]));
   const formatDate = (value) => {
@@ -588,11 +591,15 @@ export default function AdminPage() {
                       <Label className="text-zinc-400 text-sm">{sk.label}</Label>
                       <Input
                         data-testid={`setting-${sk.key}`}
-                        type={sk.key.includes("secret") || sk.key.includes("password") ? "password" : "text"}
-                        defaultValue={getSetting(sk.key)}
-                        placeholder={sk.placeholder}
+                        type={isSettingSensitive(sk.key) || sk.key.includes("secret") || sk.key.includes("password") ? "password" : "text"}
+                        defaultValue={isSettingSensitive(sk.key) ? "" : getSetting(sk.key)}
+                        placeholder={isSettingSensitive(sk.key) && isSettingConfigured(sk.key) ? "Bereits gesetzt (neu eingeben zum Überschreiben)" : sk.placeholder}
                         onBlur={e => {
-                          if (e.target.value !== getSetting(sk.key)) {
+                          const nextValue = e.target.value;
+                          if (isSettingSensitive(sk.key) && !nextValue) {
+                            return;
+                          }
+                          if (nextValue !== getSetting(sk.key)) {
                             axios.put(`${API}/admin/settings`, { key: sk.key, value: e.target.value })
                               .then(() => { toast.success(`${sk.label} gespeichert`); axios.get(`${API}/admin/settings`).then(r => setSettings(r.data)); })
                               .catch(() => toast.error("Fehler"));
@@ -600,6 +607,9 @@ export default function AdminPage() {
                         }}
                         className="bg-zinc-900 border-white/10 text-white mt-1"
                       />
+                      {isSettingSensitive(sk.key) && isSettingConfigured(sk.key) ? (
+                        <p className="text-[10px] text-zinc-600 mt-1">Wert ist gesetzt und wird aus Sicherheitsgründen nicht angezeigt.</p>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -625,11 +635,15 @@ export default function AdminPage() {
                       <Label className="text-zinc-400 text-sm">{sk.label}</Label>
                       <Input
                         data-testid={`setting-${sk.key}`}
-                        type={sk.key.includes("password") ? "password" : "text"}
-                        defaultValue={getSetting(sk.key)}
-                        placeholder={sk.placeholder}
+                        type={isSettingSensitive(sk.key) || sk.key.includes("password") ? "password" : "text"}
+                        defaultValue={isSettingSensitive(sk.key) ? "" : getSetting(sk.key)}
+                        placeholder={isSettingSensitive(sk.key) && isSettingConfigured(sk.key) ? "Bereits gesetzt (neu eingeben zum Überschreiben)" : sk.placeholder}
                         onBlur={e => {
-                          if (e.target.value !== getSetting(sk.key)) {
+                          const nextValue = e.target.value;
+                          if (isSettingSensitive(sk.key) && !nextValue) {
+                            return;
+                          }
+                          if (nextValue !== getSetting(sk.key)) {
                             axios.put(`${API}/admin/settings`, { key: sk.key, value: e.target.value })
                               .then(() => { toast.success(`${sk.label} gespeichert`); axios.get(`${API}/admin/settings`).then(r => setSettings(r.data)); })
                               .catch(() => toast.error("Fehler"));
@@ -637,6 +651,9 @@ export default function AdminPage() {
                         }}
                         className="bg-zinc-900 border-white/10 text-white mt-1"
                       />
+                      {isSettingSensitive(sk.key) && isSettingConfigured(sk.key) ? (
+                        <p className="text-[10px] text-zinc-600 mt-1">Wert ist gesetzt und wird aus Sicherheitsgründen nicht angezeigt.</p>
+                      ) : null}
                     </div>
                   ))}
                 </div>

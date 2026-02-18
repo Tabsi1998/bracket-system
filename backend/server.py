@@ -68,6 +68,8 @@ TOURNAMENT_TO_MATCHDAY_STATUS = {
     "completed": "completed",
 }
 
+REMINDER_SCHEDULER = None
+
 def _sanitize_log_value(value: Any, depth: int = 0) -> Any:
     if depth >= STRUCTURED_LOG_MAX_DEPTH:
         return "<max-depth>"
@@ -162,6 +164,7 @@ class TournamentCreate(BaseModel):
     name: str
     game_id: str
     game_name: str = ""
+    game_category: str = ""
     game_mode: str = ""
     sub_game_id: str = ""  # Which sub-game (e.g. Black Ops 6)
     sub_game_name: str = ""
@@ -193,6 +196,8 @@ class TournamentCreate(BaseModel):
     points_draw: int = 1
     points_loss: int = 0
     tiebreakers: List[str] = Field(default_factory=lambda: ["points", "score_diff", "score_for", "team_name"])
+    score_unit_label: str = ""
+    score_entry_hint: str = ""
     # Map settings
     map_pool: List[str] = Field(default_factory=list)  # Available maps for this tournament
     map_ban_enabled: bool = True
@@ -205,6 +210,7 @@ class TournamentUpdate(BaseModel):
     status: Optional[str] = None
     bracket_type: Optional[str] = None
     participant_mode: Optional[str] = None
+    game_category: Optional[str] = None
     game_mode: Optional[str] = None
     sub_game_id: Optional[str] = None
     sub_game_name: Optional[str] = None
@@ -231,6 +237,8 @@ class TournamentUpdate(BaseModel):
     points_draw: Optional[int] = None
     points_loss: Optional[int] = None
     tiebreakers: Optional[List[str]] = None
+    score_unit_label: Optional[str] = None
+    score_entry_hint: Optional[str] = None
     map_pool: Optional[List[str]] = None
     map_ban_enabled: Optional[bool] = None
     map_ban_count: Optional[int] = None
@@ -246,6 +254,7 @@ class ScoreUpdate(BaseModel):
     score1: int = Field(ge=0)
     score2: int = Field(ge=0)
     winner_id: Optional[str] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
 
 class PaymentRequest(BaseModel):
     tournament_id: str
@@ -299,12 +308,14 @@ class TimeProposal(BaseModel):
 class ScoreSubmission(BaseModel):
     score1: int = Field(ge=0)
     score2: int = Field(ge=0)
+    details: Dict[str, Any] = Field(default_factory=dict)
 
 class AdminScoreResolve(BaseModel):
     score1: int = Field(ge=0)
     score2: int = Field(ge=0)
     winner_id: Optional[str] = None
     disqualify_team_id: Optional[str] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
 
 class AdminSettingUpdate(BaseModel):
     key: str
@@ -437,6 +448,30 @@ except ValueError:
     PAYMENT_RESERVATION_MINUTES = 30
 
 FAQ_SETTINGS_KEY = "faq_items_json"
+SENSITIVE_ADMIN_SETTING_KEYS = {
+    "stripe_secret_key",
+    "stripe_webhook_secret",
+    "paypal_secret",
+    "smtp_password",
+}
+ALLOWED_ADMIN_SETTING_KEYS = {
+    "payment_provider",
+    "stripe_public_key",
+    "stripe_secret_key",
+    "stripe_webhook_secret",
+    "paypal_client_id",
+    "paypal_secret",
+    "paypal_mode",
+    "smtp_host",
+    "smtp_port",
+    "smtp_user",
+    "smtp_password",
+    "smtp_from_name",
+    "smtp_from_email",
+    "smtp_reply_to",
+    "smtp_use_starttls",
+    "smtp_use_ssl",
+}
 DEFAULT_FAQ_ITEMS: List[Dict[str, str]] = [
     {
         "id": "faq-overview",
@@ -661,6 +696,8 @@ CATEGORY_TOURNAMENT_GUIDANCE: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["league", "round_robin", "group_stage"],
         "default_best_of": 1,
         "default_participant_mode": "solo",
+        "score_unit_label": "Punkte",
+        "score_entry_hint": "Trage den Gesamtpunktestand des Matches ein (z. B. nach mehreren Rennen).",
         "notes": [
             "Racing-Events werden häufig über mehrere Rennen und Punktewertung entschieden.",
         ],
@@ -689,6 +726,8 @@ CATEGORY_TOURNAMENT_GUIDANCE: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["battle_royale", "group_stage"],
         "default_best_of": 1,
         "default_participant_mode": "solo",
+        "score_unit_label": "Punkte",
+        "score_entry_hint": "Trage Gesamtpunkte des Heats ein (Placement + Kills/Eliminations).",
         "notes": [
             "Battle-Royale-Wettbewerbe nutzen Heats und Placement-Punkte; Score-Review durch Admin ist empfohlen.",
         ],
@@ -710,6 +749,8 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["league", "group_playoffs", "double_elimination", "single_elimination"],
         "default_best_of": 3,
         "default_participant_mode": "team",
+        "score_unit_label": "Maps",
+        "score_entry_hint": "Trage die gewonnenen Maps ein (z. B. 2:1 bei Bo3).",
         "map_ban_enabled": True,
         "map_vote_enabled": True,
         "map_ban_count": 2,
@@ -719,7 +760,39 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
             "Für Wochenend-Cups sind Group + Playoffs oder Double-Elimination oft einfacher.",
         ],
         "source_urls": [
-            "https://www.callofduty.com/mobile/esports/rules",
+            "https://liquipedia.net/callofduty/Call_of_Duty_League/2025",
+            "https://www.callofdutyleague.com/en-us/competitive-settings",
+        ],
+        "format_presets": [
+            {
+                "id": "cod-season-league",
+                "label": "CoD Liga-Saison",
+                "description": "Wöchentliche Spieltage mit Tabelle und Match-Hub pro Spieltag.",
+                "bracket_type": "league",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 5,
+            },
+            {
+                "id": "cod-weekend-group-playoffs",
+                "label": "CoD Weekend Cup",
+                "description": "Gruppenphase + Playoffs ohne Spieltage.",
+                "bracket_type": "group_playoffs",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+            },
+            {
+                "id": "cod-open-double-elim",
+                "label": "CoD Open Double-Elim",
+                "description": "Direktes Upper/Lower Bracket für Tages-Events.",
+                "bracket_type": "double_elimination",
+                "best_of": 5,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+            },
         ],
         "mode_overrides": {
             "1v1": {"default_participant_mode": "solo", "default_best_of": 5, "default_bracket_type": "double_elimination"},
@@ -734,11 +807,47 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["group_playoffs", "league", "round_robin"],
         "default_best_of": 1,
         "default_participant_mode": "solo",
+        "score_unit_label": "Tore",
+        "score_entry_hint": "Trage das Endergebnis pro Match ein (z. B. 3:2).",
         "notes": [
             "EA FC nutzt häufig Gruppenphase und KO-Playoffs.",
         ],
         "source_urls": [
             "https://www.ea.com/games/ea-sports-fc/fc-pro/news/fc-pro-2025-need-to-know",
+            "https://www.ea.com/games/ea-sports-fc/fc-pro/news/fc-pro-open-format-explained",
+        ],
+        "format_presets": [
+            {
+                "id": "fifa-group-playoffs",
+                "label": "EA FC Gruppen + Playoffs",
+                "description": "Klassisches FC Pro-orientiertes Format.",
+                "bracket_type": "group_playoffs",
+                "best_of": 1,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+                "group_size": 4,
+                "advance_per_group": 2,
+            },
+            {
+                "id": "fifa-season-league",
+                "label": "EA FC Liga-Saison",
+                "description": "Round-robin Saison mit Wochenfenstern.",
+                "bracket_type": "league",
+                "best_of": 1,
+                "participant_mode": "solo",
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+            {
+                "id": "fifa-open-cup",
+                "label": "EA FC Open Cup",
+                "description": "Klassisches KO-Format für Tagescups.",
+                "bracket_type": "single_elimination",
+                "best_of": 1,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+            },
         ],
         "mode_overrides": {
             "2v2": {"default_participant_mode": "team", "default_bracket_type": "group_playoffs"},
@@ -749,11 +858,46 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["swiss_system", "double_elimination", "group_playoffs"],
         "default_best_of": 5,
         "default_participant_mode": "team",
+        "score_unit_label": "Games",
+        "score_entry_hint": "Trage gewonnene Games der Serie ein (Bo5/Bo7).",
         "notes": [
             "RLCS nutzt Swiss-Stages und Bo-Serien in Playoffs.",
         ],
         "source_urls": [
+            "https://esports.rocketleague.com/rules/",
             "https://liquipedia.net/rocketleague/Rocket_League_Championship_Series",
+        ],
+        "format_presets": [
+            {
+                "id": "rl-swiss-playoffs",
+                "label": "RL Swiss + Playoffs",
+                "description": "Swiss-System in den Runden, danach Finals.",
+                "bracket_type": "swiss_system",
+                "best_of": 5,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "swiss_rounds": 5,
+            },
+            {
+                "id": "rl-double-elim-cup",
+                "label": "RL Double-Elim Cup",
+                "description": "Upper/Lower Bracket für kompakte Events.",
+                "bracket_type": "double_elimination",
+                "best_of": 7,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+            },
+            {
+                "id": "rl-weekly-league",
+                "label": "RL Wochen-Liga",
+                "description": "Saisonbetrieb mit Spieltagsfenstern.",
+                "bracket_type": "league",
+                "best_of": 5,
+                "participant_mode": "team",
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
         ],
         "mode_overrides": {
             "1v1": {"default_participant_mode": "solo", "default_best_of": 5, "default_bracket_type": "double_elimination"},
@@ -766,6 +910,8 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["swiss_system", "double_elimination", "single_elimination"],
         "default_best_of": 3,
         "default_participant_mode": "team",
+        "score_unit_label": "Maps",
+        "score_entry_hint": "Trage gewonnene Maps ein (z. B. 2:1 bei Bo3).",
         "map_ban_enabled": True,
         "map_vote_enabled": True,
         "map_ban_count": 2,
@@ -774,8 +920,40 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
             "CS2-Majors arbeiten mit Swiss-Phasen plus Arena-Playoffs.",
         ],
         "source_urls": [
-            "https://blast.tv/cs/news/esl-reveals-pro-tour-2025",
             "https://liquipedia.net/counterstrike/BLAST/Major/2025/Austin",
+            "https://www.reddit.com/r/GlobalOffensive/comments/7ngwpi/explain_csgo_tournament_structure_to_the_beginner/?tl=de",
+        ],
+        "format_presets": [
+            {
+                "id": "cs2-swiss-playoffs",
+                "label": "CS2 Swiss + Playoffs",
+                "description": "Swiss-Runden und anschließendes KO-Finale.",
+                "bracket_type": "swiss_system",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "swiss_rounds": 5,
+            },
+            {
+                "id": "cs2-open-double-elim",
+                "label": "CS2 Open Double-Elim",
+                "description": "Klassisches Upper/Lower Bracket.",
+                "bracket_type": "double_elimination",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+            },
+            {
+                "id": "cs2-weekly-league",
+                "label": "CS2 Wochen-Liga",
+                "description": "Round-robin Saison mit Spieltagsfenstern.",
+                "bracket_type": "league",
+                "best_of": 1,
+                "participant_mode": "team",
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
         ],
     },
     "valorant": {
@@ -783,6 +961,8 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["group_playoffs", "double_elimination", "swiss_system"],
         "default_best_of": 3,
         "default_participant_mode": "team",
+        "score_unit_label": "Maps",
+        "score_entry_hint": "Trage gewonnene Maps der Serie ein (Bo3/Bo5).",
         "map_ban_enabled": True,
         "map_vote_enabled": True,
         "map_ban_count": 2,
@@ -793,17 +973,86 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "source_urls": [
             "https://valorantesports.com/en-US/season/115571062868511862/handbook",
         ],
+        "format_presets": [
+            {
+                "id": "val-stage-playoffs",
+                "label": "VAL Gruppen + Playoffs",
+                "description": "Gruppenphase mit anschließender KO-Stage.",
+                "bracket_type": "group_playoffs",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "group_size": 4,
+                "advance_per_group": 2,
+            },
+            {
+                "id": "val-double-elim",
+                "label": "VAL Double-Elim",
+                "description": "Upper/Lower Bracket ohne Gruppenphase.",
+                "bracket_type": "double_elimination",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+            },
+            {
+                "id": "val-league",
+                "label": "VAL Liga-Saison",
+                "description": "Wöchentliche Spieltage mit Tabelle.",
+                "bracket_type": "league",
+                "best_of": 1,
+                "participant_mode": "team",
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+        ],
     },
     "league of legends": {
         "default_bracket_type": "swiss_system",
         "recommended_bracket_types": ["swiss_system", "group_playoffs", "double_elimination"],
         "default_best_of": 3,
         "default_participant_mode": "team",
+        "score_unit_label": "Games",
+        "score_entry_hint": "Trage gewonnene Games ein (Bo3/Bo5).",
         "notes": [
             "Worlds nutzt Swiss Stage und Bo5 Knockout-Phase.",
         ],
         "source_urls": [
             "https://www.leagueoflegends.com/en-us/news/esports/worlds-2025-primer/",
+        ],
+        "format_presets": [
+            {
+                "id": "lol-swiss-playoffs",
+                "label": "LoL Swiss + Playoffs",
+                "description": "Swiss-Stufe für Seeding, danach Finals.",
+                "bracket_type": "swiss_system",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "swiss_rounds": 5,
+            },
+            {
+                "id": "lol-groups-playoffs",
+                "label": "LoL Gruppen + Playoffs",
+                "description": "Gruppenphase und KO-Phase.",
+                "bracket_type": "group_playoffs",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "group_size": 4,
+                "advance_per_group": 2,
+            },
+            {
+                "id": "lol-weekly-league",
+                "label": "LoL Liga",
+                "description": "Wöchentlicher Ligabetrieb.",
+                "bracket_type": "league",
+                "best_of": 1,
+                "participant_mode": "team",
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
         ],
     },
     "dota 2": {
@@ -811,26 +1060,98 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["group_playoffs", "double_elimination", "swiss_system"],
         "default_best_of": 3,
         "default_participant_mode": "team",
+        "score_unit_label": "Games",
+        "score_entry_hint": "Trage gewonnene Games der Serie ein.",
         "notes": [
             "Dota-Majors/TI setzen traditionell auf Gruppenphase + Upper/Lower-Bracket.",
         ],
         "source_urls": [
-            "https://pro.eslgaming.com/tour/zh/2025/07/esl-pro-tour-ecosystem-update/",
+            "https://liquipedia.net/dota2/The_International/2025",
+        ],
+        "format_presets": [
+            {
+                "id": "dota-groups-playoffs",
+                "label": "Dota Gruppen + Playoffs",
+                "description": "Gruppen und Upper/Lower-Finals.",
+                "bracket_type": "group_playoffs",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "group_size": 4,
+                "advance_per_group": 2,
+            },
+            {
+                "id": "dota-double-elim",
+                "label": "Dota Double-Elim",
+                "description": "Direkte Playoff-Struktur mit Loser Bracket.",
+                "bracket_type": "double_elimination",
+                "best_of": 3,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+            },
+            {
+                "id": "dota-weekly-league",
+                "label": "Dota Liga",
+                "description": "Wöchentliches Ligaformat mit Tabelle.",
+                "bracket_type": "league",
+                "best_of": 1,
+                "participant_mode": "team",
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
         ],
     },
     "mario kart": {
         "default_bracket_type": "league",
-        "recommended_bracket_types": ["league", "round_robin", "group_stage"],
-        "default_best_of": 1,
+        "recommended_bracket_types": ["league", "battle_royale", "round_robin", "double_elimination"],
+        "default_best_of": 4,
         "default_participant_mode": "solo",
+        "score_unit_label": "Punkte",
+        "score_entry_hint": "Trage die Gesamtpunkte nach allen Rennen des Matches ein (z. B. nach 4 Rennen).",
         "notes": [
             "Mario-Kart-Wettbewerbe laufen meist über mehrere Rennen und Punktwertung.",
+            "Für Tagesevents sind Heats mit Top-2-Advancement gut geeignet.",
         ],
         "source_urls": [
             "https://www.nintendo.com/us/whatsnew/mario-kart-8-deluxe-world-championship-2024/",
         ],
+        "format_presets": [
+            {
+                "id": "mk-heat-day-cup",
+                "label": "MK Tages-Cup (Heats)",
+                "description": "4er-Heats, Punkte nach 4 Rennen, Top 2 kommen weiter.",
+                "bracket_type": "battle_royale",
+                "best_of": 4,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+                "battle_royale_group_size": 4,
+                "battle_royale_advance": 2,
+            },
+            {
+                "id": "mk-day-double-elim",
+                "label": "MK Tages-Cup (Double-Elim)",
+                "description": "Upper/Lower Bracket für kleinere Solo-Felder.",
+                "bracket_type": "double_elimination",
+                "best_of": 4,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+            },
+            {
+                "id": "mk-weekly-league",
+                "label": "MK Wochen-Liga",
+                "description": "Wöchentliche Spieltage mit Tabelle.",
+                "bracket_type": "league",
+                "best_of": 1,
+                "participant_mode": "solo",
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+        ],
         "mode_overrides": {
-            "2v2": {"default_participant_mode": "team", "default_bracket_type": "league"},
+            "1v1": {"default_participant_mode": "solo", "default_best_of": 4},
+            "2v2": {"default_participant_mode": "team", "default_bracket_type": "league", "default_best_of": 4},
         },
     },
     "super smash bros": {
@@ -838,12 +1159,36 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["double_elimination", "single_elimination", "group_playoffs"],
         "default_best_of": 3,
         "default_participant_mode": "solo",
+        "score_unit_label": "Games",
+        "score_entry_hint": "Trage gewonnene Games der Serie ein.",
         "notes": [
             "Smash-Events werden typischerweise im Double-Elimination-Bracket gespielt.",
         ],
         "source_urls": [
             "https://www.nintendo.com/us/whatsnew/nintendo-vs-championships-2024/",
             "https://www.start.gg/tournament/smash-ultimate-double-elimination-1/event/double-elimination/overview/rules",
+        ],
+        "format_presets": [
+            {
+                "id": "smash-double-elim",
+                "label": "Smash Double-Elim",
+                "description": "Klassisches FGC-Bracket ohne Spieltage.",
+                "bracket_type": "double_elimination",
+                "best_of": 3,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+            },
+            {
+                "id": "smash-pools-playoffs",
+                "label": "Smash Pools + Playoffs",
+                "description": "Pools für Seeding, danach KO-Runde.",
+                "bracket_type": "group_playoffs",
+                "best_of": 3,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+                "group_size": 4,
+                "advance_per_group": 2,
+            },
         ],
         "mode_overrides": {
             "2v2": {"default_participant_mode": "team", "default_bracket_type": "double_elimination"},
@@ -854,11 +1199,36 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["battle_royale", "group_stage"],
         "default_best_of": 1,
         "default_participant_mode": "solo",
+        "score_unit_label": "Punkte",
+        "score_entry_hint": "Trage Placement + Eliminations als Gesamtpunkte ein.",
         "notes": [
             "FNCS verwendet Qualifier, Heats und Finale mit Serienpunkten.",
         ],
         "source_urls": [
+            "https://www.fortnite.com/competitive/news",
             "https://liquipedia.net/fortnite/Fortnite_Champion_Series",
+        ],
+        "format_presets": [
+            {
+                "id": "fn-heats-finals",
+                "label": "FN Heats + Finals",
+                "description": "Battle-Royale-Heats mit Advancement ins Finale.",
+                "bracket_type": "battle_royale",
+                "best_of": 1,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+                "battle_royale_group_size": 4,
+                "battle_royale_advance": 2,
+            },
+            {
+                "id": "fn-weekly-ladder",
+                "label": "FN Ladder",
+                "description": "Laufende Herausforderung über Rangliste.",
+                "bracket_type": "ladder_system",
+                "best_of": 1,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+            },
         ],
         "mode_overrides": {
             "duo": {"default_participant_mode": "team"},
@@ -871,11 +1241,36 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["battle_royale", "group_stage"],
         "default_best_of": 1,
         "default_participant_mode": "team",
+        "score_unit_label": "Punkte",
+        "score_entry_hint": "Trage Placement- und Kill-Punkte des Heats ein.",
         "notes": [
             "ALGS nutzt Gruppeneinteilung und Match-Point-Finals.",
         ],
         "source_urls": [
             "https://algs.ea.com/en/season-overview",
+        ],
+        "format_presets": [
+            {
+                "id": "apex-heats-finals",
+                "label": "Apex Heats + Finals",
+                "description": "Heat-Struktur mit Punkten und Advancement.",
+                "bracket_type": "battle_royale",
+                "best_of": 1,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "battle_royale_group_size": 4,
+                "battle_royale_advance": 2,
+            },
+            {
+                "id": "apex-group-stage",
+                "label": "Apex Gruppenphase",
+                "description": "Gruppenbasierte Heats ohne klassisches Bracket.",
+                "bracket_type": "group_stage",
+                "best_of": 1,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "group_size": 4,
+            },
         ],
     },
     "overwatch 2": {
@@ -883,11 +1278,35 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["group_playoffs", "double_elimination", "swiss_system"],
         "default_best_of": 5,
         "default_participant_mode": "team",
+        "score_unit_label": "Maps",
+        "score_entry_hint": "Trage gewonnene Maps ein (Bo5).",
         "notes": [
             "OWCS-Events bauen auf Open Qualifiern und strukturierten Stage-Playoffs auf.",
         ],
         "source_urls": [
             "https://esports.overwatch.com/news/owcs-2026-season-competitive-details",
+        ],
+        "format_presets": [
+            {
+                "id": "ow-groups-playoffs",
+                "label": "OW Gruppen + Playoffs",
+                "description": "Gruppenphase und KO-Playoffs.",
+                "bracket_type": "group_playoffs",
+                "best_of": 5,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "group_size": 4,
+                "advance_per_group": 2,
+            },
+            {
+                "id": "ow-double-elim",
+                "label": "OW Double-Elim",
+                "description": "Upper/Lower Bracket ohne Gruppen.",
+                "bracket_type": "double_elimination",
+                "best_of": 5,
+                "participant_mode": "team",
+                "uses_matchdays": False,
+            },
         ],
     },
     "street fighter 6": {
@@ -895,6 +1314,8 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "recommended_bracket_types": ["double_elimination", "group_playoffs", "single_elimination"],
         "default_best_of": 3,
         "default_participant_mode": "solo",
+        "score_unit_label": "Games",
+        "score_entry_hint": "Trage gewonnene Games (FT2/FT3) ein.",
         "notes": [
             "Fighting-Events nutzen typischerweise Double-Elimination, mit längeren Finals (Bo5).",
         ],
@@ -902,18 +1323,64 @@ GAME_TOURNAMENT_GUIDANCE_OVERRIDES: Dict[str, Dict[str, Any]] = {
             "https://liquipedia.net/fighters/Capcom_Pro_Tour/2025",
             "https://liquipedia.net/fighters/Capcom_Cup/11",
         ],
+        "format_presets": [
+            {
+                "id": "sf6-double-elim",
+                "label": "SF6 Double-Elim",
+                "description": "Standardformat für FGC-Wochenende.",
+                "bracket_type": "double_elimination",
+                "best_of": 3,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+            },
+            {
+                "id": "sf6-pools-playoffs",
+                "label": "SF6 Pools + Playoffs",
+                "description": "Pools mit anschließender Finalrunde.",
+                "bracket_type": "group_playoffs",
+                "best_of": 3,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+                "group_size": 4,
+                "advance_per_group": 2,
+            },
+        ],
     },
     "tekken 8": {
         "default_bracket_type": "double_elimination",
         "recommended_bracket_types": ["double_elimination", "group_playoffs", "single_elimination"],
         "default_best_of": 3,
         "default_participant_mode": "solo",
+        "score_unit_label": "Games",
+        "score_entry_hint": "Trage gewonnene Games (FT2/FT3) ein.",
         "notes": [
             "Tekken-Turniere laufen in der Praxis oft als Double-Elimination mit FT2/FT3-Serien.",
         ],
         "source_urls": [
             "https://tekkenworldtour.com/tournament-overview",
             "https://liquipedia.net/fighters/Tekken_World_Tour/2025",
+        ],
+        "format_presets": [
+            {
+                "id": "tekken-double-elim",
+                "label": "Tekken Double-Elim",
+                "description": "Klassisches Bracket für Offline/Online-Cups.",
+                "bracket_type": "double_elimination",
+                "best_of": 3,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+            },
+            {
+                "id": "tekken-pools-playoffs",
+                "label": "Tekken Pools + Playoffs",
+                "description": "Pools zur Selektion, danach KO.",
+                "bracket_type": "group_playoffs",
+                "best_of": 3,
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+                "group_size": 4,
+                "advance_per_group": 2,
+            },
         ],
     },
 }
@@ -957,6 +1424,228 @@ def normalize_default_bracket(value: Any, fallback: str = "single_elimination") 
         return key
     return fallback if fallback in SUPPORTED_BRACKET_TYPES else "single_elimination"
 
+def build_category_format_presets(
+    category_key: str,
+    participant_mode: str,
+    default_best_of: int,
+    default_bracket: str,
+) -> List[Dict[str, Any]]:
+    base: Dict[str, List[Dict[str, Any]]] = {
+        "fps": [
+            {
+                "id": "fps-weekend-cup",
+                "label": "Wochenend-Cup",
+                "description": "Gruppenphase + Playoffs ohne Spieltage.",
+                "bracket_type": "group_playoffs",
+                "best_of": max(1, default_best_of),
+                "participant_mode": participant_mode,
+                "uses_matchdays": False,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+            {
+                "id": "fps-season-league",
+                "label": "Liga-Saison",
+                "description": "Wöchentliche Spieltage mit Tabelle.",
+                "bracket_type": "league",
+                "best_of": max(1, default_best_of),
+                "participant_mode": participant_mode,
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+        ],
+        "sports": [
+            {
+                "id": "sports-group-playoffs",
+                "label": "Gruppen + Playoffs",
+                "description": "Gruppenphase und anschließendes KO-Finale.",
+                "bracket_type": "group_playoffs",
+                "best_of": max(1, default_best_of),
+                "participant_mode": participant_mode,
+                "uses_matchdays": False,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+            {
+                "id": "sports-league",
+                "label": "Liga",
+                "description": "Saison mit Tabelle und Spieltagsfenstern.",
+                "bracket_type": "league",
+                "best_of": 1,
+                "participant_mode": participant_mode,
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+        ],
+        "fighting": [
+            {
+                "id": "fighting-double-elim",
+                "label": "Standard Double-Elimination",
+                "description": "Klassisches FGC-Turnier, keine Spieltage.",
+                "bracket_type": "double_elimination",
+                "best_of": max(1, default_best_of),
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+            {
+                "id": "fighting-groups-playoffs",
+                "label": "Pools + Playoffs",
+                "description": "Pools/Gruppen und danach KO-Stage.",
+                "bracket_type": "group_playoffs",
+                "best_of": max(1, default_best_of),
+                "participant_mode": "solo",
+                "uses_matchdays": False,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+        ],
+        "racing": [
+            {
+                "id": "racing-day-cup",
+                "label": "Tages-Cup (K.O.)",
+                "description": "Alles an einem Tag ohne Spieltage; Ergebnis als Gesamtpunkte.",
+                "bracket_type": "double_elimination",
+                "best_of": max(1, default_best_of),
+                "participant_mode": participant_mode,
+                "uses_matchdays": False,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+            {
+                "id": "racing-weekly-league",
+                "label": "Liga (Wöchentliche Spieltage)",
+                "description": "Jeder gegen jeden mit Wochenfenster und Tabelle.",
+                "bracket_type": "league",
+                "best_of": 1,
+                "participant_mode": participant_mode,
+                "uses_matchdays": True,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+        ],
+        "moba": [
+            {
+                "id": "moba-stage-playoffs",
+                "label": "Stage + Playoffs",
+                "description": "Gruppen/Swiss und Playoffs.",
+                "bracket_type": "group_playoffs",
+                "best_of": max(1, default_best_of),
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+            {
+                "id": "moba-swiss",
+                "label": "Swiss + Finals",
+                "description": "Swiss-Runden für größere Felder.",
+                "bracket_type": "swiss_system",
+                "best_of": max(1, default_best_of),
+                "participant_mode": "team",
+                "uses_matchdays": False,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+        ],
+        "battle_royale": [
+            {
+                "id": "br-heats-finals",
+                "label": "Heats + Finale",
+                "description": "Qualifikations-Heats und Finalrunde mit Admin-Freigabe.",
+                "bracket_type": "battle_royale",
+                "best_of": 1,
+                "participant_mode": participant_mode,
+                "uses_matchdays": False,
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+                "battle_royale_group_size": 4,
+                "battle_royale_advance": 2,
+            },
+        ],
+        "other": [
+            {
+                "id": "default-cup",
+                "label": "Standard-Cup",
+                "description": "Direktes KO ohne Spieltage.",
+                "bracket_type": default_bracket,
+                "best_of": max(1, default_best_of),
+                "participant_mode": participant_mode,
+                "uses_matchdays": default_bracket in {"league", "round_robin", "group_stage", "group_playoffs"},
+                "matchday_interval_days": 7,
+                "matchday_window_days": 7,
+            },
+        ],
+    }
+    presets = deep_clone_template(base.get(category_key, base["other"]))
+    if isinstance(presets, list):
+        return [p for p in presets if isinstance(p, dict)]
+    return []
+
+def normalize_guidance_presets(
+    presets: Any,
+    fallback_bracket: str,
+    fallback_best_of: int,
+    fallback_mode: str,
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for raw in presets or []:
+        if not isinstance(raw, dict):
+            continue
+        bracket = normalize_default_bracket(raw.get("bracket_type"), fallback=fallback_bracket)
+        best_of = max(1, parse_int_or_default(raw.get("best_of"), fallback_best_of))
+        participant_mode = str(raw.get("participant_mode", fallback_mode) or fallback_mode).strip().lower()
+        if participant_mode not in SUPPORTED_PARTICIPANT_MODES:
+            participant_mode = fallback_mode
+        interval_days = max(1, parse_int_or_default(raw.get("matchday_interval_days"), 7))
+        window_days = max(1, parse_int_or_default(raw.get("matchday_window_days"), 7))
+        group_size = max(2, parse_int_or_default(raw.get("group_size"), 4))
+        advance_per_group = max(1, parse_int_or_default(raw.get("advance_per_group"), 2))
+        swiss_rounds = max(1, parse_int_or_default(raw.get("swiss_rounds"), 5))
+        battle_royale_group_size = max(2, parse_int_or_default(raw.get("battle_royale_group_size"), 4))
+        battle_royale_advance = max(1, parse_int_or_default(raw.get("battle_royale_advance"), 2))
+        out.append(
+            {
+                "id": str(raw.get("id", "") or f"preset-{len(out)+1}").strip() or f"preset-{len(out)+1}",
+                "label": str(raw.get("label", "") or bracket).strip() or bracket,
+                "description": str(raw.get("description", "") or "").strip(),
+                "bracket_type": bracket,
+                "best_of": best_of,
+                "participant_mode": participant_mode,
+                "uses_matchdays": bool(raw.get("uses_matchdays", bracket in {"league", "round_robin", "group_stage", "group_playoffs"})),
+                "matchday_interval_days": interval_days,
+                "matchday_window_days": window_days,
+                "group_size": group_size,
+                "advance_per_group": min(group_size, advance_per_group),
+                "swiss_rounds": swiss_rounds,
+                "battle_royale_group_size": battle_royale_group_size,
+                "battle_royale_advance": min(battle_royale_group_size - 1, battle_royale_advance),
+            }
+        )
+    if out:
+        return out
+    return [
+        {
+            "id": "preset-default",
+            "label": "Empfohlener Modus",
+            "description": "",
+            "bracket_type": fallback_bracket,
+            "best_of": max(1, fallback_best_of),
+            "participant_mode": fallback_mode,
+            "uses_matchdays": fallback_bracket in {"league", "round_robin", "group_stage", "group_playoffs"},
+            "matchday_interval_days": 7,
+            "matchday_window_days": 7,
+            "group_size": 4,
+            "advance_per_group": 2,
+            "swiss_rounds": 5,
+            "battle_royale_group_size": 4,
+            "battle_royale_advance": 2,
+        }
+    ]
+
 def build_game_format_guidance(game_doc: Dict[str, Any], mode_name: Optional[str] = None) -> Dict[str, Any]:
     game_name = str((game_doc or {}).get("name", "") or "").strip()
     category = str((game_doc or {}).get("category", "other") or "other").strip().lower()
@@ -984,6 +1673,7 @@ def build_game_format_guidance(game_doc: Dict[str, Any], mode_name: Optional[str
     if default_bracket not in recommended:
         recommended.insert(0, default_bracket)
 
+    default_best_of = max(1, parse_int_or_default(merged.get("default_best_of"), 1))
     participant_mode = str(merged.get("default_participant_mode", "team") or "team").strip().lower()
     if participant_mode not in SUPPORTED_PARTICIPANT_MODES:
         participant_mode = "team"
@@ -994,6 +1684,18 @@ def build_game_format_guidance(game_doc: Dict[str, Any], mode_name: Optional[str
         if str((mode or {}).get("name", "")).strip()
     ]
     has_map_controls = bool(merged.get("map_ban_enabled") or merged.get("map_vote_enabled"))
+    category_presets = build_category_format_presets(
+        category_key=category_key,
+        participant_mode=participant_mode,
+        default_best_of=default_best_of,
+        default_bracket=default_bracket,
+    )
+    presets = normalize_guidance_presets(
+        merged.get("format_presets", category_presets),
+        fallback_bracket=default_bracket,
+        fallback_best_of=default_best_of,
+        fallback_mode=participant_mode,
+    )
 
     return {
         "game_id": str((game_doc or {}).get("id", "") or ""),
@@ -1003,12 +1705,15 @@ def build_game_format_guidance(game_doc: Dict[str, Any], mode_name: Optional[str
         "available_modes": mode_names,
         "default_bracket_type": default_bracket,
         "recommended_bracket_types": recommended,
-        "default_best_of": max(1, parse_int_or_default(merged.get("default_best_of"), 1)),
+        "default_best_of": default_best_of,
         "default_participant_mode": participant_mode,
+        "score_unit_label": str(merged.get("score_unit_label", "Score") or "Score").strip() or "Score",
+        "score_entry_hint": str(merged.get("score_entry_hint", "") or "").strip(),
         "map_ban_enabled": bool(merged.get("map_ban_enabled", has_map_controls)),
         "map_vote_enabled": bool(merged.get("map_vote_enabled", has_map_controls)),
         "map_ban_count": max(1, parse_int_or_default(merged.get("map_ban_count"), 2)),
         "map_pick_order": str(merged.get("map_pick_order", "ban_ban_pick") or "ban_ban_pick").strip().lower(),
+        "format_presets": presets,
         "notes": [str(x).strip() for x in (merged.get("notes") or []) if str(x).strip()],
         "source_urls": [str(x).strip() for x in (merged.get("source_urls") or []) if str(x).strip()],
         "bracket_help": BRACKET_TYPE_HELP_TEXT,
@@ -1052,12 +1757,15 @@ def get_tournament_matchday_config(tournament: Dict[str, Any]) -> Dict[str, int]
 def hydrate_tournament_defaults(tournament: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(tournament, dict):
         return tournament
+    tournament["game_category"] = str(tournament.get("game_category", "") or "").strip().lower()
     tournament["matchday_interval_days"] = max(1, parse_int_or_default(tournament.get("matchday_interval_days"), 7))
     tournament["matchday_window_days"] = max(1, parse_int_or_default(tournament.get("matchday_window_days"), 7))
     tournament["points_win"] = max(0, parse_int_or_default(tournament.get("points_win"), 3))
     tournament["points_draw"] = max(0, parse_int_or_default(tournament.get("points_draw"), 1))
     tournament["points_loss"] = max(0, parse_int_or_default(tournament.get("points_loss"), 0))
     tournament["tiebreakers"] = normalize_tiebreakers(tournament.get("tiebreakers"))
+    tournament["score_unit_label"] = str(tournament.get("score_unit_label", "Score") or "Score").strip() or "Score"
+    tournament["score_entry_hint"] = str(tournament.get("score_entry_hint", "") or "").strip()
     return tournament
 
 def build_game_settings_template(category: str, game_name: str) -> Dict[str, Any]:
@@ -2892,6 +3600,11 @@ async def create_tournament(request: Request, body: TournamentCreate):
     require_admin_score_approval = bool(body.require_admin_score_approval)
     if bracket_type == "battle_royale" and not body.require_admin_score_approval:
         require_admin_score_approval = True
+    game_category = str(body.game_category or game.get("category", "") or "").strip().lower()
+    score_unit_label = str(body.score_unit_label or "").strip()
+    if not score_unit_label:
+        score_unit_label = "Punkte" if game_category == "racing" else "Score"
+    score_entry_hint = str(body.score_entry_hint or "").strip()
 
     doc = {
         "id": str(uuid.uuid4()),
@@ -2916,6 +3629,9 @@ async def create_tournament(request: Request, body: TournamentCreate):
         "points_loss": max(0, int(body.points_loss if body.points_loss is not None else 0)),
         "tiebreakers": normalize_tiebreakers(body.tiebreakers),
         "game_name": game["name"],
+        "game_category": game_category,
+        "score_unit_label": score_unit_label,
+        "score_entry_hint": score_entry_hint,
     }
     await db.tournaments.insert_one(doc)
     doc.pop("_id", None)
@@ -2939,6 +3655,8 @@ async def update_tournament(request: Request, tournament_id: str, body: Tourname
         update_data["bracket_type"] = normalize_bracket_type(update_data["bracket_type"])
     if "participant_mode" in update_data:
         update_data["participant_mode"] = normalize_participant_mode(update_data["participant_mode"])
+    if "game_category" in update_data:
+        update_data["game_category"] = str(update_data.get("game_category") or "").strip().lower()
     if "team_size" in update_data:
         update_data["team_size"] = max(1, int(update_data["team_size"] or 1))
     if "max_participants" in update_data:
@@ -2975,6 +3693,10 @@ async def update_tournament(request: Request, tournament_id: str, body: Tourname
         update_data["points_loss"] = max(0, int(update_data["points_loss"] or 0))
     if "tiebreakers" in update_data:
         update_data["tiebreakers"] = normalize_tiebreakers(update_data["tiebreakers"])
+    if "score_unit_label" in update_data:
+        update_data["score_unit_label"] = str(update_data.get("score_unit_label") or "").strip()[:40] or "Score"
+    if "score_entry_hint" in update_data:
+        update_data["score_entry_hint"] = str(update_data.get("score_entry_hint") or "").strip()[:300]
     if "map_pool" in update_data:
         update_data["map_pool"] = [str(x).strip() for x in (update_data.get("map_pool") or []) if str(x).strip()]
     if "map_ban_count" in update_data:
@@ -4778,7 +5500,11 @@ async def get_match_detail_public(match_id: str):
             "name": tournament.get("name", ""),
             "status": tournament.get("status", ""),
             "game_name": tournament.get("game_name", ""),
+            "game_category": tournament.get("game_category", ""),
             "game_mode": tournament.get("game_mode", ""),
+            "score_unit_label": tournament.get("score_unit_label", "Score"),
+            "score_entry_hint": tournament.get("score_entry_hint", ""),
+            "best_of": int(tournament.get("best_of", 1) or 1),
         },
         "match": match_payload,
         "team1_registration": sanitize_registration(team1_reg) if team1_reg else None,
@@ -4843,8 +5569,12 @@ async def get_match_detail(request: Request, match_id: str):
             "name": tournament.get("name", ""),
             "status": tournament.get("status", ""),
             "game_name": tournament.get("game_name", ""),
+            "game_category": tournament.get("game_category", ""),
             "game_mode": tournament.get("game_mode", ""),
             "participant_mode": tournament.get("participant_mode", "team"),
+            "score_unit_label": tournament.get("score_unit_label", "Score"),
+            "score_entry_hint": tournament.get("score_entry_hint", ""),
+            "best_of": int(tournament.get("best_of", 1) or 1),
         },
         "match": match_payload,
         "team1_registration": sanitize_registration(team1_reg) if team1_reg else None,
@@ -5627,14 +6357,23 @@ async def submit_match_score(request: Request, tournament_id: str, match_id: str
     # Store submission
     submission_filter = {"tournament_id": tournament_id, "match_id": match_id, "side": submitting_for}
     existing = await db.score_submissions.find_one(submission_filter, {"_id": 0})
+    details_payload = body.details if isinstance(body.details, dict) else {}
     if existing:
         await db.score_submissions.update_one(submission_filter, {
-            "$set": {"score1": body.score1, "score2": body.score2, "submitted_by": user["id"], "submitted_by_name": user["username"], "updated_at": datetime.now(timezone.utc).isoformat()}
+            "$set": {
+                "score1": body.score1,
+                "score2": body.score2,
+                "details": details_payload,
+                "submitted_by": user["id"],
+                "submitted_by_name": user["username"],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
         })
     else:
         await db.score_submissions.insert_one({
             "id": str(uuid.uuid4()), "tournament_id": tournament_id, "match_id": match_id,
             "side": submitting_for, "score1": body.score1, "score2": body.score2,
+            "details": details_payload,
             "submitted_by": user["id"], "submitted_by_name": user["username"],
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
@@ -5671,7 +6410,13 @@ async def submit_match_score(request: Request, tournament_id: str, match_id: str
                         )
                 return {"status": "pending_admin_approval", "message": "Ergebnis eingereicht und wartet auf Admin-Freigabe."}
             # Scores agree -> auto-confirm
-            await _apply_score_to_bracket(tournament_id, match_id, s1["score1"], s1["score2"])
+            await _apply_score_to_bracket(
+                tournament_id,
+                match_id,
+                s1["score1"],
+                s1["score2"],
+                result_details=s1.get("details") if isinstance(s1.get("details"), dict) else {},
+            )
             await db.score_submissions.update_many({"tournament_id": tournament_id, "match_id": match_id}, {"$set": {"status": "confirmed"}})
             return {"status": "confirmed", "message": "Ergebnisse stimmen überein - automatisch bestätigt!"}
         else:
@@ -5886,7 +6631,15 @@ async def resolve_battle_royale_result(request: Request, tournament_id: str, mat
     )
     return await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
 
-async def _apply_score_to_bracket(tournament_id: str, match_id: str, score1: int, score2: int, winner_id: str = None, disqualify_id: str = None):
+async def _apply_score_to_bracket(
+    tournament_id: str,
+    match_id: str,
+    score1: int,
+    score2: int,
+    winner_id: str = None,
+    disqualify_id: str = None,
+    result_details: Optional[Dict[str, Any]] = None,
+):
     """Internal: apply finalized score to bracket and propagate."""
     t = await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
     bracket = t["bracket"]
@@ -5906,6 +6659,10 @@ async def _apply_score_to_bracket(tournament_id: str, match_id: str, score1: int
 
         match_doc["score1"] = score1
         match_doc["score2"] = score2
+        if isinstance(result_details, dict):
+            clean_details = _sanitize_log_value(result_details, depth=0)
+            if isinstance(clean_details, dict):
+                match_doc["score_details"] = clean_details
         if disqualify_id:
             if disqualify_id not in match_team_ids:
                 raise HTTPException(400, "Ungültiges disqualify_team_id für dieses Match")
@@ -6184,7 +6941,15 @@ async def _apply_score_to_bracket(tournament_id: str, match_id: str, score1: int
 @api_router.put("/tournaments/{tournament_id}/matches/{match_id}/resolve")
 async def admin_resolve_score(request: Request, tournament_id: str, match_id: str, body: AdminScoreResolve):
     await require_admin(request)
-    await _apply_score_to_bracket(tournament_id, match_id, body.score1, body.score2, body.winner_id, body.disqualify_team_id)
+    await _apply_score_to_bracket(
+        tournament_id,
+        match_id,
+        body.score1,
+        body.score2,
+        body.winner_id,
+        body.disqualify_team_id,
+        result_details=body.details,
+    )
     await db.score_submissions.update_many({"tournament_id": tournament_id, "match_id": match_id}, {"$set": {"status": "resolved_by_admin"}})
     return await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
 
@@ -6192,10 +6957,52 @@ async def admin_resolve_score(request: Request, tournament_id: str, match_id: st
 @api_router.put("/tournaments/{tournament_id}/matches/{match_id}/score")
 async def update_match_score(request: Request, tournament_id: str, match_id: str, body: ScoreUpdate):
     await require_admin(request)
-    await _apply_score_to_bracket(tournament_id, match_id, body.score1, body.score2, body.winner_id)
+    await _apply_score_to_bracket(tournament_id, match_id, body.score1, body.score2, body.winner_id, result_details=body.details)
     return await db.tournaments.find_one({"id": tournament_id}, {"_id": 0})
 
 # --- Payment Endpoints ---
+
+def extract_paypal_approve_url(order: Dict[str, Any]) -> str:
+    for link in (order or {}).get("links", []) or []:
+        if str((link or {}).get("rel", "")).strip().lower() == "approve":
+            href = str((link or {}).get("href", "")).strip()
+            if href:
+                return href
+    return ""
+
+async def resolve_existing_checkout_url(payment_doc: Dict[str, Any]) -> str:
+    checkout_url = str((payment_doc or {}).get("checkout_url", "") or "").strip()
+    if checkout_url:
+        return checkout_url
+
+    provider = str((payment_doc or {}).get("provider", "") or "").strip().lower()
+    session_id = str((payment_doc or {}).get("session_id", "") or "").strip()
+    if not session_id:
+        return ""
+
+    if provider == "stripe":
+        stripe_api_key = await get_stripe_api_key()
+        if not stripe_api_key:
+            return ""
+        try:
+            stripe.api_key = stripe_api_key
+            session = stripe.checkout.Session.retrieve(session_id)
+            checkout_url = str(getattr(session, "url", "") or "").strip()
+        except Exception:
+            return ""
+    elif provider == "paypal":
+        try:
+            order = await get_paypal_order(session_id)
+            checkout_url = extract_paypal_approve_url(order)
+        except Exception:
+            return ""
+
+    if checkout_url:
+        await db.payment_transactions.update_one(
+            {"id": payment_doc.get("id")},
+            {"$set": {"checkout_url": checkout_url, "updated_at": now_iso()}},
+        )
+    return checkout_url
 
 @api_router.post("/payments/create-checkout")
 async def create_checkout(request: Request, body: PaymentRequest):
@@ -6232,6 +7039,40 @@ async def create_checkout(request: Request, body: PaymentRequest):
         )
         raise HTTPException(400, "Registration is already paid")
 
+    now_dt = datetime.now(timezone.utc)
+    if str(reg.get("payment_status", "")).strip().lower() == "pending":
+        if is_pending_registration_active(reg, reference_time=now_dt):
+            existing_payment = await db.payment_transactions.find_one(
+                {"registration_id": body.registration_id, "payment_status": "pending"},
+                {"_id": 0},
+                sort=[("created_at", -1)],
+            )
+            if existing_payment:
+                existing_provider = str(existing_payment.get("provider", "")).strip().lower()
+                requested_provider = normalize_payment_provider(body.provider or "")
+                if requested_provider in {"auto", existing_provider, ""}:
+                    existing_url = await resolve_existing_checkout_url(existing_payment)
+                    existing_session = str(existing_payment.get("session_id", "") or "").strip()
+                    if existing_url and existing_session:
+                        log_info(
+                            "payments.checkout.reuse",
+                            "Reusing existing pending checkout session",
+                            tournament_id=body.tournament_id,
+                            registration_id=body.registration_id,
+                            session_id=existing_session,
+                            provider=existing_provider,
+                        )
+                        return {"url": existing_url, "session_id": existing_session, "provider": existing_provider, "reused": True}
+        else:
+            await db.registrations.update_one(
+                {"id": body.registration_id},
+                {"$set": {"payment_status": "failed", "updated_at": now_iso()}},
+            )
+            await db.payment_transactions.update_many(
+                {"registration_id": body.registration_id, "payment_status": "pending"},
+                {"$set": {"payment_status": "failed", "status": "expired", "updated_at": now_iso()}},
+            )
+
     user = await get_current_user(request)
     if reg.get("user_id") and (not user or (user["id"] != reg["user_id"] and user.get("role") != "admin")):
         log_warning(
@@ -6249,9 +7090,14 @@ async def create_checkout(request: Request, body: PaymentRequest):
         log_warning("payments.checkout.invalid_origin", "Checkout blocked because origin URL is invalid", origin_url=body.origin_url)
         raise HTTPException(400, "Invalid origin URL")
 
+    await db.payment_transactions.update_many(
+        {"registration_id": body.registration_id, "payment_status": "pending"},
+        {"$set": {"payment_status": "failed", "status": "superseded", "updated_at": now_iso()}},
+    )
+
     currency = str(t.get("currency", "usd") or "usd").lower()
     unit_amount = int(round(float(entry_fee) * 100))
-    reservation_expires_at = compute_payment_reservation_expiry_iso()
+    reservation_expires_at = compute_payment_reservation_expiry_iso(now_dt)
     if unit_amount <= 0:
         log_warning("payments.checkout.invalid_amount", "Checkout blocked because computed amount is invalid", tournament_id=body.tournament_id, entry_fee=float(entry_fee or 0))
         raise HTTPException(400, "Invalid entry fee")
@@ -6275,11 +7121,7 @@ async def create_checkout(request: Request, body: PaymentRequest):
         order_id = str((order or {}).get("id", "")).strip()
         if not order_id:
             raise HTTPException(500, "PayPal Order konnte nicht erstellt werden")
-        approve_url = ""
-        for link in (order or {}).get("links", []):
-            if str((link or {}).get("rel", "")).strip().lower() == "approve":
-                approve_url = str((link or {}).get("href", "")).strip()
-                break
+        approve_url = extract_paypal_approve_url(order)
         if not approve_url:
             raise HTTPException(500, "PayPal Freigabe-URL fehlt")
 
@@ -6293,6 +7135,7 @@ async def create_checkout(request: Request, body: PaymentRequest):
             "currency": currency,
             "payment_status": "pending",
             "status": str((order or {}).get("status", "CREATED") or "CREATED"),
+            "checkout_url": approve_url,
             "metadata": {"tournament_id": body.tournament_id, "registration_id": body.registration_id},
             "created_at": now_iso(),
         }
@@ -6303,6 +7146,7 @@ async def create_checkout(request: Request, body: PaymentRequest):
                 "$set": {
                     "payment_session_id": order_id,
                     "payment_status": "pending",
+                    "payment_provider": "paypal",
                     "payment_expires_at": reservation_expires_at,
                     "updated_at": now_iso(),
                 }
@@ -6361,6 +7205,7 @@ async def create_checkout(request: Request, body: PaymentRequest):
         "currency": currency,
         "payment_status": "pending",
         "status": "initiated",
+        "checkout_url": str(getattr(session, "url", "") or ""),
         "metadata": {"tournament_id": body.tournament_id, "registration_id": body.registration_id},
         "created_at": now_iso(),
     }
@@ -6371,6 +7216,7 @@ async def create_checkout(request: Request, body: PaymentRequest):
             "$set": {
                 "payment_session_id": session.id,
                 "payment_status": "pending",
+                "payment_provider": "stripe",
                 "payment_expires_at": reservation_expires_at,
                 "updated_at": now_iso(),
             }
@@ -7156,6 +8002,185 @@ async def get_scheduling_status(request: Request, tournament_id: str):
 
 # --- Scheduling Reminder System ---
 
+def collect_bracket_matches_with_window_end(bracket: Dict[str, Any]) -> List[Tuple[Dict[str, Any], Optional[datetime]]]:
+    matches: List[Tuple[Dict[str, Any], Optional[datetime]]] = []
+    bracket_type = str((bracket or {}).get("type", "") or "")
+
+    def append_round_matches(round_doc: Dict[str, Any], *, use_window: bool):
+        window_end = parse_optional_datetime(str((round_doc or {}).get("window_end", "") or "")) if use_window else None
+        for m in (round_doc or {}).get("matches", []) or []:
+            if isinstance(m, dict):
+                matches.append((m, window_end))
+
+    if bracket_type in ("league", "round_robin"):
+        for round_doc in (bracket or {}).get("rounds", []) or []:
+            append_round_matches(round_doc, use_window=True)
+    elif bracket_type in ("group_stage", "group_playoffs"):
+        for group in (bracket or {}).get("groups", []) or []:
+            for round_doc in (group or {}).get("rounds", []) or []:
+                append_round_matches(round_doc, use_window=True)
+        if bracket_type == "group_playoffs":
+            for round_doc in ((bracket or {}).get("playoffs") or {}).get("rounds", []) or []:
+                append_round_matches(round_doc, use_window=False)
+    elif bracket_type in ("single_elimination", "swiss_system", "ladder_system", "king_of_the_hill"):
+        for round_doc in (bracket or {}).get("rounds", []) or []:
+            append_round_matches(round_doc, use_window=False)
+    elif bracket_type == "double_elimination":
+        for round_doc in ((bracket or {}).get("winners_bracket") or {}).get("rounds", []) or []:
+            append_round_matches(round_doc, use_window=False)
+        for round_doc in ((bracket or {}).get("losers_bracket") or {}).get("rounds", []) or []:
+            append_round_matches(round_doc, use_window=False)
+        grand_final = (bracket or {}).get("grand_final")
+        if isinstance(grand_final, dict):
+            matches.append((grand_final, None))
+    return matches
+
+async def build_scheduling_reminder_targets(
+    tournament: Dict[str, Any],
+    *,
+    hours_before_window_end: int = 24,
+    reference_time: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    bracket = (tournament or {}).get("bracket") or {}
+    if not bracket:
+        return []
+
+    now_ref = reference_time or datetime.now(timezone.utc)
+    reminder_threshold = timedelta(hours=max(1, int(hours_before_window_end or 24)))
+    candidate_matches: List[Dict[str, Any]] = []
+
+    for match, window_end in collect_bracket_matches_with_window_end(bracket):
+        if not isinstance(match, dict):
+            continue
+        if match.get("scheduled_for") or match.get("status") == "completed":
+            continue
+        team1_id = str(match.get("team1_id", "")).strip()
+        team2_id = str(match.get("team2_id", "")).strip()
+        if not team1_id or not team2_id:
+            continue
+
+        should_send = False
+        if window_end:
+            time_until_end = window_end - now_ref
+            if timedelta(0) < time_until_end <= reminder_threshold:
+                should_send = True
+        else:
+            should_send = True
+
+        if should_send:
+            candidate_matches.append(
+                {
+                    "id": str(match.get("id", "") or "").strip(),
+                    "team1_id": team1_id,
+                    "team2_id": team2_id,
+                }
+            )
+
+    if not candidate_matches:
+        return []
+
+    reg_ids = list(
+        {
+            rid
+            for match in candidate_matches
+            for rid in (match.get("team1_id", ""), match.get("team2_id", ""))
+            if rid
+        }
+    )
+    regs = await db.registrations.find(
+        {"id": {"$in": reg_ids}},
+        {"_id": 0, "id": 1, "team_name": 1, "user_id": 1},
+    ).to_list(max(200, len(reg_ids) * 2))
+    reg_by_id = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
+
+    user_ids = list(
+        {
+            str(r.get("user_id", "")).strip()
+            for r in regs
+            if str(r.get("user_id", "")).strip()
+        }
+    )
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "email": 1, "username": 1}).to_list(max(200, len(user_ids) * 2)) if user_ids else []
+    user_by_id = {str(u.get("id", "")).strip(): u for u in users if str(u.get("id", "")).strip()}
+
+    targets_by_user: Dict[str, Dict[str, Any]] = {}
+    for match in candidate_matches:
+        for reg_id in (match.get("team1_id", ""), match.get("team2_id", "")):
+            reg = reg_by_id.get(str(reg_id).strip())
+            if not reg:
+                continue
+            user_id = str(reg.get("user_id", "")).strip()
+            if not user_id or user_id in targets_by_user:
+                continue
+            user_doc = user_by_id.get(user_id)
+            if not user_doc:
+                continue
+            participant_name = str(reg.get("team_name", "") or "Teilnehmer").strip() or "Teilnehmer"
+            targets_by_user[user_id] = {
+                "user_id": user_id,
+                "email": str(user_doc.get("email", "") or "").strip(),
+                "username": str(user_doc.get("username", "") or "").strip() or "Teilnehmer",
+                "participant_name": participant_name,
+                "match_id": str(match.get("id", "") or "").strip(),
+            }
+
+    return list(targets_by_user.values())
+
+async def dispatch_scheduling_reminders(
+    tournament: Dict[str, Any],
+    targets: List[Dict[str, Any]],
+) -> Dict[str, int]:
+    reminders_sent = 0
+    users_notified = 0
+    day_map = {"monday": "Montag", "tuesday": "Dienstag", "wednesday": "Mittwoch", "thursday": "Donnerstag", "friday": "Freitag", "saturday": "Samstag", "sunday": "Sonntag"}
+    default_day = tournament.get("default_match_day", "Mittwoch")
+    default_hour = tournament.get("default_match_hour", 19)
+    day_display = day_map.get(str(default_day).lower(), default_day)
+
+    for target in targets:
+        user_id = str(target.get("user_id", "")).strip()
+        if not user_id:
+            continue
+        users_notified += 1
+        notif = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "type": "scheduling_reminder",
+            "title": "Termin-Erinnerung",
+            "message": f"Das Match für '{target.get('participant_name', 'Teilnehmer')}' im Turnier '{tournament.get('name', '')}' hat noch keinen Termin. Bitte stimmt euch im Match-Hub ab!",
+            "read": False,
+            "created_at": now_iso(),
+            "tournament_id": tournament.get("id", ""),
+            "match_id": str(target.get("match_id", "")).strip(),
+        }
+        await db.notifications.insert_one(notif)
+        reminders_sent += 1
+
+        to_email = str(target.get("email", "") or "").strip()
+        if not to_email:
+            continue
+        email_body = f"""Hallo {target.get('username', 'Teilnehmer')},
+
+dies ist eine freundliche Erinnerung: Das Match für "{target.get('participant_name', 'Teilnehmer')}" im Turnier "{tournament.get('name', '')}" hat noch keinen Termin!
+
+Bitte einigt euch mit eurem Gegner im Match-Hub auf einen Termin.
+
+⚠️ Wichtig: Falls keine Einigung erfolgt, wird automatisch der Standard-Termin verwendet:
+   📅 {day_display}, {default_hour}:00 Uhr
+
+Mit sportlichen Grüßen,
+Das ARENA eSports Team
+"""
+        try:
+            await send_email_notification(
+                to_email,
+                f"[{tournament.get('name', 'Turnier')}] Termin-Erinnerung für {target.get('participant_name', 'Teilnehmer')}",
+                email_body,
+            )
+        except Exception:
+            pass
+    return {"reminders_sent": reminders_sent, "users_notified": users_notified}
+
 @api_router.post("/tournaments/{tournament_id}/send-scheduling-reminders")
 async def send_scheduling_reminders(request: Request, tournament_id: str, hours_before_window_end: int = 24):
     """Send reminder emails to teams with unscheduled matches."""
@@ -7166,134 +8191,18 @@ async def send_scheduling_reminders(request: Request, tournament_id: str, hours_
     if not tournament.get("bracket"):
         raise HTTPException(400, "Bracket noch nicht generiert")
     
-    bracket = tournament["bracket"]
-    bracket_type = bracket.get("type", "")
-    now = datetime.now(timezone.utc)
-    reminder_threshold = timedelta(hours=hours_before_window_end)
-    reminders_sent = 0
-    users_notified = set()
-    
-    async def process_match_for_reminder(match: Dict, window_end: Optional[datetime]):
-        nonlocal reminders_sent
-        # Skip if already scheduled or completed
-        if match.get("scheduled_for") or match.get("status") == "completed":
-            return
-        if not match.get("team1_id") or not match.get("team2_id"):
-            return
-        
-        # Check if we're within the reminder threshold
-        should_send = False
-        if window_end:
-            time_until_end = window_end - now
-            if timedelta(0) < time_until_end <= reminder_threshold:
-                should_send = True
-        else:
-            # For KO-style, send reminders for any unscheduled match
-            should_send = True
-        
-        if not should_send:
-            return
-        
-        reg_ids = [str(match.get("team1_id", "")).strip(), str(match.get("team2_id", "")).strip()]
-        reg_ids = [rid for rid in reg_ids if rid]
-        if not reg_ids:
-            return
-        regs = await db.registrations.find(
-            {"id": {"$in": reg_ids}},
-            {"_id": 0, "id": 1, "team_name": 1, "user_id": 1},
-        ).to_list(20)
-        reg_by_id = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
-
-        for reg_id in reg_ids:
-            reg = reg_by_id.get(reg_id)
-            if not reg:
-                continue
-            user_id = str(reg.get("user_id", "")).strip()
-            if not user_id or user_id in users_notified:
-                continue
-            owner = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "username": 1})
-            if not owner or not owner.get("email"):
-                continue
-
-            participant_name = str(reg.get("team_name", "") or "Teilnehmer").strip() or "Teilnehmer"
-            notif = {
-                "id": str(uuid.uuid4()),
-                "user_id": user_id,
-                "type": "scheduling_reminder",
-                "title": "Termin-Erinnerung",
-                "message": f"Das Match für '{participant_name}' im Turnier '{tournament.get('name', '')}' hat noch keinen Termin. Bitte stimmt euch im Match-Hub ab!",
-                "read": False,
-                "created_at": now_iso(),
-                "tournament_id": tournament_id,
-                "match_id": match.get("id", ""),
-            }
-            await db.notifications.insert_one(notif)
-
-            default_day = tournament.get("default_match_day", "Mittwoch")
-            default_hour = tournament.get("default_match_hour", 19)
-            day_map = {"monday": "Montag", "tuesday": "Dienstag", "wednesday": "Mittwoch", "thursday": "Donnerstag", "friday": "Freitag", "saturday": "Samstag", "sunday": "Sonntag"}
-            day_display = day_map.get(str(default_day).lower(), default_day)
-
-            email_body = f"""Hallo {owner.get('username', 'Teilnehmer')},
-
-dies ist eine freundliche Erinnerung: Das Match für "{participant_name}" im Turnier "{tournament.get('name', '')}" hat noch keinen Termin!
-
-Bitte einigt euch mit eurem Gegner im Match-Hub auf einen Termin.
-
-⚠️ Wichtig: Falls keine Einigung erfolgt, wird automatisch der Standard-Termin verwendet:
-   📅 {day_display}, {default_hour}:00 Uhr
-
-Mit sportlichen Grüßen,
-Das ARENA eSports Team
-"""
-            try:
-                await send_email_notification(
-                    owner["email"],
-                    f"[{tournament.get('name', 'Turnier')}] Termin-Erinnerung für {participant_name}",
-                    email_body
-                )
-            except Exception:
-                pass
-            users_notified.add(user_id)
-            reminders_sent += 1
-    
-    # Process all matches based on bracket type
-    if bracket_type in ("league", "round_robin"):
-        for round_doc in bracket.get("rounds", []):
-            window_end = parse_optional_datetime(str(round_doc.get("window_end", "") or ""))
-            for match in round_doc.get("matches", []):
-                await process_match_for_reminder(match, window_end)
-    elif bracket_type in ("group_stage", "group_playoffs"):
-        for group in bracket.get("groups", []):
-            for round_doc in group.get("rounds", []):
-                window_end = parse_optional_datetime(str(round_doc.get("window_end", "") or ""))
-                for match in round_doc.get("matches", []):
-                    await process_match_for_reminder(match, window_end)
-        if bracket_type == "group_playoffs":
-            for round_doc in (bracket.get("playoffs") or {}).get("rounds", []):
-                for match in round_doc.get("matches", []):
-                    await process_match_for_reminder(match, None)
-    elif bracket_type in ("single_elimination", "swiss_system", "ladder_system", "king_of_the_hill"):
-        for round_doc in bracket.get("rounds", []):
-            for match in round_doc.get("matches", []):
-                await process_match_for_reminder(match, None)
-    elif bracket_type == "double_elimination":
-        for round_doc in (bracket.get("winners_bracket") or {}).get("rounds", []):
-            for match in round_doc.get("matches", []):
-                await process_match_for_reminder(match, None)
-        for round_doc in (bracket.get("losers_bracket") or {}).get("rounds", []):
-            for match in round_doc.get("matches", []):
-                await process_match_for_reminder(match, None)
-        grand_final = bracket.get("grand_final")
-        if isinstance(grand_final, dict):
-            await process_match_for_reminder(grand_final, None)
+    targets = await build_scheduling_reminder_targets(
+        tournament,
+        hours_before_window_end=hours_before_window_end,
+    )
+    delivery = await dispatch_scheduling_reminders(tournament, targets)
     
     return {
         "status": "ok",
-        "reminders_sent": reminders_sent,
-        "users_notified": len(users_notified),
-        "teams_notified": len(users_notified),
-        "message": f"{reminders_sent} Erinnerungen an {len(users_notified)} Benutzer gesendet"
+        "reminders_sent": int(delivery.get("reminders_sent", 0)),
+        "users_notified": int(delivery.get("users_notified", 0)),
+        "teams_notified": int(delivery.get("users_notified", 0)),
+        "message": f"{int(delivery.get('reminders_sent', 0))} Erinnerungen an {int(delivery.get('users_notified', 0))} Benutzer gesendet"
     }
 
 # --- SMTP Test Endpoint ---
@@ -7505,20 +8414,77 @@ async def get_paypal_config():
         "mode": paypal_mode,
     }
 
+def _normalize_admin_setting_value(key: str, value: Any) -> str:
+    key_norm = str(key or "").strip().lower()
+    if key_norm not in ALLOWED_ADMIN_SETTING_KEYS:
+        raise HTTPException(400, f"Unbekannter Setting-Key: {key_norm}")
+    text = str(value or "").strip()
+
+    if key_norm == "payment_provider":
+        return normalize_payment_provider(text)
+    if key_norm == "paypal_mode":
+        mode = text.lower() or "sandbox"
+        if mode not in {"sandbox", "live"}:
+            raise HTTPException(400, "paypal_mode muss 'sandbox' oder 'live' sein")
+        return mode
+    if key_norm == "smtp_port":
+        if not text:
+            return "587"
+        try:
+            port = int(text)
+        except Exception:
+            raise HTTPException(400, "smtp_port muss eine Zahl sein")
+        if port < 1 or port > 65535:
+            raise HTTPException(400, "smtp_port außerhalb des gültigen Bereichs")
+        return str(port)
+    if key_norm in {"smtp_use_starttls", "smtp_use_ssl"}:
+        return "true" if to_bool(text, default=False) else "false"
+    if key_norm in {"smtp_from_email", "smtp_reply_to"}:
+        email = normalize_email(text)
+        if email and not is_valid_email(email):
+            raise HTTPException(400, f"{key_norm} ist keine gültige E-Mail-Adresse")
+        return email
+    if key_norm in {"stripe_secret_key", "stripe_webhook_secret", "paypal_secret", "smtp_password"}:
+        if len(text) > 2048:
+            raise HTTPException(400, f"{key_norm} ist zu lang")
+        return text
+    if key_norm in {"stripe_public_key", "paypal_client_id", "smtp_host", "smtp_user", "smtp_from_name"}:
+        if len(text) > 300:
+            raise HTTPException(400, f"{key_norm} ist zu lang")
+        return text
+    return text
+
+def _sanitize_admin_setting_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    key = str((row or {}).get("key", "") or "").strip().lower()
+    value = str((row or {}).get("value", "") or "")
+    payload = {
+        "key": key,
+        "value": value,
+        "updated_at": str((row or {}).get("updated_at", "") or ""),
+    }
+    if key in SENSITIVE_ADMIN_SETTING_KEYS:
+        payload["is_sensitive"] = True
+        payload["is_set"] = bool(value)
+        payload["value"] = ""
+    return payload
+
 # --- Admin Endpoints ---
 
 @api_router.get("/admin/settings")
 async def get_admin_settings(request: Request):
     await require_admin(request)
-    settings = await db.admin_settings.find({}, {"_id": 0}).to_list(50)
-    return settings
+    settings = await db.admin_settings.find({"key": {"$in": sorted(ALLOWED_ADMIN_SETTING_KEYS)}}, {"_id": 0}).to_list(120)
+    sanitized = [_sanitize_admin_setting_row(s) for s in settings]
+    return sorted(sanitized, key=lambda item: item.get("key", ""))
 
 @api_router.put("/admin/settings")
 async def update_admin_setting(request: Request, body: AdminSettingUpdate):
     await require_admin(request)
+    key = str(body.key or "").strip().lower()
+    normalized_value = _normalize_admin_setting_value(key, body.value)
     await db.admin_settings.update_one(
-        {"key": body.key},
-        {"$set": {"key": body.key, "value": body.value, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"key": key},
+        {"$set": {"key": key, "value": normalized_value, "updated_at": datetime.now(timezone.utc).isoformat()}},
         upsert=True
     )
     return {"status": "ok"}
@@ -7944,6 +8910,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
+    global REMINDER_SCHEDULER
     await ensure_indexes()
     await seed_games()
     await seed_admin()
@@ -7951,117 +8918,56 @@ async def startup():
     # Setup cron job for daily reminders
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        scheduler = AsyncIOScheduler()
+        if REMINDER_SCHEDULER and getattr(REMINDER_SCHEDULER, "running", False):
+            log_info("cron.scheduler.already_running", "Reminder scheduler already running; skipping re-init")
+        else:
+            REMINDER_SCHEDULER = AsyncIOScheduler(timezone="UTC")
         
-        async def daily_reminder_job():
-            """Run daily at 10:00 UTC - send scheduling reminders for all active tournaments."""
-            log_info("cron.reminders.start", "Running daily reminder job")
-            try:
-                active_tournaments = await db.tournaments.find(
-                    {"status": {"$in": ["live", "in_progress"]}, "bracket": {"$ne": None}},
-                    {"_id": 0, "id": 1, "name": 1}
-                ).to_list(100)
-                
-                total_sent = 0
-                for t in active_tournaments:
-                    try:
-                        # Simulate an admin request context for the reminder function
-                        bracket = (await db.tournaments.find_one({"id": t["id"]}, {"_id": 0, "bracket": 1})) or {}
-                        bracket_data = bracket.get("bracket", {})
-                        if not bracket_data:
-                            continue
-                        
-                        tournament = await db.tournaments.find_one({"id": t["id"]}, {"_id": 0})
-                        if not tournament:
-                            continue
-                        
-                        # Find unscheduled matches and send reminders
-                        matches_to_check: List[Dict[str, Any]] = []
-                        bracket_type = str(bracket_data.get("type", "") or "")
-                        if bracket_type in {"league", "round_robin", "single_elimination", "swiss_system", "ladder_system", "king_of_the_hill"}:
-                            for rnd in bracket_data.get("rounds", []):
-                                matches_to_check.extend(rnd.get("matches", []))
-                        elif bracket_type == "group_stage":
-                            for group in bracket_data.get("groups", []):
-                                for rnd in group.get("rounds", []):
-                                    matches_to_check.extend(rnd.get("matches", []))
-                        elif bracket_type == "group_playoffs":
-                            for group in bracket_data.get("groups", []):
-                                for rnd in group.get("rounds", []):
-                                    matches_to_check.extend(rnd.get("matches", []))
-                            for rnd in (bracket_data.get("playoffs") or {}).get("rounds", []):
-                                matches_to_check.extend(rnd.get("matches", []))
-                        elif bracket_type == "double_elimination":
-                            for rnd in (bracket_data.get("winners_bracket") or {}).get("rounds", []):
-                                matches_to_check.extend(rnd.get("matches", []))
-                            for rnd in (bracket_data.get("losers_bracket") or {}).get("rounds", []):
-                                matches_to_check.extend(rnd.get("matches", []))
-                            if isinstance(bracket_data.get("grand_final"), dict):
-                                matches_to_check.append(bracket_data["grand_final"])
+            async def daily_reminder_job():
+                """Run daily at 10:00 UTC - send scheduling reminders for all active tournaments."""
+                log_info("cron.reminders.start", "Running daily reminder job")
+                try:
+                    active_tournaments = await db.tournaments.find(
+                        {"status": {"$in": ["live", "in_progress"]}, "bracket": {"$ne": None}},
+                        {"_id": 0},
+                    ).to_list(150)
 
-                        users_notified = set()
-                        for match in matches_to_check:
-                            if match.get("scheduled_for") or match.get("status") == "completed":
+                    total_sent = 0
+                    total_users = 0
+                    for tournament in active_tournaments:
+                        try:
+                            targets = await build_scheduling_reminder_targets(tournament, hours_before_window_end=24)
+                            if not targets:
                                 continue
-                            if not match.get("team1_id") or not match.get("team2_id"):
-                                continue
-                            
-                            reg_ids = [str(match.get("team1_id", "")).strip(), str(match.get("team2_id", "")).strip()]
-                            reg_ids = [rid for rid in reg_ids if rid]
-                            if not reg_ids:
-                                continue
-                            regs = await db.registrations.find(
-                                {"id": {"$in": reg_ids}},
-                                {"_id": 0, "id": 1, "team_name": 1, "user_id": 1},
-                            ).to_list(10)
-                            reg_by_id = {str(r.get("id", "")).strip(): r for r in regs if str(r.get("id", "")).strip()}
+                            delivery = await dispatch_scheduling_reminders(tournament, targets)
+                            total_sent += int(delivery.get("reminders_sent", 0))
+                            total_users += int(delivery.get("users_notified", 0))
+                        except Exception as ex:
+                            log_warning("cron.reminders.tournament_error", f"Error processing tournament {tournament.get('id','')}", error=str(ex))
 
-                            for reg_id in reg_ids:
-                                reg = reg_by_id.get(reg_id)
-                                if not reg:
-                                    continue
-                                user_id = str(reg.get("user_id", "")).strip()
-                                if not user_id or user_id in users_notified:
-                                    continue
-                                owner = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "username": 1})
-                                if not owner:
-                                    continue
-                                participant_name = str(reg.get("team_name", "") or "Teilnehmer").strip() or "Teilnehmer"
-                                notif = {
-                                    "id": str(uuid.uuid4()),
-                                    "user_id": user_id,
-                                    "type": "scheduling_reminder",
-                                    "title": "Termin-Erinnerung",
-                                    "message": f"Match für '{participant_name}' in '{tournament.get('name', '')}' hat noch keinen Termin!",
-                                    "read": False,
-                                    "created_at": now_iso(),
-                                    "tournament_id": t["id"],
-                                    "match_id": match.get("id", ""),
-                                }
-                                await db.notifications.insert_one(notif)
-                                users_notified.add(user_id)
-                                total_sent += 1
+                    log_info(
+                        "cron.reminders.done",
+                        "Daily reminder job complete",
+                        reminders_sent=total_sent,
+                        users_notified=total_users,
+                        tournament_count=len(active_tournaments),
+                    )
+                except Exception as ex:
+                    log_warning("cron.reminders.error", "Daily reminder job failed", error=str(ex))
 
-                                # Try sending email (non-blocking)
-                                try:
-                                    if owner.get("email"):
-                                        await send_email_notification_detailed(
-                                            owner["email"],
-                                            "Termin-Erinnerung - ARENA eSports",
-                                            f"Hallo {owner.get('username', 'Teilnehmer')},\n\n\"{participant_name}\" hat ein Match ohne Termin im Turnier \"{tournament.get('name', '')}\".\n\nBitte stimmt euch im Match-Hub ab!\n\nMit sportlichen Grüßen,\nDas ARENA Team"
-                                        )
-                                except Exception:
-                                    pass  # Email failure shouldn't stop the job
-                    except Exception as ex:
-                        log_warning("cron.reminders.tournament_error", f"Error processing tournament {t.get('id','')}", error=str(ex))
-                
-                log_info("cron.reminders.done", f"Daily reminder job complete. Sent {total_sent} reminders for {len(active_tournaments)} tournaments.")
-            except Exception as ex:
-                log_warning("cron.reminders.error", "Daily reminder job failed", error=str(ex))
-        
-        scheduler.add_job(daily_reminder_job, 'cron', hour=10, minute=0, id='daily_reminders')
-        scheduler.start()
-        logger.info("Cron job scheduler started (daily reminders at 10:00 UTC)")
+            REMINDER_SCHEDULER.add_job(
+                daily_reminder_job,
+                "cron",
+                hour=10,
+                minute=0,
+                id="daily_reminders",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=600,
+            )
+            REMINDER_SCHEDULER.start()
+            logger.info("Cron job scheduler started (daily reminders at 10:00 UTC)")
     except Exception as e:
         logger.warning(f"Could not start cron scheduler: {e}")
     
@@ -8069,4 +8975,11 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    global REMINDER_SCHEDULER
+    if REMINDER_SCHEDULER:
+        try:
+            REMINDER_SCHEDULER.shutdown(wait=False)
+        except Exception:
+            pass
+        REMINDER_SCHEDULER = None
     client.close()

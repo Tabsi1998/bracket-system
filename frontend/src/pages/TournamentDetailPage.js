@@ -73,6 +73,8 @@ export default function TournamentDetailPage() {
   const [selectedMatch, setSelectedMatch] = useState(null);
   const [scoreForm, setScoreForm] = useState({ score1: 0, score2: 0 });
   const [resolveForm, setResolveForm] = useState({ score1: 0, score2: 0, disqualify_team_id: null });
+  const [scoreDetailNotes, setScoreDetailNotes] = useState("");
+  const [resolveDetailNotes, setResolveDetailNotes] = useState("");
   const [submissions, setSubmissions] = useState({});
   const [standings, setStandings] = useState(null);
   const [standingsLoading, setStandingsLoading] = useState(false);
@@ -279,7 +281,14 @@ export default function TournamentDetailPage() {
   const handleSubmitScore = async () => {
     if (!selectedMatch) return;
     try {
-      const res = await axios.post(`${API}/tournaments/${id}/matches/${selectedMatch.id}/submit-score`, scoreForm);
+      const res = await axios.post(`${API}/tournaments/${id}/matches/${selectedMatch.id}/submit-score`, {
+        ...scoreForm,
+        details: {
+          notes: scoreDetailNotes.trim(),
+          score_unit_label: tournament?.score_unit_label || "Score",
+          best_of: Number(tournament?.best_of || 1),
+        },
+      });
       toast.success(res.data.message);
       setScoreOpen(false);
       fetchData();
@@ -289,7 +298,14 @@ export default function TournamentDetailPage() {
   const handleAdminResolve = async () => {
     if (!selectedMatch) return;
     try {
-      await axios.put(`${API}/tournaments/${id}/matches/${selectedMatch.id}/resolve`, resolveForm);
+      await axios.put(`${API}/tournaments/${id}/matches/${selectedMatch.id}/resolve`, {
+        ...resolveForm,
+        details: {
+          notes: resolveDetailNotes.trim(),
+          score_unit_label: tournament?.score_unit_label || "Score",
+          best_of: Number(tournament?.best_of || 1),
+        },
+      });
       toast.success("Ergebnis durch Admin festgelegt!");
       setResolveOpen(false);
       fetchData();
@@ -299,7 +315,14 @@ export default function TournamentDetailPage() {
   const handleAdminScoreUpdate = async () => {
     if (!selectedMatch) return;
     try {
-      await axios.put(`${API}/tournaments/${id}/matches/${selectedMatch.id}/score`, scoreForm);
+      await axios.put(`${API}/tournaments/${id}/matches/${selectedMatch.id}/score`, {
+        ...scoreForm,
+        details: {
+          notes: scoreDetailNotes.trim(),
+          score_unit_label: tournament?.score_unit_label || "Score",
+          best_of: Number(tournament?.best_of || 1),
+        },
+      });
       toast.success("Ergebnis aktualisiert!");
       setScoreOpen(false);
       fetchData();
@@ -309,6 +332,7 @@ export default function TournamentDetailPage() {
   const openScoreDialog = (match) => {
     setSelectedMatch(match);
     setScoreForm({ score1: match.score1 || 0, score2: match.score2 || 0 });
+    setScoreDetailNotes(String(match?.score_details?.notes || ""));
     fetchSubmissions(match.id);
     setScoreOpen(true);
   };
@@ -316,6 +340,7 @@ export default function TournamentDetailPage() {
   const openResolveDialog = (match) => {
     setSelectedMatch(match);
     setResolveForm({ score1: match.score1 || 0, score2: match.score2 || 0, disqualify_team_id: null });
+    setResolveDetailNotes(String(match?.score_details?.notes || ""));
     fetchSubmissions(match.id);
     setResolveOpen(true);
   };
@@ -418,6 +443,8 @@ export default function TournamentDetailPage() {
   const canRegister = tournament.status === "registration" || tournament.status === "checkin";
   const isFull = (tournament.registered_count || 0) >= tournament.max_participants;
   const alreadyRegisteredTeamIds = new Set(registrations.map((r) => r.team_id).filter(Boolean));
+  const scoreUnitLabel = tournament?.score_unit_label || "Score";
+  const scoreEntryHint = tournament?.score_entry_hint || "";
   const selectableTeams = userTeams.filter((t) => !alreadyRegisteredTeamIds.has(t.id));
 
   const getAllMatches = () => {
@@ -1097,14 +1124,17 @@ export default function TournamentDetailPage() {
                       <div key={s.id || s.side} className="flex items-center justify-between text-xs">
                         <span className="text-zinc-400">{s.submitted_by_name} ({s.side})</span>
                         <span className="font-mono text-white">{s.score1} : {s.score2}</span>
+                        {s?.details?.notes ? <span className="text-zinc-500 text-[10px] ml-2">{s.details.notes}</span> : null}
                         {s.status === "disputed" && <Badge className="bg-red-500/10 text-red-400 text-[10px]">Streit</Badge>}
                       </div>
                     ))}
                   </div>
                 )}
+                {scoreEntryHint ? <p className="text-xs text-cyan-400">{scoreEntryHint}</p> : null}
                 <div className="flex items-center gap-4">
                   <div className="flex-1 text-center">
                     <p className="text-sm text-white font-semibold mb-2">{selectedMatch.team1_name}</p>
+                    <p className="text-[10px] text-zinc-500 mb-1">{scoreUnitLabel}</p>
                     <Input data-testid="score-team1" type="number" min="0" value={scoreForm.score1}
                       onChange={e => setScoreForm({ ...scoreForm, score1: parseInt(e.target.value) || 0 })}
                       className="bg-zinc-900 border-white/10 text-white text-center text-2xl font-mono h-14" />
@@ -1112,10 +1142,20 @@ export default function TournamentDetailPage() {
                   <span className="text-zinc-600 font-bold text-lg">vs</span>
                   <div className="flex-1 text-center">
                     <p className="text-sm text-white font-semibold mb-2">{selectedMatch.team2_name}</p>
+                    <p className="text-[10px] text-zinc-500 mb-1">{scoreUnitLabel}</p>
                     <Input data-testid="score-team2" type="number" min="0" value={scoreForm.score2}
                       onChange={e => setScoreForm({ ...scoreForm, score2: parseInt(e.target.value) || 0 })}
                       className="bg-zinc-900 border-white/10 text-white text-center text-2xl font-mono h-14" />
                   </div>
+                </div>
+                <div>
+                  <Label className="text-zinc-400 text-xs">Details (optional)</Label>
+                  <Input
+                    value={scoreDetailNotes}
+                    onChange={(e) => setScoreDetailNotes(e.target.value)}
+                    placeholder="z.B. Gesamtpunkte nach 4 Rennen"
+                    className="bg-zinc-900 border-white/10 text-white mt-1"
+                  />
                 </div>
                 <Button data-testid="submit-score-btn" onClick={isAdmin ? handleAdminScoreUpdate : handleSubmitScore}
                   className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-semibold">
@@ -1151,9 +1191,11 @@ export default function TournamentDetailPage() {
                     ))}
                   </div>
                 )}
+                {scoreEntryHint ? <p className="text-xs text-cyan-400">{scoreEntryHint}</p> : null}
                 <div className="flex items-center gap-4">
                   <div className="flex-1 text-center">
                     <p className="text-sm text-white font-semibold mb-2">{selectedMatch.team1_name}</p>
+                    <p className="text-[10px] text-zinc-500 mb-1">{scoreUnitLabel}</p>
                     <Input type="number" min="0" value={resolveForm.score1}
                       onChange={e => setResolveForm({ ...resolveForm, score1: parseInt(e.target.value) || 0 })}
                       className="bg-zinc-900 border-white/10 text-white text-center text-2xl font-mono h-14" />
@@ -1161,10 +1203,20 @@ export default function TournamentDetailPage() {
                   <span className="text-zinc-600 font-bold text-lg">vs</span>
                   <div className="flex-1 text-center">
                     <p className="text-sm text-white font-semibold mb-2">{selectedMatch.team2_name}</p>
+                    <p className="text-[10px] text-zinc-500 mb-1">{scoreUnitLabel}</p>
                     <Input type="number" min="0" value={resolveForm.score2}
                       onChange={e => setResolveForm({ ...resolveForm, score2: parseInt(e.target.value) || 0 })}
                       className="bg-zinc-900 border-white/10 text-white text-center text-2xl font-mono h-14" />
                   </div>
+                </div>
+                <div>
+                  <Label className="text-zinc-400 text-xs">Admin-Notiz (optional)</Label>
+                  <Input
+                    value={resolveDetailNotes}
+                    onChange={(e) => setResolveDetailNotes(e.target.value)}
+                    placeholder="z.B. Punkte aus Rennprotokoll übernommen"
+                    className="bg-zinc-900 border-white/10 text-white mt-1"
+                  />
                 </div>
                 <div>
                   <Label className="text-zinc-400 text-xs">Disqualifizierung (optional)</Label>
