@@ -22,6 +22,8 @@ async function mockAdminSession(page) {
         username: "admin",
         role: "superadmin",
         is_tournament_staff: true,
+        mfa_enabled: true,
+        auth_mfa_verified: true,
       }),
     });
   });

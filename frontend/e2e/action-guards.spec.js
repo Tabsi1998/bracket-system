@@ -24,13 +24,13 @@ async function mockUser(page, user) {
 }
 
 async function dispatchDoubleSubmit(page, submitTestId) {
-  await page.evaluate((testId) => {
-    const submitter = document.querySelector(`[data-testid="${testId}"]`);
-    const form = submitter?.closest("form");
-    if (!form) throw new Error(`Form for ${testId} not found`);
+  const form = page.getByTestId(submitTestId).locator("xpath=ancestor::form[1]");
+  await form.waitFor({ state: "attached" });
+  await form.evaluate((node) => {
+    const form = node;
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  }, submitTestId);
+  });
 }
 
 const user = {
