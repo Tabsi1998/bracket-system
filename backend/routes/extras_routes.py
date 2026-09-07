@@ -20,7 +20,7 @@ from services.competition_read import load_competition_read_model, observe_struc
 from services.competition_standings import standings_for_structure
 from services.public_site_settings import PUBLIC_LEGAL_SOURCE_FIELDS, build_public_legal_settings
 from services.auth_settings import is_google_client_id, load_auth_settings
-from services.secret_store import decrypt_secret, encrypt_secret, secret_is_configured
+from services.secret_store import encrypt_secret, secret_is_configured
 from models import now_utc, new_id
 from email_service import send_template, _get_email_config
 from pdf_service import (
