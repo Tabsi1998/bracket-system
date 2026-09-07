@@ -2,19 +2,23 @@
 set -euo pipefail
 
 container_name="tls-public-routes-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
+web_root="$(mktemp -d)"
 
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
+  rm -rf -- "$web_root"
 }
 trap cleanup EXIT
+
+cp -a "$PWD/frontend/public/." "$web_root/"
+cp "$PWD/frontend/index.html" "$web_root/index.html"
 
 docker run --rm -d \
   --name "$container_name" \
   --add-host backend:127.0.0.1 \
   --publish 127.0.0.1::80 \
   --volume "$PWD/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
-  --volume "$PWD/frontend/public:/usr/share/nginx/html:ro" \
-  --volume "$PWD/frontend/index.html:/usr/share/nginx/html/index.html:ro" \
+  --volume "$web_root:/usr/share/nginx/html:ro" \
   nginx:alpine >/dev/null
 
 port="$(docker port "$container_name" 80/tcp | sed -E 's/.*:([0-9]+)$/\1/')"
