@@ -1,6 +1,9 @@
 # Live-Test-Anleitung
 
-Dieses Dokument beschreibt, wie Live-Checks gegen `https://lionsquad.at` ausgefuehrt werden.
+Dieses Dokument beschreibt Live-Checks gegen einen ausdrücklich ausgewählten Teststack.
+Schreibende Tests ausschließlich auf dem vorbereiteten Staging mit Testkonten ausführen,
+nicht ersatzweise auf Produktion. `staging.example.at` ist ein Platzhalter; die tatsächliche
+Domain und Freigabe werden in [STAGING_ABNAHME.md](STAGING_ABNAHME.md) festgehalten.
 
 ## Zweck
 
@@ -24,7 +27,7 @@ Im Frontend-Verzeichnis muessen ENV-Werte gesetzt sein:
 RUN_ADMIN_E2E=true
 TLS_LIVE_EMAIL="admin@example.com"
 TLS_LIVE_PASSWORD="..."
-PLAYWRIGHT_BASE_URL="https://lionsquad.at"
+E2E_BASE_URL="https://staging.example.at"
 ```
 
 Auf Windows PowerShell:
@@ -33,19 +36,20 @@ Auf Windows PowerShell:
 $env:RUN_ADMIN_E2E="true"
 $env:TLS_LIVE_EMAIL="admin@example.com"
 $env:TLS_LIVE_PASSWORD="..."
-$env:PLAYWRIGHT_BASE_URL="https://lionsquad.at"
-cd C:\Privat\Programmierung\bracket-system\frontend
+$env:E2E_BASE_URL="https://staging.example.at"
+# Vom Repository-Hauptverzeichnis aus:
+cd frontend
 npx playwright test e2e/admin-live.spec.js --project=chromium
 ```
 
 Auf Ubuntu:
 
 ```bash
-cd /root/THE-LION_SQUAD-eSPORT-Webseite/frontend
+cd /opt/the-lion-squad-staging/frontend
 RUN_ADMIN_E2E=true \
 TLS_LIVE_EMAIL="admin@example.com" \
 TLS_LIVE_PASSWORD="..." \
-PLAYWRIGHT_BASE_URL="https://lionsquad.at" \
+E2E_BASE_URL="https://staging.example.at" \
 npx playwright test e2e/admin-live.spec.js --project=chromium
 ```
 

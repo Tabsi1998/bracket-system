@@ -2,6 +2,9 @@
 
 Stand: 7. September 2026
 
+Verbindliche offene Arbeit und Reihenfolge: [RESTPLAN.md](RESTPLAN.md).
+Dieser Bericht beschreibt den Quellstand, nicht die Freigabe des Produktivbetriebs.
+
 ## Ergebnis
 
 Der Quellstand wurde von P0 bis P12 überarbeitet. Aktiver Code enthält keine Bindung an einen
@@ -35,12 +38,15 @@ verwenden ausschließlich Betreiberkonfiguration; geheime Werte werden serversei
 - Mobile: TypeScript-, Sicherheits-, Release- und Dependency-Prüfung
 - Quelltext: Secret-/Provider-Scan
 
-Docker- und Bash-Prüfungen sind zusätzlich in Linux-CI hinterlegt, da auf dem aktuellen
-Windows-Arbeitsplatz keine Docker-/Bash-Laufzeit vorhanden ist.
+Docker-Prüfungen sind in Linux-CI hinterlegt; auf dem aktuellen Windows-Arbeitsplatz
+ist Docker nicht verfügbar. Shell-Syntaxprüfungen sind lokal mit Git Bash möglich.
 
-## Noch vom Betreiber auszuführen
+## Noch gemeinsam abzunehmen
 
 Keine Softwareänderung kann externe Konten, echte Vereinsdaten oder einen Serverzugriff erfinden.
-Der Betreiber muss deshalb die Schritte aus `CONFIGURATION.md`, `RELEASE.md` und
-`BACKUP_RESTORE.md` durchführen, die Staging-Abnahme testen und die Rechtstexte fachlich prüfen.
-Danach ist der manuelle Testbericht die Grundlage für gezielte Restkorrekturen.
+Ich übernehme die technische Umsetzung nach `CONFIGURATION.md`, `RELEASE.md` und
+`BACKUP_RESTORE.md`, sobald Ziel und Zugang geklärt sind. Der Betreiber stellt eigene
+Konten/Zugänge und Vereinsdaten bereit, prüft die Bedienung nach `STAGING_ABNAHME.md`
+und lässt die Rechtstexte fachlich prüfen. Derzeit ist nur ein Produktivserver vorhanden;
+ein getrennter Staging-Stack darauf ist erst nach Kapazitäts- und Isolationsprüfung möglich.
+Der manuelle Testbericht ist anschließend die Grundlage für gezielte Restkorrekturen.

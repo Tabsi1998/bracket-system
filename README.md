@@ -8,6 +8,10 @@ Dokumenten, Achievements, Kontaktformular, Mailversand und Discord-Integrationen
 
 ## Aktueller Stand
 
+Verbindliche nächste Schritte: [RESTPLAN.md](RESTPLAN.md). Zuerst Sicherheitsupdates,
+dann getrenntes Staging und [dein Praxistest](STAGING_ABNAHME.md); der größere
+Turnier-Umbau folgt als eigenes Paket. Ein fertiger Quellstand ist keine Serverabnahme.
+
 - Frontend: React 19, Vite, Tailwind, Nginx, PWA-Service-Worker
 - Backend: FastAPI, MongoDB
 - Betrieb: Docker Compose
@@ -58,6 +62,8 @@ OPERATIONS.md
 CONFIGURATION.md
 DATA_PROTECTION.md
 RELEASE.md
+RESTPLAN.md
+STAGING_ABNAHME.md
 LIVE_TESTS.md
 BACKUP_RESTORE.md
 ROLE_AUDIT.md
@@ -166,7 +172,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\quick-check.ps1
 
 Der Schnellcheck bildet die CI-Matrix lokal ab: kompletter Backend-Compile und alle
 Nicht-Live-Tests, Dependency-Audits, Frontend-Build sowie Unit-/Browser-Tests und die
-Mobile-Sicherheits-, Release- und Expo-Pruefungen. Er erwartet Python 3.11, Node.js 20
+Mobile-Sicherheits-, Release- und Expo-Pruefungen. Er erwartet Python 3.11 und für das
+Frontend Node.js ab 22.22.2 (Frontend-CI: Node 24; separate Mobile-CI: Node 20)
 und bereits installierte Entwicklungsabhaengigkeiten. Einzelne, fuer die Aenderung
 irrelevante Bereiche koennen bewusst uebersprungen werden:
 

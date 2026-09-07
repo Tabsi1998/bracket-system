@@ -1,6 +1,11 @@
 # Competition Engine: Konsolidierung von Legacy und Stage
 
-Stand: 17. August 2026
+Stand: 7. September 2026
+
+Einordnung: nachgelagertes Paket R5 aus [RESTPLAN.md](RESTPLAN.md). Sicherheitsupdates,
+Staging und Praxistest der heutigen Plattform haben Vorrang. Read-Vertrag, Graphvalidator
+und eingeschränktes Plan/Apply sind implementiert; die Vereinheitlichung aller Schreibwege
+und die Migration realer Bestandswettbewerbe sind ausdrücklich noch offen.
 
 Tracking: GitHub Issue #120, Teil von #95; Live-/UX-Projektionen wirken spaeter in #96.
 
@@ -41,13 +46,14 @@ Ein Single-/Double-Turnier kann beim spaeteren Struktur-Rebuild bereits von
 Legacy nach Stage wechseln. Diese uneinheitliche Lebensdauer ist der zentrale
 Grund fuer die Konsolidierung.
 
-### Oeffentlicher Live-Bestand (read-only geprueft)
+### Historische Live-Stichprobe (read-only, Stand des Berichts vom 17. August 2026)
 
-Drei sichtbare Turniere verwenden bereits die Stage-Engine: zwei freie
+Drei damals sichtbare Turniere verwendeten die Stage-Engine: zwei freie
 FFA-Baeume und ein Single-Elimination-Turnier. Bei der Stichprobe gab es keine
 gebrochenen Advancement-Referenzen, doppelten Stage-/Match-Keys, terminalen
 Matches ohne Resultate oder Stage-Nummernabweichungen. Diese Dokumente werden
-nicht neu generiert; sie sind spaetere Golden-/Shadow-Parity-Faelle.
+nicht neu generiert; sie sind spaetere Golden-/Shadow-Parity-Faelle. Vor einer Migration
+ist der aktuelle Bestand erneut read-only zu erfassen; diese Stichprobe ist kein heutiger Live-Nachweis.
 
 ### Noch nicht paritaetische Verbraucher
 

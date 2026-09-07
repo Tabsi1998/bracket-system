@@ -1,5 +1,9 @@
 # LionsAPP Ausbauplan
 
+> Historischer Ausbauplan vom Mai 2026, keine ungeprüft zu wiederholende Aufgabenliste.
+> Für Reihenfolge und Paketgrenzen gilt [RESTPLAN.md](../RESTPLAN.md). Versions- und
+> Implementierungsangaben unten beschreiben den damaligen Plan, keine aktuelle Geräteabnahme.
+
 Stand: 2026-05-19
 
 ## Zielbild
