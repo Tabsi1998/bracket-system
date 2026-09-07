@@ -84,6 +84,8 @@ jobs:
           PUBLIC_BACKEND_URL: https://example.test
         run: |
           docker compose config -q
+          docker compose config --format json | python3 scripts/compose-backup-target.py --db tls_arena
+          docker compose --env-file .env.staging.example -p tls-staging -f docker-compose.yml -f docker-compose.staging.yml config --format json | python3 scripts/compose-backup-target.py --db tls_arena_staging --volume tls-staging_uploads_data
           docker run --rm \
             --add-host backend:127.0.0.1 \
             --volume "$PWD/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \

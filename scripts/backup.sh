@@ -15,45 +15,19 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
-env_value() {
-  local key="$1" default="${2:-}" value
-  value="$(grep -E "^${key}=" .env 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
-  value="${value%$'\r'}"
-  value="${value%\"}"
-  value="${value#\"}"
-  value="${value%\'}"
-  value="${value#\'}"
-  printf "%s" "${value:-$default}"
-}
-
-detect_uploads_volume() {
-  if [ -n "${UPLOADS_VOLUME:-}" ]; then
-    printf "%s" "$UPLOADS_VOLUME"
-    return
-  fi
-
-  local volume
-  volume="$(docker volume ls --format '{{.Name}}' | grep -E '(^|_)uploads_data$' | grep -Ei '(lion|tls)' | head -n 1 || true)"
-  if [ -n "$volume" ]; then
-    printf "%s" "$volume"
-    return
-  fi
-
-  printf "%s" "the-lion_squad-esport-webseite_uploads_data"
-}
-
 require_cmd docker
 require_cmd gzip
 require_cmd tar
 require_cmd openssl
 
-DB_NAME="${DB_NAME:-$(env_value DB_NAME tls_arena)}"
+# Resolve both targets from the selected project before creating any backup files.
+source scripts/backup-target.sh
+resolve_backup_target || fail "Cannot safely resolve this Compose project's backup targets."
 BACKUP_DIR="${BACKUP_DIR:-/opt/tls-arena/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 BACKUP_ENCRYPTION_PASSWORD_FILE="${BACKUP_ENCRYPTION_PASSWORD_FILE:-/etc/tls-arena/backup-password}"
 BACKUP_REMOTE="${BACKUP_REMOTE:-}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-UPLOADS_VOLUME="$(detect_uploads_volume)"
 
 MONGO_FILE="tls_${DB_NAME}_${TIMESTAMP}.archive.gz.enc"
 UPLOADS_FILE="tls_uploads_${TIMESTAMP}.tar.gz.enc"
@@ -74,7 +48,7 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 250000 -pass "file:${BACKUP_ENCRYPTION
 ok "MongoDB backup validated: ${BACKUP_DIR}/${MONGO_FILE}"
 
 info "Creating uploads backup from Docker volume '${UPLOADS_VOLUME}'"
-docker volume inspect "$UPLOADS_VOLUME" >/dev/null || fail "Uploads volume not found: ${UPLOADS_VOLUME}. Set UPLOADS_VOLUME=... if your Compose project name differs."
+docker volume inspect "$UPLOADS_VOLUME" >/dev/null || fail "Uploads volume not found: ${UPLOADS_VOLUME}. Check the selected Compose project."
 docker run --rm \
   -v "${UPLOADS_VOLUME}:/uploads:ro" \
   alpine tar -czf - -C /uploads . \
