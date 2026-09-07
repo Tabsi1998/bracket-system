@@ -1,5 +1,9 @@
 # App- und Turnier-Beta-Phasenplan
 
+> Historischer Plan vom Mai 2026; Versionsziele und Checkboxen sind keine aktuelle
+> Releasefreigabe. Offene Arbeit wird nach [RESTPLAN.md](RESTPLAN.md) priorisiert.
+> App-Versionen stehen im aktuellen Mobile-Manifest; Geräteabnahme bleibt separat nachzuweisen.
+
 Stand: 2026-05-21
 
 Dieser Plan buendelt die naechsten sinnvollen Arbeiten fuer App, Website und Backend. Fokus ist, dass lokale Events, Online-Turniere, Fast-Lap-Inhalte, Profilbedienung und die Jahreswertung logisch sauber zusammenpassen.

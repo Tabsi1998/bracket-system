@@ -1,5 +1,9 @@
 # Turnier-Roadmap
 
+> Historischer Arbeitsstand vom Mai 2026, kein aktueller Restplan. Maßgeblich sind
+> [RESTPLAN.md](RESTPLAN.md) für die Reihenfolge und [COMPETITION_ENGINE.md](COMPETITION_ENGINE.md)
+> für den späteren Umbau. Die folgenden damaligen Aufgaben bleiben als Historie erhalten.
+
 Stand: 2026-05-08
 
 ## Umsetzung

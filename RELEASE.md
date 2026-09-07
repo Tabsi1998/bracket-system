@@ -1,5 +1,33 @@
 # Staging, Release und Rollback
 
+Arbeitsreihenfolge: [RESTPLAN.md](RESTPLAN.md). Abnahmeprotokoll mit konkreten
+Klicktests: [STAGING_ABNAHME.md](STAGING_ABNAHME.md). Noch keine Staging-/Go-live-Freigabe.
+
+## Wenn nur der Produktivserver vorhanden ist
+
+Staging kann nach bestätigter Kapazitätsreserve auf demselben Host laufen. Vorher
+RAM/CPU/Plattenplatz, belegte Ports, Compose-Ziele, Backups und Reverse-Proxy read-only
+prüfen. Containerlimits begrenzen nicht die Last eines Image-Builds. Bei knappen
+Ressourcen nicht parallel bauen/starten; ein gemeinsamer Host bleibt eine Ausfallzone.
+
+Öffentliches SSH ist dafür nicht nötig. Die vorhandene Hosting-/Serverkonsole oder
+ein privater Zugang genügt; ohne direkten Agent-Zugriff führt der Betreiber die von
+mir vorbereiteten Befehle dort aus. Staging dient nur der sicheren Update-Abnahme,
+nicht dem Freischalten einer Website-Funktion.
+
+Ein **separates Checkout** verwenden, nicht den Git-Stand des laufenden Produktivstacks
+wechseln. Eigene HTTPS-Subdomain festlegen; Produktion und DNS nicht umschalten.
+`tls-staging` ist ein eigenes Compose-Projekt mit eigenen Volumes und Netzwerk.
+Vor dem Start die aufgelöste Konfiguration auf reine Loopback-Bindings, Ports
+13000/18001, Staging-DB und getrennte Volumes prüfen, ohne Secrets zu protokollieren.
+MongoDB-Ressourcenlimit für den zweiten Stack passend zur gemessenen Reserve festlegen.
+Keine exportierten Produktionsvariablen in der Staging-Shell übernehmen: Shell-Variablen
+haben bei Compose Vorrang vor `--env-file`.
+
+`AUTH_COOKIE_DOMAIN` leer lassen (hostgebundene Cookies), Scheduler zunächst deaktivieren
+und ausschließlich Testpostfächer/Test-Integrationen verwenden. Bei Bedarf die Subdomain
+am Proxy auf Tester beschränken; Crawler-Ausschluss allein ist kein Zugriffsschutz.
+
 ## Staging einmalig einrichten
 
 ```bash
@@ -32,9 +60,13 @@ Zusätzlich manuell testen: Registrierung plus E-Mail-Verifikation, Login/MFA, G
 Client, Passwortreset, erneute Zustimmung, Upload, Turnieranmeldung, Moderationsmeldung,
 Admin-Rollen, Testmail und verschlüsseltes Backup samt Restore-Drill.
 
+Die Fälle einzeln in `STAGING_ABNAHME.md` dokumentieren. Schreibende Live-Tests niemals
+mit dem Produktivziel als Ersatz für fehlendes Staging ausführen.
+
 ## Release erstellen
 
-Nur einen grün geprüften Commit markieren:
+Nur einen grün geprüften und auf Staging abgenommenen Commit markieren. Die Version
+unten ist ein Beispiel; vor dem Taggen den tatsächlich nächsten freien Releasetag bestimmen:
 
 ```bash
 git tag -a v2.3.0 -m "TLS platform v2.3.0"

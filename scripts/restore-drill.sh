@@ -6,7 +6,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 [ "$#" -eq 1 ] || { echo "Usage: scripts/restore-drill.sh <mongo.archive.gz.enc>"; exit 1; }
 
-SOURCE_DB="${DB_NAME:-tls_arena}"
+source scripts/backup-target.sh
+resolve_backup_target || { echo "Cannot safely resolve this Compose project's restore-drill target." >&2; exit 1; }
+SOURCE_DB="$DB_NAME"
 DRILL_DB="tls_restore_drill_$(date +%Y%m%d_%H%M%S)"
 PASSWORD_FILE="${BACKUP_ENCRYPTION_PASSWORD_FILE:-/etc/tls-arena/backup-password}"
 [ -r "$PASSWORD_FILE" ] || { echo "Password file not readable: ${PASSWORD_FILE}"; exit 1; }
