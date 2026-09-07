@@ -20,7 +20,7 @@ Das Script macht:
 3. Frontend und Backend neu starten
 4. Backend Healthcheck pruefen
 5. Frontend Healthcheck pruefen
-6. SPA-Routen wie `/community` und `/seasons/current` gegen alte Asset-Dateien pruefen
+6. SPA-Routen wie `/community` und `/seasons/current` gegen alte Vite-Assets pruefen
 7. optional die public URL aus `FRONTEND_URL` pruefen
 
 ## Wichtige Checks nach Update
@@ -28,7 +28,8 @@ Das Script macht:
 ```bash
 docker compose ps
 docker compose logs --tail=100 backend
-curl -fsS http://localhost:8001/api/health
+curl -fsS http://localhost:8001/api/health/live
+curl -fsS http://localhost:8001/api/health/ready
 curl -I https://lionsquad.at
 ```
 
@@ -105,7 +106,7 @@ workeruebergreifendem Replay voraus.
 
 Symptom:
 
-- einzelne Routen laden alte `main.*.js` oder `main.*.css`
+- einzelne Routen laden alte Dateien aus `/assets/`
 - Browser zeigt kaputte Seite oder weisse Seite
 - `update.sh` meldet stale assets
 
@@ -119,7 +120,7 @@ Vorgehen:
 
 1. `./update.sh u` erneut laufen lassen.
 2. Proxy Cache leeren oder Caching fuer HTML deaktivieren.
-3. Sicherstellen, dass `/`, `/community`, `/seasons/current` alle dieselben aktuellen Main-Assets referenzieren.
+3. Sicherstellen, dass `/`, `/community`, `/seasons/current` dieselben aktuellen Vite-Assets referenzieren.
 4. Browser hart neu laden.
 
 ## Uploads
@@ -217,6 +218,36 @@ BACKUP_DIR=/opt/tls-arena/backups bash scripts/backup.sh
 ```
 
 Dann nach `BACKUP_RESTORE.md` arbeiten.
+
+## Monitoring und Alarmierung
+
+Ein externer Uptime-Dienst soll mindestens alle 60 Sekunden prüfen:
+
+- `GET https://lionsquad.at/api/health/live` – Prozess lebt
+- `GET https://lionsquad.at/api/health/ready` – Datenbank und notwendige Abhängigkeiten bereit
+- `GET https://lionsquad.at/health` – Frontend/Proxy erreichbar
+
+Nach zwei bis drei aufeinanderfolgenden Fehlern an mindestens zwei verantwortliche Personen
+alarmieren. Zusätzlich Speicherplatz (`df -h`), Docker-Restarts, Mongo-Volume, letzte erfolgreiche
+Backups und systemd-Timer überwachen. Warnschwellen: 80 % Speicher, kritisch ab 90 %.
+
+Wöchentliche Prüfung:
+
+```bash
+docker compose ps
+docker compose logs --since 7d backend | tail -n 200
+systemctl list-timers 'tls-*'
+journalctl -u tls-backup.service --since '7 days ago'
+```
+
+## Vorfallablauf
+
+1. Auswirkungen begrenzen, betroffene Integration oder Konto sperren.
+2. Zeitpunkte, Logs und betroffene Daten revisionssicher sichern; keine Logs öffentlich teilen.
+3. Zugangsdaten rotieren und Sessions widerrufen.
+4. Aus Backup nur nach bestandenem Restore-Check wiederherstellen.
+5. Datenschutzverantwortlichen einbeziehen und gesetzliche Meldefristen prüfen.
+6. Ursache, Maßnahmen und Nachkontrolle im internen Vorfallsprotokoll dokumentieren.
 
 Optional kann das Update-Script direkt vorher ein Backup ausloesen:
 

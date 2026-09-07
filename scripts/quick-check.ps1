@@ -64,6 +64,15 @@ Run-Step "Backend vollstaendig kompilieren" {
     }
 }
 
+Run-Step "Secrets und entfernte Provider pruefen" {
+    Push-Location $repoRoot
+    try {
+        python scripts/check-secrets.py
+    } finally {
+        Pop-Location
+    }
+}
+
 if (-not $SkipAudits) {
     Run-Step "Backend-Abhaengigkeiten auditieren" {
         Push-Location $repoRoot
@@ -108,7 +117,15 @@ if (-not $SkipFrontendBuild) {
     Run-Step "Frontend-Unit-Tests" {
         Push-Location (Join-Path $repoRoot "frontend")
         try {
-            Invoke-Yarn test --watchAll=false --passWithNoTests
+            Invoke-Yarn test:coverage
+        } finally {
+            Pop-Location
+        }
+    }
+    Run-Step "Frontend-Kontrast pruefen" {
+        Push-Location (Join-Path $repoRoot "frontend")
+        try {
+            Invoke-Yarn check:contrast
         } finally {
             Pop-Location
         }
@@ -138,7 +155,7 @@ if (-not $SkipMobileTypecheck) {
         Run-Step "Mobile-Abhaengigkeiten auditieren" {
             Push-Location (Join-Path $repoRoot "mobile")
             try {
-                npm audit --audit-level=moderate
+                npm run audit:ci
             } finally {
                 Pop-Location
             }

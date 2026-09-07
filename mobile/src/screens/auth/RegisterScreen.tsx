@@ -1,6 +1,6 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import React, { useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { FormInput } from "../../components/FormInput";
@@ -10,6 +10,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { errorMessage } from "../../lib/api";
 import type { AuthStackParamList } from "../../navigation/types";
 import { colors, radius } from "../../theme";
+import { API_BASE_URL } from "../../config";
 
 type Props = NativeStackScreenProps<AuthStackParamList, "Register">;
 
@@ -22,13 +23,14 @@ export function RegisterScreen({ navigation }: Props) {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [newsletter, setNewsletter] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   async function submit() {
     setSubmitting(true);
     setError("");
     try {
-      await register({
+      const result = await register({
         username: username.trim(),
         email: email.trim(),
         password,
@@ -36,6 +38,9 @@ export function RegisterScreen({ navigation }: Props) {
         accept_terms: acceptTerms,
         newsletter_consent: newsletter,
       });
+      if (result.verification_required) {
+        setSuccess(`Ein Bestätigungslink wurde an ${result.email} gesendet. Bestätige die Adresse und melde dich danach an.`);
+      }
     } catch (err) {
       setError(errorMessage(err, "Registrierung fehlgeschlagen."));
     } finally {
@@ -56,10 +61,13 @@ export function RegisterScreen({ navigation }: Props) {
             <FormInput label="E-Mail" value={email} onChangeText={setEmail} keyboardType="email-address" />
             <FormInput label="Passwort" value={password} onChangeText={setPassword} secureTextEntry />
             <Toggle label="Datenschutz akzeptieren" value={acceptPrivacy} onValueChange={setAcceptPrivacy} />
+            <Pressable onPress={() => void Linking.openURL(`${API_BASE_URL}/privacy`)}><Text style={styles.link}>Datenschutzerklärung öffnen</Text></Pressable>
             <Toggle label="Nutzungsbedingungen akzeptieren" value={acceptTerms} onValueChange={setAcceptTerms} />
+            <Pressable onPress={() => void Linking.openURL(`${API_BASE_URL}/terms`)}><Text style={styles.link}>Nutzungsbedingungen öffnen</Text></Pressable>
             <Toggle label="Newsletter erhalten" value={newsletter} onValueChange={setNewsletter} />
             <Muted>Passwort: mindestens 10 Zeichen.</Muted>
             {error ? <Text style={styles.error}>{error}</Text> : null}
+            {success ? <Text style={styles.success}>{success}</Text> : null}
             <Button
               label={submitting ? "Erstelle Account ..." : "Registrieren"}
               onPress={submit}
@@ -126,6 +134,10 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.live,
+    fontWeight: "700",
+  },
+  success: {
+    color: colors.success,
     fontWeight: "700",
   },
   linkWrap: {

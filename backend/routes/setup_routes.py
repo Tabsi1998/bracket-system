@@ -12,6 +12,7 @@ from database import get_db
 from auth import require_admin, require_super, get_current_user
 from models import MIN_PASSWORD_LENGTH, now_utc, new_id
 from services.public_site_settings import build_public_legal_settings
+from services.secret_store import encrypt_secret
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -201,6 +202,8 @@ async def complete_setup(body: SetupWizardBody, me: dict = Depends(require_super
                  "smtp_auth", "smtp_security", "smtp_tls_verify", "smtp_envelope_from",
                  "smtp_helo_name", "sender_name", "sender_email", "reply_to_email", "message_id_domain"]
     mail_updates = {k: getattr(body, k) for k in mail_keys if getattr(body, k) not in (None, "")}
+    if mail_updates.get("smtp_pass"):
+        mail_updates["smtp_pass"] = encrypt_secret(mail_updates["smtp_pass"])
     if body.mail_provider:
         if body.mail_provider not in ("smtp", "resend"):
             raise HTTPException(400, "Mail-Provider muss smtp oder resend sein.")
@@ -223,7 +226,7 @@ async def complete_setup(body: SetupWizardBody, me: dict = Depends(require_super
         await db.settings.update_one(
             {"id": "email"},
             {"$set": {
-                "resend_api_key": body.resend_api_key,
+                "resend_api_key": encrypt_secret(body.resend_api_key),
                 "sender_name": body.sender_name or "THE LION SQUAD",
                 "sender_email": body.sender_email or "noreply@lionsquad.at",
                 "reply_to_email": body.reply_to_email or body.sender_email or "noreply@lionsquad.at",

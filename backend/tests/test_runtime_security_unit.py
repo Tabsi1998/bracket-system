@@ -15,6 +15,8 @@ from runtime_config import (
     validate_runtime_environment,
 )
 
+VALID_SETTINGS_KEY = "NQBHeGtQg5HYMo1HzvJtSQPN7X8YpJrZDvw-XMz0Bm8="
+
 
 def test_app_environment_must_be_explicit():
     with pytest.raises(RuntimeError, match="APP_ENV must be set explicitly"):
@@ -30,6 +32,7 @@ def test_production_rejects_demo_and_reset_flags():
     base = {
         "APP_ENV": "production",
         "JWT_SECRET": "a" * 48,
+        "SETTINGS_ENCRYPTION_KEY": VALID_SETTINGS_KEY,
         "FRONTEND_URL": "https://lionsquad.at",
     }
     with pytest.raises(RuntimeError, match="TLS_RESET"):
@@ -42,6 +45,7 @@ def test_production_requires_https_public_origins():
     base = {
         "APP_ENV": "production",
         "JWT_SECRET": "a" * 48,
+        "SETTINGS_ENCRYPTION_KEY": VALID_SETTINGS_KEY,
         "FRONTEND_URL": "http://lionsquad.at",
     }
     with pytest.raises(RuntimeError, match="FRONTEND_URL must use https"):
@@ -58,6 +62,18 @@ def test_production_requires_https_public_origins():
 def test_development_still_rejects_api_reset_flag():
     with pytest.raises(RuntimeError, match="not supported by the API process"):
         validate_runtime_environment({"APP_ENV": "development", "TLS_RESET": "true"})
+
+
+def test_production_requires_valid_settings_encryption_key():
+    base = {
+        "APP_ENV": "production",
+        "JWT_SECRET": "a" * 48,
+        "FRONTEND_URL": "https://lionsquad.at",
+    }
+    with pytest.raises(RuntimeError, match="SETTINGS_ENCRYPTION_KEY"):
+        validate_runtime_environment(base)
+    with pytest.raises(RuntimeError, match="valid Fernet key"):
+        validate_runtime_environment({**base, "SETTINGS_ENCRYPTION_KEY": "x" * 44})
 
 
 def test_proxy_headers_require_explicit_narrow_trust_boundary():

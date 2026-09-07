@@ -14,7 +14,8 @@ Das Script zieht den neuesten Code, baut Frontend/Backend neu, startet die Conta
 ```bash
 docker compose ps
 docker compose logs --tail=100 backend
-curl -fsS http://localhost:8001/api/health
+curl -fsS http://localhost:8001/api/health/live
+curl -fsS http://localhost:8001/api/health/ready
 ```
 
 Oeffentlich pruefen:
@@ -43,7 +44,7 @@ docker compose down -v
 
 ## Wenn public routes alte Assets liefern
 
-`update.sh` prueft unter anderem `/community` und `/seasons/current`. Wenn dort alte `main.*.js` oder `main.*.css` Dateien auftauchen:
+`update.sh` prueft unter anderem `/community` und `/seasons/current`. Wenn dort alte Vite-Dateien aus `/assets/` auftauchen:
 
 1. Reverse-Proxy-Cache leeren.
 2. HTML-Caching fuer SPA-Routen deaktivieren.
@@ -53,15 +54,6 @@ Mehr Details: [OPERATIONS.md](OPERATIONS.md).
 
 ## Rollback
 
-```bash
-git log --oneline -5
-git checkout <previous-commit>
-docker compose up -d --build
-```
-
-Danach wieder auf `main`:
-
-```bash
-git checkout main
-git pull --ff-only
-```
+Releases bevorzugt per Tag mit `scripts/deploy-release.sh` ausrollen. Der bestätigte Rollback
+steht in [RELEASE.md](RELEASE.md); dadurch bleiben vorheriger Commit, Backup und Prüfablauf
+nachvollziehbar.

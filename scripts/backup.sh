@@ -45,36 +45,41 @@ detect_uploads_volume() {
 require_cmd docker
 require_cmd gzip
 require_cmd tar
+require_cmd openssl
 
 DB_NAME="${DB_NAME:-$(env_value DB_NAME tls_arena)}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/tls-arena/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
+BACKUP_ENCRYPTION_PASSWORD_FILE="${BACKUP_ENCRYPTION_PASSWORD_FILE:-/etc/tls-arena/backup-password}"
+BACKUP_REMOTE="${BACKUP_REMOTE:-}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 UPLOADS_VOLUME="$(detect_uploads_volume)"
 
-MONGO_FILE="tls_${DB_NAME}_${TIMESTAMP}.archive.gz"
-UPLOADS_FILE="tls_uploads_${TIMESTAMP}.tar.gz"
+MONGO_FILE="tls_${DB_NAME}_${TIMESTAMP}.archive.gz.enc"
+UPLOADS_FILE="tls_uploads_${TIMESTAMP}.tar.gz.enc"
 MANIFEST_FILE="tls_backup_${TIMESTAMP}.manifest.txt"
 
 mkdir -p "$BACKUP_DIR"
+[ -r "$BACKUP_ENCRYPTION_PASSWORD_FILE" ] || fail "Encrypted backups require readable BACKUP_ENCRYPTION_PASSWORD_FILE=${BACKUP_ENCRYPTION_PASSWORD_FILE}"
 
 info "Checking Docker Compose services"
 docker compose ps mongodb >/dev/null || fail "MongoDB service is not available via docker compose."
 docker compose ps backend >/dev/null || warn "Backend service not listed by docker compose."
 docker compose ps frontend >/dev/null || warn "Frontend service not listed by docker compose."
 
-info "Creating MongoDB backup for database '${DB_NAME}'"
-docker compose exec -T mongodb mongodump --db "$DB_NAME" --archive --gzip > "${BACKUP_DIR}/${MONGO_FILE}"
-gzip -t "${BACKUP_DIR}/${MONGO_FILE}"
+info "Creating encrypted MongoDB backup for database '${DB_NAME}'"
+docker compose exec -T mongodb sh -ec 'mongodump --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --db "$1" --archive --gzip' sh "$DB_NAME" \
+  | openssl enc -aes-256-cbc -salt -pbkdf2 -iter 250000 -pass "file:${BACKUP_ENCRYPTION_PASSWORD_FILE}" -out "${BACKUP_DIR}/${MONGO_FILE}"
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 250000 -pass "file:${BACKUP_ENCRYPTION_PASSWORD_FILE}" -in "${BACKUP_DIR}/${MONGO_FILE}" | gzip -t
 ok "MongoDB backup validated: ${BACKUP_DIR}/${MONGO_FILE}"
 
 info "Creating uploads backup from Docker volume '${UPLOADS_VOLUME}'"
 docker volume inspect "$UPLOADS_VOLUME" >/dev/null || fail "Uploads volume not found: ${UPLOADS_VOLUME}. Set UPLOADS_VOLUME=... if your Compose project name differs."
 docker run --rm \
   -v "${UPLOADS_VOLUME}:/uploads:ro" \
-  -v "${BACKUP_DIR}:/backup" \
-  alpine sh -c "tar -czf '/backup/${UPLOADS_FILE}' -C /uploads ."
-tar -tzf "${BACKUP_DIR}/${UPLOADS_FILE}" >/dev/null
+  alpine tar -czf - -C /uploads . \
+  | openssl enc -aes-256-cbc -salt -pbkdf2 -iter 250000 -pass "file:${BACKUP_ENCRYPTION_PASSWORD_FILE}" -out "${BACKUP_DIR}/${UPLOADS_FILE}"
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 250000 -pass "file:${BACKUP_ENCRYPTION_PASSWORD_FILE}" -in "${BACKUP_DIR}/${UPLOADS_FILE}" | tar -tzf - >/dev/null
 ok "Uploads backup validated: ${BACKUP_DIR}/${UPLOADS_FILE}"
 
 {
@@ -91,9 +96,20 @@ ok "Uploads backup validated: ${BACKUP_DIR}/${UPLOADS_FILE}"
 } > "${BACKUP_DIR}/${MANIFEST_FILE}"
 ok "Manifest written: ${BACKUP_DIR}/${MANIFEST_FILE}"
 
+if [ -n "$BACKUP_REMOTE" ]; then
+  require_cmd rclone
+  info "Copying encrypted backup set to off-site remote '${BACKUP_REMOTE}'"
+  rclone copyto "${BACKUP_DIR}/${MONGO_FILE}" "${BACKUP_REMOTE%/}/${MONGO_FILE}"
+  rclone copyto "${BACKUP_DIR}/${UPLOADS_FILE}" "${BACKUP_REMOTE%/}/${UPLOADS_FILE}"
+  rclone copyto "${BACKUP_DIR}/${MANIFEST_FILE}" "${BACKUP_REMOTE%/}/${MANIFEST_FILE}"
+  ok "Off-site copy complete."
+else
+  warn "BACKUP_REMOTE is empty: encrypted backup exists locally only. Configure an rclone remote for off-site resilience."
+fi
+
 info "Applying retention (${RETENTION_DAYS} days)"
-find "$BACKUP_DIR" -type f -name "tls_${DB_NAME}_*.archive.gz" -mtime +"$RETENTION_DAYS" -delete
-find "$BACKUP_DIR" -type f -name "tls_uploads_*.tar.gz" -mtime +"$RETENTION_DAYS" -delete
+find "$BACKUP_DIR" -type f -name "tls_${DB_NAME}_*.archive.gz.enc" -mtime +"$RETENTION_DAYS" -delete
+find "$BACKUP_DIR" -type f -name "tls_uploads_*.tar.gz.enc" -mtime +"$RETENTION_DAYS" -delete
 find "$BACKUP_DIR" -type f -name "tls_backup_*.manifest.txt" -mtime +"$RETENTION_DAYS" -delete
 
 ok "Backup complete."

@@ -7,6 +7,7 @@ import { AdminLayout } from "@/components/tls/AdminLayout";
 import { ImageUpload, useImageUploadBusy } from "@/components/tls/ImageUpload";
 import { useConfirm } from "@/components/tls/ConfirmDialog";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
+import { useAuth } from "@/context/AuthContext";
 import { buildDirtyPayload, hasPayloadChanges } from "@/lib/dirtyPayload";
 import { toast } from "sonner";
 import { Mail, Palette, Send, CheckCircle2, XCircle, AlertTriangle, MessageSquare, Server, Inbox, RefreshCw, Trash2, FileText, Activity, Radio, Eye, Search, Plus, Share2, LogIn } from "lucide-react";
@@ -195,6 +196,8 @@ function mailTemplateLabel(job) {
 }
 
 export default function AdminSettingsPage() {
+  const { user } = useAuth();
+  const isSuperadmin = user?.role === "superadmin";
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = SETTINGS_TAB_KEYS.has(searchParams.get("tab")) ? searchParams.get("tab") : "email";
   const [tab, setTab] = useState(initialTab);
@@ -220,7 +223,7 @@ export default function AdminSettingsPage() {
     registered_seat: "", register_authority: "", representative_name: "", representative_role: "",
     content_responsible: "", phone: "", privacy_contact_email: "", hosting_provider: "", hosting_country: "Oesterreich/EU",
     vat_number: "", tournament_terms_url: "", paid_tournaments_enabled: false,
-    imprint: "", privacy_policy: "", legal_extra: "", privacy_extra: "",
+    imprint: "", privacy_policy: "", legal_extra: "", privacy_extra: "", terms_of_use: "",
     discord_invite_url: "", twitch_channel: "", twitch_client_id: "", twitch_client_secret: "",
     whatsapp_channel_url: "https://whatsapp.com/channel/0029VaaWufTGU3BNG6VOxo1I",
     social_links: defaultSocialLinks(),
@@ -233,8 +236,17 @@ export default function AdminSettingsPage() {
     site_banner_starts_at: "", site_banner_ends_at: "",
   });
   const [discord, setDiscord] = useState({ webhook_url: "", username: "", avatar_url: "", enabled: true, configured: false, webhook_url_masked: "", last_status: "", last_error: "", last_event_key: "", last_checked_at: "" });
-  const [authConfig, setAuthConfig] = useState({ password_login_enabled: true, registration_enabled: true, google_login_enabled: true, google_linking_enabled: true });
+  const [authConfig, setAuthConfig] = useState({
+    password_login_enabled: true,
+    registration_enabled: true,
+    google_login_enabled: false,
+    google_registration_enabled: false,
+    google_linking_enabled: false,
+    google_client_id: "",
+    google_configured: false,
+  });
   const [savingAuth, setSavingAuth] = useState(false);
+  const [testingGoogle, setTestingGoogle] = useState(false);
   const [discordCounters, setDiscordCounters] = useState([]);
   const [discordCounterQuery, setDiscordCounterQuery] = useState("");
   const [discordCounterValues, setDiscordCounterValues] = useState({});
@@ -268,8 +280,12 @@ export default function AdminSettingsPage() {
 
   useEffect(() => {
     const nextTab = searchParams.get("tab");
+    if (nextTab === "auth" && !isSuperadmin) {
+      setTab("email");
+      return;
+    }
     if (SETTINGS_TAB_KEYS.has(nextTab) && nextTab !== tab) setTab(nextTab);
-  }, [searchParams, tab]);
+  }, [searchParams, tab, isSuperadmin]);
 
   const selectTab = (nextTab) => {
     setTab(nextTab);
@@ -295,19 +311,19 @@ export default function AdminSettingsPage() {
       { key: "twitch", label: "Twitch-Status", critical: false, request: () => api.get("/admin/streams/status") },
       { key: "discord_counters", label: "Discord-Zähler", critical: false, request: () => api.get("/admin/discord/counters?limit=50") },
       { key: "site_banners", label: "Hinweisleisten", critical: false, request: () => api.get("/settings/site-banners/admin") },
-      { key: "auth", label: "Login & Google", critical: false, request: () => api.get("/settings/auth") },
+      ...(isSuperadmin ? [{ key: "auth", label: "Login & Google", critical: false, request: () => api.get("/settings/auth") }] : []),
     ];
     const requests = await Promise.allSettled(requestDefs.map((entry) => entry.request()));
     if (seq !== loadSeqRef.current) return;
     const value = (i) => requests[i].status === "fulfilled" ? requests[i].value.data : null;
-    const e = value(0), b = value(1), d = value(2), l = value(3), sm = value(4), q = value(5), qs = value(6), st = value(7), tw = value(8), dc = value(9), sb = value(10), ac = value(11);
+    const e = value(0), b = value(1), d = value(2), l = value(3), sm = value(4), q = value(5), qs = value(6), st = value(7), tw = value(8), dc = value(9), sb = value(10), ac = isSuperadmin ? value(11) : null;
     if (e) setEmail((prev) => {
-      const next = { ...prev, ...e, resend_api_key: "" };
+      const next = { ...prev, ...e, resend_api_key: "", resend_api_key_masked: e.resend_api_key_masked || "" };
       originalEmailRef.current = emailPayload(next);
       return next;
     });
     if (b && !brandDirtyRef.current) setBrand((prev) => {
-      const next = { ...prev, ...b };
+      const next = { ...prev, ...b, twitch_client_secret: "", twitch_client_secret_masked: b.twitch_client_secret_masked || "" };
       originalBrandRef.current = brandPayload(next);
       return next;
     });
@@ -318,7 +334,7 @@ export default function AdminSettingsPage() {
     });
     if (l) setLogs(l);
     if (sm) setSmtp((prev) => {
-      const next = { ...prev, ...sm, smtp_pass: "" };
+      const next = { ...prev, ...sm, smtp_pass: "", smtp_pass_masked: sm.smtp_pass_masked || "" };
       originalSmtpRef.current = smtpPayload(next);
       return next;
     });
@@ -348,7 +364,7 @@ export default function AdminSettingsPage() {
     } else if (!criticalFailed.length) {
       loadErrorKeyRef.current = "";
     }
-  }, []);
+  }, [isSuperadmin]);
 
   useEffect(() => { load(); }, [load]);
   useApiInvalidation(load, ["settings", "users"]);
@@ -457,6 +473,19 @@ export default function AdminSettingsPage() {
     }
   };
   const toggleAuth = (key) => saveAuth({ ...authConfig, [key]: !authConfig[key] });
+  const testGoogleConfig = async () => {
+    if (testingGoogle) return;
+    setTestingGoogle(true);
+    try {
+      const { data } = await api.post("/settings/auth/google/test");
+      if (data?.ok) toast.success(data.message || "Google-Konfiguration ist erreichbar.");
+      else toast.error(data?.message || "Google-Konfiguration konnte nicht bestätigt werden.");
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || "Google-Konfiguration konnte nicht geprüft werden.");
+    } finally {
+      setTestingGoogle(false);
+    }
+  };
 
   const saveEmail = async () => {    if (savingEmail) return;
     const payload = buildDirtyPayload(emailPayload(email), originalEmailRef.current);
@@ -465,6 +494,12 @@ export default function AdminSettingsPage() {
     try { await api.put("/settings/email", payload); toast.success("E-Mail-Einstellungen gespeichert."); load(); }
     catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
     finally { setSavingEmail(false); }
+  };
+  const clearEmailSecret = async () => {
+    if (!await confirm({ title: "Resend API-Key entfernen?", description: "Der Resend-Versand funktioniert danach erst wieder mit einem neuen eigenen Key.", confirmLabel: "Key entfernen" })) return;
+    await api.put("/settings/email", { clear_resend_api_key: true });
+    toast.success("Resend API-Key entfernt.");
+    load();
   };
   const saveBrand = async () => {
     if (savingBrand) return;
@@ -582,6 +617,12 @@ export default function AdminSettingsPage() {
       load();
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
     finally { setSavingTwitch(false); }
+  };
+  const clearTwitchSecret = async () => {
+    if (!await confirm({ title: "Twitch Secret entfernen?", description: "Client Secret und zwischengespeicherter Twitch-Token werden entfernt.", confirmLabel: "Secret entfernen" })) return;
+    await api.put("/settings/branding", { clear_twitch_client_secret: true });
+    toast.success("Twitch Secret entfernt.");
+    load();
   };
   const refreshTwitch = async () => {
     if (refreshingTwitch) return;
@@ -701,6 +742,12 @@ export default function AdminSettingsPage() {
     try { await api.put("/settings/smtp", patch); toast.success("SMTP-Einstellungen gespeichert."); load(); }
     catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
     finally { setSavingSmtp(false); }
+  };
+  const clearSmtpSecret = async () => {
+    if (!await confirm({ title: "SMTP-Passwort entfernen?", description: "SMTP-Login funktioniert danach erst wieder mit einem neuen Passwort.", confirmLabel: "Passwort entfernen" })) return;
+    await api.put("/settings/smtp", { clear_smtp_pass: true });
+    toast.success("SMTP-Passwort entfernt.");
+    load();
   };
   const applySubmissionPreset = () => {
     setSmtp({
@@ -828,7 +875,7 @@ export default function AdminSettingsPage() {
       <h1 className="font-heading text-3xl md:text-4xl font-black uppercase mt-1 mb-6">Einstellungen</h1>
 
       <div className="flex flex-wrap gap-2 mb-6 border-b border-white/10 pb-3">
-        {SETTINGS_TABS.map(([k, l, Icn]) => {
+        {SETTINGS_TABS.filter(([key]) => key !== "auth" || isSuperadmin).map(([k, l, Icn]) => {
           const isDirty = dirtyTabs.has(k);
           return (
             <button key={k} onClick={() => selectTab(k)} data-testid={`settings-tab-${k}`}
@@ -844,13 +891,42 @@ export default function AdminSettingsPage() {
         <div className="max-w-2xl space-y-4" data-testid="auth-settings">
           <div className="border border-[#29B6E8]/25 bg-[#29B6E8]/5 rounded-sm p-4 text-sm text-white/70">
             <div className="font-heading font-bold uppercase text-[#29B6E8] mb-1">Login & Google</div>
-            <p>Steuere zentral, wie sich Nutzer anmelden und registrieren. Änderungen greifen sofort auf Web und in der App. Google nutzt die sichere Emergent-Anmeldung – es sind keine Schlüssel nötig.</p>
+            <p>Steuere zentral, wie sich Nutzer anmelden und registrieren. Google wird direkt über ein Google-Cloud-Projekt des Vereins angebunden; ein Client Secret ist für die Anmeldung nicht erforderlich.</p>
+          </div>
+          <div className="border border-white/10 bg-[#121212] rounded-sm p-5 space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="font-heading font-bold uppercase text-sm">Google Web Client ID</div>
+                <p className="text-xs text-white/50 mt-1">OAuth-Client vom Typ „Webanwendung“, zum Beispiel 123….apps.googleusercontent.com.</p>
+              </div>
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${authConfig.google_configured ? "text-[#00FF88]" : "text-[#FFD700]"}`}>
+                {authConfig.google_configured ? "Konfiguriert" : "Nicht konfiguriert"}
+              </span>
+            </div>
+            <input
+              type="text"
+              value={authConfig.google_client_id || ""}
+              onChange={(event) => setAuthConfig((current) => ({ ...current, google_client_id: event.target.value }))}
+              placeholder="123456789-abcdef.apps.googleusercontent.com"
+              autoComplete="off"
+              data-testid="auth-google-client-id"
+              className="w-full bg-[#0A0A0A] border border-white/10 rounded-sm px-3 py-2.5 text-sm font-mono focus:border-[#29B6E8] outline-none"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={savingAuth} onClick={() => saveAuth(authConfig)} className="px-4 py-2 bg-[#29B6E8] text-black text-xs font-bold uppercase rounded-sm disabled:opacity-50" data-testid="auth-google-save">
+                Client ID speichern
+              </button>
+              <button type="button" disabled={testingGoogle || !authConfig.google_configured} onClick={testGoogleConfig} className="px-4 py-2 border border-white/15 text-xs font-bold uppercase rounded-sm disabled:opacity-40" data-testid="auth-google-test">
+                {testingGoogle ? "Prüfe …" : "Konfiguration testen"}
+              </button>
+            </div>
           </div>
           <div className="border border-white/10 bg-[#121212] rounded-sm divide-y divide-white/5">
             {[
               ["password_login_enabled", "E-Mail & Passwort Login", "Klassische Anmeldung mit E-Mail und Passwort."],
               ["registration_enabled", "Registrierung offen", "Neue Nutzer können selbst einen Community-Account erstellen."],
-              ["google_login_enabled", "Google-Login & Registrierung", "Zeigt den \"Mit Google\"-Button auf Login und Registrierung."],
+              ["google_login_enabled", "Google-Login", "Bestehende verknüpfte Nutzer können sich mit Google anmelden."],
+              ["google_registration_enabled", "Registrierung mit Google", "Neue Nutzer dürfen nach ausdrücklicher Zustimmung einen Account über Google erstellen."],
               ["google_linking_enabled", "Google nachträglich verknüpfen", "Eingeloggte Nutzer können Google mit ihrem bestehenden Konto verbinden."],
             ].map(([key, label, hint]) => (
               <label key={key} className="flex items-start justify-between gap-4 p-5 cursor-pointer group" data-testid={`auth-toggle-${key}`}>
@@ -862,7 +938,7 @@ export default function AdminSettingsPage() {
                   type="button"
                   role="switch"
                   aria-checked={!!authConfig[key]}
-                  disabled={savingAuth}
+                  disabled={savingAuth || (key.startsWith("google_") && !authConfig.google_configured)}
                   onClick={() => toggleAuth(key)}
                   data-testid={`auth-switch-${key}`}
                   className={`relative w-12 h-6 rounded-full shrink-0 transition-colors disabled:opacity-50 ${authConfig[key] ? "bg-[#29B6E8]" : "bg-white/15"}`}
@@ -873,7 +949,7 @@ export default function AdminSettingsPage() {
             ))}
           </div>
           <p className="text-xs text-white/40">
-            Hinweis: Deaktivierte Optionen werden auch serverseitig blockiert. Der echte Google-Login mit Produktions-Domain wird beim Deployment final verifiziert.
+            Deaktivierte Optionen werden für Web und App serverseitig blockiert. Hinterlege in Google Cloud dieselbe Produktions- und Staging-Origin, die du hier verwendest.
           </p>
         </div>
       )}
@@ -901,6 +977,7 @@ export default function AdminSettingsPage() {
               <div className="text-[11px] font-bold uppercase tracking-widest text-white/60 mb-1.5">API Key {email.resend_api_key_masked && <span className="text-white/40 normal-case">(aktuell: {email.resend_api_key_masked})</span>}</div>
               <input type="password" placeholder="re_..." value={email.resend_api_key} onChange={(e) => setEmail({ ...email, resend_api_key: e.target.value })} data-testid="email-api-key" className="w-full bg-[#0A0A0A] border border-white/10 px-3 py-2 rounded-sm text-sm font-mono" />
               <p className="text-xs text-white/40 mt-1">Leer lassen um den bestehenden Key beizubehalten.</p>
+              {email.resend_api_key_masked && <button type="button" onClick={() => clearEmailSecret().catch((e) => toast.error(formatApiError(e.response?.data?.detail)))} className="mt-2 text-[10px] uppercase font-bold text-[#FF6B6B]">Gespeicherten Key entfernen</button>}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -986,6 +1063,7 @@ export default function AdminSettingsPage() {
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-widest text-white/60 mb-1.5">Passwort {smtp.smtp_pass_masked && <span className="text-white/40 normal-case">(aktuell: {smtp.smtp_pass_masked})</span>}</div>
                 <input type="password" value={smtp.smtp_pass || ""} onChange={(e) => setSmtp({ ...smtp, smtp_pass: e.target.value })} data-testid="smtp-pass" className="w-full bg-[#0A0A0A] border border-white/10 px-3 py-2 rounded-sm text-sm font-mono" placeholder="••••••" />
+                {smtp.smtp_pass_masked && <button type="button" onClick={() => clearSmtpSecret().catch((e) => toast.error(formatApiError(e.response?.data?.detail)))} className="mt-2 text-[10px] uppercase font-bold text-[#FF6B6B]">Gespeichertes Passwort entfernen</button>}
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -1520,6 +1598,7 @@ export default function AdminSettingsPage() {
                 </div>
                 <input type="password" value={brand.twitch_client_secret || ""} onChange={(e) => setBrandField("twitch_client_secret", e.target.value)} data-testid="twitch-client-secret" className="w-full bg-[#0A0A0A] border border-white/10 px-3 py-2 rounded-sm text-sm font-mono" placeholder={brand.twitch_client_secret_masked ? "Leer lassen, um Secret beizubehalten" : "Client Secret eintragen"} />
                 <p className="mt-1 text-xs text-white/40">Das Secret wird beim Laden nicht mehr im Klartext zurückgegeben.</p>
+                {brand.twitch_client_secret_masked && <button type="button" onClick={() => clearTwitchSecret().catch((e) => toast.error(formatApiError(e.response?.data?.detail)))} className="mt-2 text-[10px] uppercase font-bold text-[#FF6B6B]">Gespeichertes Secret entfernen</button>}
               </label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <button onClick={saveTwitch} disabled={savingTwitch} data-testid="twitch-save" className="px-5 py-2 bg-[#9146FF] text-white font-bold uppercase tracking-wider rounded-sm disabled:opacity-50">{savingTwitch ? "Speichere..." : "Speichern"}</button>
@@ -1815,6 +1894,7 @@ export default function AdminSettingsPage() {
             </label>
             <LegalTextArea label="Zusätzliche rechtliche Hinweise (optional)" value={mergedLegacyText(brand.legal_extra, brand.imprint)} onChange={(v) => setCanonicalLegalText("legal_extra", "imprint", v)} testId="legal-extra" rows={5} />
             <LegalTextArea label="Zusätzliche Datenschutzhinweise (optional)" value={mergedLegacyText(brand.privacy_extra, brand.privacy_policy)} onChange={(v) => setCanonicalLegalText("privacy_extra", "privacy_policy", v)} testId="privacy-extra" rows={6} />
+            <LegalTextArea label="Ergänzende Nutzungsbedingungen (optional)" value={brand.terms_of_use || ""} onChange={(v) => setBrandField("terms_of_use", v)} testId="terms-of-use" rows={8} />
             <button onClick={saveBrand} disabled={imageUploadBusy || savingBrand} data-testid="legal-save" className="px-5 py-2 bg-[#29B6E8] text-black font-bold uppercase tracking-wider rounded-sm disabled:opacity-50">{savingBrand ? "Speichere..." : "Rechtliches speichern"}</button>
           </div>
         </div>

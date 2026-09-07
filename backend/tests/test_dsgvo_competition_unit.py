@@ -60,6 +60,13 @@ class FakeDb:
         self.f1_lap_times = FakeCollection()
         self.teams = FakeCollection()
         self.email_logs = FakeCollection([{"id": "mail-1", "to": "lion@example.at"}])
+        for name in (
+            "consent_records", "memberships", "user_socials", "event_registrations", "team_members",
+            "team_invites", "user_achievements", "season_points", "prize_pickups", "notifications",
+            "direct_messages", "friendships", "user_blocks", "user_reports", "mobile_push_tokens",
+            "mobile_client_logs", "audit_logs",
+        ):
+            setattr(self, name, FakeCollection())
 
 
 def test_dsgvo_export_includes_canonical_legacy_and_stage_match_references(monkeypatch):

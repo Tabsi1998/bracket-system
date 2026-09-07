@@ -4,6 +4,8 @@
 
 - `APP_ENV=production` is mandatory. Missing, misspelled, or unknown values stop startup.
 - `JWT_SECRET` must be at least 32 characters and must not contain placeholder markers.
+- `SETTINGS_ENCRYPTION_KEY` must be a valid stable Fernet key in production; integration secrets
+  are encrypted before storage.
 - `TLS_RESET`, `SEED_DEMO`, `SEED_GAME_SERVERS`, and insecure CORS are blocked in production.
 - The API process never creates, promotes, unbans, or reactivates administrator accounts.
 - Client error telemetry is disabled by default (`CLIENT_LOGGING_ENABLED=false`). If enabled
@@ -15,6 +17,12 @@
   client address already validated by Uvicorn, never raw forwarding headers.
 - Public Host headers are restricted to `FRONTEND_URL`, `CORS_ORIGINS`, optional
   `TRUSTED_HOSTS`, and the internal health-check names.
+- Administrative roles require TOTP MFA, and sensitive settings use `club_admin`/`superadmin`
+  boundaries instead of a generic admin check.
+- Google credentials are verified server-side against the operator's configured OAuth client;
+  stable Google subject identifiers are never returned to clients.
+- Passwords, MFA seeds, recovery-code hashes and provider secrets are excluded from every public
+  user response and DSGVO export.
 
 ## First administrator
 
@@ -35,6 +43,10 @@ assume it is compromised even after the file is edited:
 6. Review audit/login logs for unexpected use around the rotation time.
 
 Never paste real secret values into issues, commits, CI logs, or chat transcripts.
+
+Rotating `SETTINGS_ENCRYPTION_KEY` requires decrypting and re-encrypting all stored secrets with a
+purpose-built maintenance migration. Never simply replace the key in `.env`, otherwise existing
+SMTP, Discord, Twitch and server credentials become unreadable.
 
 ## Development reset
 

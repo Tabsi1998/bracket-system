@@ -7,6 +7,7 @@ import httpx
 from urllib.parse import urlparse
 from database import get_db
 from models import now_utc, new_id
+from services.secret_store import decrypt_secret
 
 logger = logging.getLogger("tls-arena.discord")
 VALID_WEBHOOK_HOSTS = {"discord.com", "discordapp.com", "canary.discord.com", "ptb.discord.com"}
@@ -100,7 +101,7 @@ async def _public_link_url(value: str | None) -> str | None:
 async def _get_discord_config() -> dict:
     db = get_db()
     s = await db.settings.find_one({"id": "discord"}) or {}
-    webhook_url = (s.get("webhook_url") or "").strip()
+    webhook_url = decrypt_secret(s.get("webhook_url")).strip()
     return {
         "webhook_url": webhook_url,
         "enabled": bool(s.get("enabled", True) and webhook_url),

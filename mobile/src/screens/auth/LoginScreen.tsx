@@ -14,18 +14,25 @@ import { colors } from "../../theme";
 type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
 
 export function LoginScreen({ navigation }: Props) {
-  const { login, continueAsGuest, rememberSession } = useAuth();
+  const { login, completeMfa, continueAsGuest, rememberSession } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(rememberSession);
   const [error, setError] = useState("");
+  const [mfaTicket, setMfaTicket] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   async function submit() {
     setSubmitting(true);
     setError("");
     try {
-      await login(email.trim(), password, remember);
+      if (mfaTicket) {
+        await completeMfa(mfaTicket, mfaCode.trim(), remember);
+      } else {
+        const result = await login(email.trim(), password, remember);
+        if (result.mfaRequired && result.ticket) setMfaTicket(result.ticket);
+      }
     } catch (err) {
       setError(errorMessage(err, "Login fehlgeschlagen."));
     } finally {
@@ -54,22 +61,35 @@ export function LoginScreen({ navigation }: Props) {
           <Body>Einloggen und Turniere, Teams, Matches und Profil direkt am Handy nutzen.</Body>
         </View>
         <Card style={styles.card}>
-          <FormInput
-            label="E-Mail"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            textContentType="emailAddress"
-            autoComplete="email"
-          />
-          <FormInput
-            label="Passwort"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            textContentType="password"
-            autoComplete="password"
-          />
+          {mfaTicket ? (
+            <FormInput
+              label="MFA- oder Wiederherstellungscode"
+              value={mfaCode}
+              onChangeText={setMfaCode}
+              keyboardType="number-pad"
+              textContentType="oneTimeCode"
+              autoComplete="one-time-code"
+            />
+          ) : (
+            <>
+              <FormInput
+                label="E-Mail"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete="email"
+              />
+              <FormInput
+                label="Passwort"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                textContentType="password"
+                autoComplete="password"
+              />
+            </>
+          )}
           <View style={styles.rememberRow}>
             <Switch
               value={remember}
@@ -83,7 +103,7 @@ export function LoginScreen({ navigation }: Props) {
             </Pressable>
           </View>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Button label={submitting ? "Anmelden ..." : "Anmelden"} onPress={submit} disabled={submitting} />
+          <Button label={submitting ? "Anmelden ..." : mfaTicket ? "MFA bestätigen" : "Anmelden"} onPress={submit} disabled={submitting} />
           <Button
             label="Live-Daten ansehen"
             variant="secondary"

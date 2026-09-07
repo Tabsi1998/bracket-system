@@ -393,6 +393,7 @@ def _smtp_diagnose_sync(cfg: dict, to: str) -> dict:
 
 
 async def get_mail_settings() -> dict:
+    from services.secret_store import decrypt_secret
     db = get_db()
     s = await db.settings.find_one({"id": "mail"}, {"_id": 0}) or {}
     legacy = await db.settings.find_one({"id": "email"}, {"_id": 0}) or {}
@@ -408,7 +409,7 @@ async def get_mail_settings() -> dict:
         "smtp_host": s.get("smtp_host", ""),
         "smtp_port": int(s.get("smtp_port") or 587),
         "smtp_user": s.get("smtp_user", ""),
-        "smtp_pass": s.get("smtp_pass", ""),
+        "smtp_pass": decrypt_secret(s.get("smtp_pass")),
         "smtp_auth": s.get("smtp_auth", "login"),
         "smtp_security": s.get("smtp_security", "auto"),  # auto | starttls | tls | none
         "smtp_tls_verify": s.get("smtp_tls_verify", False),
@@ -418,7 +419,7 @@ async def get_mail_settings() -> dict:
         "sender_email": s.get("sender_email") or legacy.get("sender_email") or os.environ.get("SENDER_EMAIL", "noreply@lionsquad.at"),
         "reply_to_email": s.get("reply_to_email") or legacy.get("reply_to_email") or s.get("sender_email") or legacy.get("sender_email") or os.environ.get("SENDER_EMAIL", "noreply@lionsquad.at"),
         "message_id_domain": s.get("message_id_domain") or legacy.get("message_id_domain") or "",
-        "resend_api_key": legacy.get("resend_api_key") or s.get("resend_api_key") or os.environ.get("RESEND_API_KEY", ""),
+        "resend_api_key": decrypt_secret(legacy.get("resend_api_key") or s.get("resend_api_key")) or os.environ.get("RESEND_API_KEY", ""),
         "enabled": s.get("enabled", True) if "enabled" in s else legacy.get("enabled", True),
     }
 

@@ -44,7 +44,7 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, email: str, role: str, session_id: str, family_id: str | None = None) -> str:
+def create_access_token(user_id: str, email: str, role: str, session_id: str, family_id: str | None = None, *, mfa_verified: bool = False) -> str:
     payload = {
         "sub": user_id,
         "email": email,
@@ -52,6 +52,7 @@ def create_access_token(user_id: str, email: str, role: str, session_id: str, fa
         "sid": session_id,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_MINUTES),
         "type": "access",
+        "mfa": bool(mfa_verified),
     }
     if family_id:
         payload["fam"] = family_id
@@ -63,6 +64,8 @@ def create_refresh_token(
     token_id: str,
     family_id: str,
     expires_at: datetime | None = None,
+    *,
+    mfa_verified: bool = False,
 ) -> str:
     payload = {
         "sub": user_id,
@@ -70,6 +73,7 @@ def create_refresh_token(
         "fid": family_id,
         "exp": expires_at or refresh_expires_at(),
         "type": "refresh",
+        "mfa": bool(mfa_verified),
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
@@ -221,7 +225,18 @@ async def get_current_user(request: Request) -> dict:
                 session_ok = True
     if not session_ok:
         raise HTTPException(status_code=401, detail="Session expired")
-    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    user = await db.users.find_one(
+        {"id": user_id},
+        {
+            "_id": 0,
+            "password_hash": 0,
+            "google_id": 0,
+            "mfa_secret": 0,
+            "mfa_pending_secret": 0,
+            "mfa_pending_created_at": 0,
+            "mfa_recovery_code_hashes": 0,
+        },
+    )
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     if user.get("is_active") is False:
@@ -243,6 +258,17 @@ async def get_current_user(request: Request) -> dict:
             "is_active": {"$ne": False},
         })
     )
+    user["auth_mfa_verified"] = bool(payload.get("mfa"))
+    privacy_version = os.environ.get("PRIVACY_POLICY_VERSION", "2026-08-26")
+    terms_version = os.environ.get("TERMS_VERSION", "2026-08-26")
+    user["consent_required"] = bool(
+        user.get("accepted_privacy") is not True
+        or user.get("accepted_terms") is not True
+        or user.get("privacy_policy_version") != privacy_version
+        or user.get("terms_version") != terms_version
+    )
+    user["required_privacy_policy_version"] = privacy_version
+    user["required_terms_version"] = terms_version
     return user
 
 
@@ -256,6 +282,9 @@ async def get_optional_user(request: Request) -> dict | None:
 def require_role(*allowed_roles: str):
     """Returns a FastAPI dependency that ensures user has one of the allowed roles."""
     async def dep(user: dict = Depends(get_current_user)) -> dict:
+        if user.get("role") in {"tournament_admin", "club_admin", "superadmin"}:
+            if not user.get("mfa_enabled") or not user.get("auth_mfa_verified"):
+                raise HTTPException(status_code=403, detail="Für den Adminbereich ist eine bestätigte Zwei-Faktor-Anmeldung erforderlich.")
         user_level = ROLE_LEVELS.get(user.get("role", "player"), 0)
         if user.get("role") in allowed_roles:
             return user
@@ -282,8 +311,23 @@ def require_club_member():
 
 def require_admin():
     """Admin = tournament_admin | club_admin | superadmin."""
-    return require_role("tournament_admin", "club_admin", "superadmin")
+    async def dep(user: dict = Depends(require_role("tournament_admin", "club_admin", "superadmin"))) -> dict:
+        if not user.get("mfa_enabled") or not user.get("auth_mfa_verified"):
+            raise HTTPException(status_code=403, detail="Für den Adminbereich ist eine bestätigte Zwei-Faktor-Anmeldung erforderlich.")
+        return user
+    return dep
+
+
+def require_club_admin():
+    """Club-wide configuration and sensitive operational data."""
+    async def dep(user: dict = Depends(require_role("club_admin", "superadmin"))) -> dict:
+        return user
+    return dep
 
 
 def require_super():
-    return require_role("superadmin")
+    async def dep(user: dict = Depends(require_role("superadmin"))) -> dict:
+        if not user.get("mfa_enabled") or not user.get("auth_mfa_verified"):
+            raise HTTPException(status_code=403, detail="Für diese Aktion ist eine bestätigte Zwei-Faktor-Anmeldung erforderlich.")
+        return user
+    return dep

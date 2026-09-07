@@ -58,13 +58,13 @@ export default function AdminUsersPage() {
   };
   const deleteUser = async (u) => {
     if (!await confirm({
-      title: "Benutzer endgültig löschen?",
-      description: `Benutzer "${u.username}" wird inklusive Login, Mitgliedschaft, Registrierungen, Achievements und Zeiten gelöscht.`,
-      confirmLabel: "Endgültig löschen",
+      title: "Benutzer anonymisieren?",
+      description: `Login und personenbezogene Daten von "${u.username}" werden unwiderruflich entfernt. Sporthistorie bleibt anonymisiert erhalten.`,
+      confirmLabel: "Anonymisieren",
     })) return;
     try {
       await api.delete(`/users/${u.id}`);
-      toast.success("Benutzer gelöscht.");
+      toast.success("Benutzer anonymisiert.");
       load();
     } catch (e) { toast.error(formatRequestError(e, "Löschen fehlgeschlagen.")); }
   };
@@ -179,7 +179,7 @@ export default function AdminUsersPage() {
 }
 
 function CreateUserModal({ onClose, onSaved, onCreated }) {
-  const [form, setForm] = useState({ username: "", display_name: "", email: "", gender: "", role: "player", is_active: true, privacy_public_profile: true, send_invite: true });
+  const [form, setForm] = useState({ username: "", display_name: "", email: "", gender: "", role: "player", is_active: true, privacy_public_profile: false, send_invite: true });
   const [saving, setSaving] = useState(false);
   const [inviteUrl, setInviteUrl] = useState("");
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));

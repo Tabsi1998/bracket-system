@@ -2,7 +2,7 @@ import { api } from "./api";
 
 const DEDUPE_MS = 30000;
 const MAX_LOGS_PER_MINUTE = 12;
-const CLIENT_LOGGING_ENABLED = process.env.REACT_APP_CLIENT_LOGGING === "true";
+const CLIENT_LOGGING_ENABLED = import.meta.env.VITE_CLIENT_LOGGING === "true";
 const sentAtByFingerprint = new Map();
 let recentSendTimes = [];
 
@@ -55,7 +55,7 @@ function sendClientLog(payload) {
       path: window.location?.pathname || "",
     },
     platform: "web",
-    app_version: process.env.REACT_APP_VERSION || "",
+    app_version: import.meta.env.VITE_APP_VERSION || "",
     created_at: new Date().toISOString(),
   }).catch(() => {});
 }

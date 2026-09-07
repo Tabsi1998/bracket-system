@@ -8,7 +8,7 @@ const resourceTimeout = Math.max(5_000, Number(process.env.PUBLIC_AUDIT_RESOURCE
 const staticPaths = [
   "/", "/about", "/board", "/values", "/contact", "/news", "/events", "/galerie",
   "/references", "/esports", "/tournaments", "/fastlap", "/teams", "/servers", "/members",
-  "/membership/join", "/membership/apply", "/sponsors", "/partners", "/privacy", "/imprint", "/players",
+  "/membership/join", "/membership/apply", "/sponsors", "/partners", "/privacy", "/imprint", "/terms", "/players",
 ];
 const placeholderPattern = /Image:\s*null|Lorem ipsum|demo(?:daten|text|inhalt| player)?|sample content|coming soon|noch im adminbereich zu hinterlegen|\bTBD\b/gi;
 

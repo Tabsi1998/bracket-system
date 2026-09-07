@@ -32,7 +32,7 @@ Dynamische Sitemap-Routen sind auf veroeffentlichte/oeffentliche Datensaetze beg
 
 Diese Routen bleiben erreichbar, damit Menschen sie verwenden und Crawler `noindex, follow` lesen koennen. Sie stehen nicht in der Sitemap:
 
-- `/privacy` und `/imprint`
+- `/privacy`, `/imprint` und `/terms`
 - `/players` und `/u/<username>`
 - `/membership/apply`
 - `/matches/<id>`
@@ -50,6 +50,7 @@ Diese Routen bleiben erreichbar, damit Menschen sie verwenden und Crawler `noind
 | `/der-verein`, `/ueber-uns` | `/about` |
 | `/datenschutzerklaerung`, `/datenschutz` | `/privacy` |
 | `/impressum` | `/imprint` |
+| `/nutzungsbedingungen` | `/terms` |
 | `/kontakt` | `/contact` |
 | `/sponsoren` | `/sponsors` |
 | `/partner` | `/partners` |

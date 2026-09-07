@@ -10,8 +10,8 @@
  */
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import * as Icons from "lucide-react";
 import { ChevronDown, Lock } from "lucide-react";
+import { AchievementIcon } from "@/components/tls/AchievementIcon";
 
 const LEVEL_META = {
   1: { name: "Bronze",   color: "#CD7F32" },
@@ -22,23 +22,22 @@ const LEVEL_META = {
 };
 
 const CATEGORY_META = {
-  match:      { label: "Match",     icon: "Swords",        accent: "#29B6E8", order: 1 },
-  tournament: { label: "Turnier",   icon: "Trophy",        accent: "#FFD700", order: 2 },
-  fastlap:    { label: "Fast Lap",  icon: "Flag",          accent: "#A855F7", order: 3 },
-  team:       { label: "Team",      icon: "Users",         accent: "#00FF88", order: 4 },
-  community:  { label: "Community", icon: "MessagesSquare", accent: "#29B6E8", order: 5 },
-  content:    { label: "Streaming & Content", icon: "Radio", accent: "#9146FF", order: 6 },
-  progression:{ label: "Fortschritt", icon: "TrendingUp",  accent: "#00FF88", order: 7 },
-  club:       { label: "Verein",    icon: "Crown",         accent: "#FFD700", order: 8 },
-  special:    { label: "Sonderauszeichnungen", icon: "Sparkles",  accent: "#FF3B30", order: 9 },
-  negative:   { label: "Geheim / Fun", icon: "AlertTriangle", accent: "#FF3B30", order: 10 },
+  match:      { label: "Match",     icon: "swords",        accent: "#29B6E8", order: 1 },
+  tournament: { label: "Turnier",   icon: "trophy",        accent: "#FFD700", order: 2 },
+  fastlap:    { label: "Fast Lap",  icon: "flag",          accent: "#A855F7", order: 3 },
+  team:       { label: "Team",      icon: "users",         accent: "#00FF88", order: 4 },
+  community:  { label: "Community", icon: "messages-square", accent: "#29B6E8", order: 5 },
+  content:    { label: "Streaming & Content", icon: "radio", accent: "#9146FF", order: 6 },
+  progression:{ label: "Fortschritt", icon: "trending-up",  accent: "#00FF88", order: 7 },
+  club:       { label: "Verein",    icon: "crown",         accent: "#FFD700", order: 8 },
+  special:    { label: "Sonderauszeichnungen", icon: "sparkles",  accent: "#FF3B30", order: 9 },
+  negative:   { label: "Geheim / Fun", icon: "alert-triangle", accent: "#FF3B30", order: 10 },
 };
 
 // Escalating, animated medal per tier level. Every rarity has its own signature:
 // Bronze ember, Silver sheen, Gold spark orbit, Platinum float+ring, Legendary flames.
 function TierMedal({ level, icon, earned = true, size = "md" }) {
   const lvl = LEVEL_META[level] || LEVEL_META[1];
-  const Icon = Icons[pascal(icon || "circle")] || Icons.Circle;
   const dim = size === "lg" ? "w-12 h-12" : size === "sm" ? "w-8 h-8" : "w-9 h-9";
   const iconDim = size === "lg" ? "w-5 h-5" : "w-4 h-4";
   const framed = earned && level >= 3;
@@ -66,7 +65,7 @@ function TierMedal({ level, icon, earned = true, size = "md" }) {
     >
       <div className={`w-full h-full rounded-sm flex items-center justify-center overflow-hidden relative ${innerClass}`} style={staticStyle}>
         {earned
-          ? <Icon className={`${iconDim} relative z-[1] ${level >= 5 ? "tls-flame" : ""}`} style={{ color: lvl.color, filter: framed && level < 5 ? `drop-shadow(0 0 4px ${lvl.color})` : undefined }} />
+          ? <AchievementIcon name={icon} className={`${iconDim} relative z-[1] ${level >= 5 ? "tls-flame" : ""}`} style={{ color: lvl.color, filter: framed && level < 5 ? `drop-shadow(0 0 4px ${lvl.color})` : undefined }} />
           : <Lock className="w-3.5 h-3.5 text-white/25" />}
       </div>
       {framed && (
@@ -82,8 +81,6 @@ function TierMedal({ level, icon, earned = true, size = "md" }) {
 const SPECIAL_ACCENTS = [
   "#FF3B30", "#9146FF", "#29B6E8", "#FFD700", "#00FF88", "#FF8A3D", "#E4405F",
 ];
-
-function pascal(s) { return s.split("-").map(w => w.charAt(0).toUpperCase()+w.slice(1)).join(""); }
 
 function groupAccent(group) {
   if (group.category !== "special") return group.accent_color || "#29B6E8";
@@ -133,12 +130,11 @@ export function AchievementGroupsView({ groups = [], emptyText = "Noch keine Ach
     <div className="space-y-10" data-testid="achievement-groups">
       {order.filter(c => byCat[c]?.length).map((cat) => {
         const meta = CATEGORY_META[cat] || CATEGORY_META.special;
-        const CatIcon = Icons[meta.icon] || Icons.Trophy;
         return (
           <section key={cat}>
             <div className="flex items-baseline justify-between mb-4">
               <div className="flex items-center gap-2">
-                <CatIcon className="w-4 h-4" style={{ color: meta.accent }} />
+                <AchievementIcon name={meta.icon} fallback="trophy" className="w-4 h-4" style={{ color: meta.accent }} />
                 <h2 className="font-heading text-xl md:text-2xl font-bold uppercase">{meta.label}</h2>
               </div>
               <span className="text-[10px] uppercase tracking-widest text-white/40">{byCat[cat].length} Gruppen</span>
@@ -155,7 +151,6 @@ export function AchievementGroupsView({ groups = [], emptyText = "Noch keine Ach
 
 function GroupCard({ group, earnedOnly = false }) {
   const [open, setOpen] = useState(false);
-  const Icon = Icons[pascal(group.icon || "trophy")] || Icons.Trophy;
   const earnedTiers = group.tiers.filter(t => t.earned).sort((a, b) => b.level - a.level);
   const lockedTiers = group.tiers.filter(t => !t.earned).sort((a, b) => a.level - b.level);
   const highest = earnedTiers[0]; // top tier achieved

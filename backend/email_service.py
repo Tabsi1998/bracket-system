@@ -11,6 +11,7 @@ import resend
 from database import get_db
 from models import new_id
 from services.email_delivery import html_to_text
+from services.secret_store import decrypt_secret
 
 logger = logging.getLogger("tls-arena.email")
 
@@ -19,7 +20,7 @@ async def _get_email_config() -> dict:
     db = get_db()
     s = await db.settings.find_one({"id": "email"}) or {}
     mail = await db.settings.find_one({"id": "mail"}) or {}
-    api_key = s.get("resend_api_key") or os.environ.get("RESEND_API_KEY", "")
+    api_key = decrypt_secret(s.get("resend_api_key")) or os.environ.get("RESEND_API_KEY", "")
     sender_email = s.get("sender_email") or mail.get("sender_email") or os.environ.get("SENDER_EMAIL", "noreply@lionsquad.at")
     sender_name = s.get("sender_name") or mail.get("sender_name") or "THE LION SQUAD"
     if str(sender_name).strip().lower() == "tls arena":
@@ -150,6 +151,16 @@ def tpl_registration(display_name: str) -> tuple[str, str]:
         "<p>Dein Account auf der Website von THE LION SQUAD eSports ist bereit. Ab jetzt kannst du dich für Turniere anmelden, Teams gründen und die F1 Fast Lap Challenge mitfahren.</p>"
         "<p>Die offizielle Aufnahme in den Verein ist davon getrennt und erfolgt erst nach einer freigeschalteten Mitgliedschaft.</p>"
         "<p>Viel Erfolg!</p>",
+    )
+
+
+def tpl_email_verification(display_name: str, verification_url: str) -> tuple[str, str]:
+    return "E-Mail-Adresse bestätigen", _wrap(
+        "E-Mail-Adresse bestätigen",
+        f"<p>Hallo {display_name or 'Lion'},</p>"
+        "<p>bestätige bitte deine E-Mail-Adresse, bevor du dich anmeldest. Der Link ist 24 Stunden gültig.</p>"
+        "<p>Falls du den Account nicht erstellt hast, kannst du diese Nachricht ignorieren.</p>",
+        "E-Mail bestätigen", verification_url,
     )
 
 
@@ -515,6 +526,7 @@ async def send_template(
     """
     templates = {
         "registration": tpl_registration,
+        "email_verification": tpl_email_verification,
         "password_reset": tpl_password_reset,
         "user_invite": tpl_user_invite,
         "registration_received": tpl_registration_received,

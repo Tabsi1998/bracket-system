@@ -6,9 +6,9 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Depends
 from database import get_db
-from auth import get_current_user, get_optional_user, require_admin, require_super, hash_password, hash_token
+from auth import get_current_user, get_optional_user, require_club_admin, require_super, hash_token
 from email_service import send_template
-from services.competition_privacy import anonymize_registration_match_references, registration_match_snapshot
+from services.competition_privacy import registration_match_snapshot
 from services.competition_standings import registration_match_summary
 from services.membership_service import get_membership, derived_user_type, is_active_member
 from services.profile_references import empty_profile_references, personal_profile_references
@@ -21,10 +21,20 @@ from services.notification_preferences import (
 )
 from models import (
     AdminUserCreate, UserUpdate, RoleUpdate, UserSocialCreate, UserSocialUpdate,
-    MIN_PASSWORD_LENGTH, now_utc, new_id,
+    now_utc, new_id,
 )
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+PRIVATE_AUTH_FIELDS = {
+    "_id": 0,
+    "password_hash": 0,
+    "google_id": 0,
+    "mfa_secret": 0,
+    "mfa_pending_secret": 0,
+    "mfa_pending_created_at": 0,
+    "mfa_recovery_code_hashes": 0,
+}
 
 
 def _safe_regex(value: str | None, max_len: int = 80) -> str:
@@ -32,8 +42,8 @@ def _safe_regex(value: str | None, max_len: int = 80) -> str:
 
 
 def _clean(u: dict) -> dict:
-    u.pop("_id", None)
-    u.pop("password_hash", None)
+    for field in ("_id", "password_hash", "google_id", "mfa_secret", "mfa_pending_secret", "mfa_pending_created_at", "mfa_recovery_code_hashes"):
+        u.pop(field, None)
     return u
 
 
@@ -252,7 +262,7 @@ async def _send_user_invite(user: dict, actor: dict) -> dict:
 @router.get("")
 async def list_users(q: str | None = None, role: str | None = None,
                      user_type: str | None = None,
-                     user: dict = Depends(require_admin())):
+                     user: dict = Depends(require_club_admin())):
     db = get_db()
     query = {}
     if q:
@@ -266,7 +276,7 @@ async def list_users(q: str | None = None, role: str | None = None,
         query["role"] = role
     if user_type:
         query["user_type"] = user_type
-    users = await db.users.find(query, {"password_hash": 0, "_id": 0}).to_list(500)
+    users = await db.users.find(query, PRIVATE_AUTH_FIELDS).to_list(500)
     # Bulk fetch memberships
     user_ids = [u["id"] for u in users]
     members = {
@@ -351,20 +361,19 @@ async def mention_search(
 @router.post("")
 async def admin_create_user(body: AdminUserCreate, me: dict = Depends(require_super())):
     db = get_db()
+    if not body.send_invite:
+        raise HTTPException(422, "Administrativ angelegte Konten müssen per E-Mail eingeladen werden, damit die Person selbst Passwort und Einwilligungen festlegt.")
     username = body.username.strip()
     email = str(body.email).lower().strip()
     if await db.users.find_one({"$or": [{"username": username}, {"email": email}]}):
         raise HTTPException(status_code=409, detail="Username oder E-Mail bereits vergeben")
     user_id = new_id()
-    manual_password = (body.password or "").strip()
-    if not body.send_invite and len(manual_password) < MIN_PASSWORD_LENGTH:
-        raise HTTPException(status_code=422, detail=f"Passwort muss mindestens {MIN_PASSWORD_LENGTH} Zeichen haben, wenn keine Einladung gesendet wird.")
-    password_setup_required = bool(body.send_invite)
+    password_setup_required = True
     doc = {
         "id": user_id,
         "username": username,
         "email": email,
-        "password_hash": "!pending_invite" if password_setup_required else hash_password(manual_password),
+        "password_hash": "!pending_invite",
         "display_name": body.display_name or username,
         "gender": body.gender,
         "role": body.role,
@@ -375,8 +384,9 @@ async def admin_create_user(body: AdminUserCreate, me: dict = Depends(require_su
         "password_setup_required": password_setup_required,
         "invited_at": now_utc().isoformat() if password_setup_required else None,
         "privacy_public_profile": body.privacy_public_profile,
-        "accepted_privacy": True,
-        "accepted_terms": True,
+        "accepted_privacy": False,
+        "accepted_terms": False,
+        "consent_required": True,
         "newsletter_consent": False,
         "dm_privacy": "everyone",
         "favorite_games": [],
@@ -524,7 +534,7 @@ async def list_public_users(
 @router.get("/public/{username}")
 async def get_public_profile(username: str, viewer: dict | None = Depends(get_optional_user)):
     db = get_db()
-    u = await db.users.find_one({"username": username}, {"_id": 0, "password_hash": 0, "email": 0})
+    u = await db.users.find_one({"username": username}, {**PRIVATE_AUTH_FIELDS, "email": 0})
     if not u or u.get("is_active") is False or u.get("is_banned") is True:
         raise HTTPException(status_code=404, detail="Spieler nicht gefunden")
     public = bool(u.get("privacy_public_profile"))
@@ -743,7 +753,7 @@ async def get_public_profile(username: str, viewer: dict | None = Depends(get_op
 @router.get("/{user_id}")
 async def get_user(user_id: str, me: dict = Depends(get_current_user)):
     db = get_db()
-    u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    u = await db.users.find_one({"id": user_id}, PRIVATE_AUTH_FIELDS)
     if not u:
         raise HTTPException(status_code=404, detail="Nutzer nicht gefunden")
     # Hide email for non-admins if not own
@@ -767,7 +777,7 @@ async def update_me(body: UserUpdate, me: dict = Depends(get_current_user)):
         return me
     updates["updated_at"] = now_utc().isoformat()
     await db.users.update_one({"id": me["id"]}, {"$set": updates})
-    u = await db.users.find_one({"id": me["id"]}, {"_id": 0, "password_hash": 0})
+    u = await db.users.find_one({"id": me["id"]}, PRIVATE_AUTH_FIELDS)
     await _attach_membership(u)
     return u
 
@@ -830,7 +840,7 @@ async def delete_my_social(social_id: str, me: dict = Depends(get_current_user))
 @router.put("/{user_id}")
 @router.patch("/{user_id}")
 async def admin_update_user(user_id: str, body: UserUpdate,
-                             me: dict = Depends(require_admin())):
+                             me: dict = Depends(require_club_admin())):
     db = get_db()
     raw = body.model_dump(exclude_unset=True)
     updates = {k: v for k, v in raw.items() if v is not None or k in USER_NULLABLE_FIELDS}
@@ -839,12 +849,12 @@ async def admin_update_user(user_id: str, body: UserUpdate,
         updates["notification_preferences"] = _normalize_notification_preferences(updates.get("notification_preferences"))
     updates["updated_at"] = now_utc().isoformat()
     await db.users.update_one({"id": user_id}, {"$set": updates})
-    u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    u = await db.users.find_one({"id": user_id}, PRIVATE_AUTH_FIELDS)
     return u
 
 
 @router.post("/{user_id}/ban")
-async def ban_user(user_id: str, me: dict = Depends(require_admin())):
+async def ban_user(user_id: str, me: dict = Depends(require_club_admin())):
     db = get_db()
     await db.users.update_one({"id": user_id}, {"$set": {"is_banned": True, "updated_at": now_utc().isoformat()}})
     await db.audit_logs.insert_one({"id": new_id(), "action": "user.ban", "target_id": user_id,
@@ -853,7 +863,7 @@ async def ban_user(user_id: str, me: dict = Depends(require_admin())):
 
 
 @router.post("/{user_id}/unban")
-async def unban_user(user_id: str, me: dict = Depends(require_admin())):
+async def unban_user(user_id: str, me: dict = Depends(require_club_admin())):
     db = get_db()
     await db.users.update_one({"id": user_id}, {"$set": {"is_banned": False, "updated_at": now_utc().isoformat()}})
     await db.audit_logs.insert_one({"id": new_id(), "action": "user.unban", "target_id": user_id,
@@ -872,7 +882,7 @@ async def set_role(user_id: str, body: RoleUpdate, me: dict = Depends(require_su
     await db.audit_logs.insert_one({"id": new_id(), "action": "user.role_change", "target_id": user_id,
                                      "actor_id": me["id"], "data": {"role": body.role},
                                      "created_at": now_utc().isoformat()})
-    u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    u = await db.users.find_one({"id": user_id}, PRIVATE_AUTH_FIELDS)
     return u
 
 
@@ -880,41 +890,12 @@ async def set_role(user_id: str, body: RoleUpdate, me: dict = Depends(require_su
 async def delete_user(user_id: str, me: dict = Depends(require_super())):
     db = get_db()
     if user_id == me["id"]:
-        raise HTTPException(status_code=400, detail="Du kannst deinen eigenen Benutzer nicht löschen")
+        raise HTTPException(status_code=400, detail="Nutze für den eigenen Account die Datenschutzseite.")
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="Nutzer nicht gefunden")
-    regs = await db.tournament_registrations.find({"user_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
-    reg_ids = [r["id"] for r in regs if r.get("id")]
-    match_anonymization = await anonymize_registration_match_references(
-        db,
-        reg_ids,
-        updated_at=now_utc().isoformat(),
-    )
-    await db.users.delete_one({"id": user_id})
-    await db.refresh_tokens.delete_many({"user_id": user_id})
-    await db.login_attempts.delete_many({"identifier": user.get("email")})
-    await db.memberships.delete_many({"user_id": user_id})
-    await db.user_socials.delete_many({"user_id": user_id})
-    await db.user_achievements.delete_many({"user_id": user_id})
-    await db.tournament_registrations.delete_many({"user_id": user_id})
-    await db.tournament_staff_assignments.delete_many({"user_id": user_id})
-    await db.event_registrations.delete_many({"user_id": user_id})
-    await db.f1_lap_times.delete_many({"user_id": user_id})
-    await db.team_members.delete_many({"user_id": user_id})
-    await db.teams.update_many({}, {"$pull": {"member_ids": user_id, "co_leader_ids": user_id}})
-    await db.teams.update_many({"leader_id": user_id}, {"$set": {"leader_id": None, "updated_at": now_utc().isoformat()}})
-    await db.friendships.delete_many({"$or": [{"requester_id": user_id}, {"recipient_id": user_id}]})
-    await db.audit_logs.insert_one({
-        "id": new_id(),
-        "action": "user.delete",
-        "target_id": user_id,
-        "actor_id": me["id"],
-        "data": {
-            "email": user.get("email"),
-            "username": user.get("username"),
-            "anonymized_match_references": match_anonymization,
-        },
-        "created_at": now_utc().isoformat(),
-    })
-    return {"ok": True}
+    if user.get("role") == "superadmin":
+        raise HTTPException(403, "Andere Superadmins dürfen nicht anonymisiert werden.")
+    from routes.extras_routes import _anonymize_user_data
+    await _anonymize_user_data(db, user_id, me["id"], "user.admin_anonymize")
+    return {"ok": True, "anonymized": True}

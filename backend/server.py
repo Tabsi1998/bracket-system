@@ -21,6 +21,7 @@ from routes.team_routes import router as team_router
 from routes.team_level_routes import router as team_level_router
 from routes.message_routes import router as message_router
 from routes.friend_routes import router as friend_router
+from routes.moderation_routes import router as moderation_router
 from routes.game_routes import router as game_router
 from routes.game_server_routes import router as game_server_router
 from routes.access_link_routes import router as access_link_router
@@ -95,6 +96,10 @@ async def lifespan(app: FastAPI):
     ensure_storage_directories()
     logger.info("[THE LION SQUAD] Initializing indexes...")
     await init_indexes()
+    from services.migrations import run_pending_migrations
+    applied_migrations = await run_pending_migrations(get_db())
+    for migration in applied_migrations:
+        logger.info("[migration] Applied %s: %s", migration["version"], migration["name"])
     logger.info("[THE LION SQUAD] Seeding badge catalog...")
     await seed_badges()
     logger.info("[THE LION SQUAD] Seeding CMS pages + email templates...")
@@ -192,6 +197,7 @@ app.include_router(team_level_router)
 app.include_router(team_router)
 app.include_router(message_router)
 app.include_router(friend_router)
+app.include_router(moderation_router)
 app.include_router(game_router)
 app.include_router(game_server_router)
 app.include_router(access_link_router)
@@ -360,7 +366,37 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    return await readiness()
+
+
+@app.get("/api/health/live")
+async def liveness():
+    return {"status": "ok", "service": "api"}
+
+
+@app.get("/api/health/ready")
+async def readiness():
+    checks = {"database": False, "storage": False, "scheduler": False}
+    try:
+        checks["database"] = (await get_db().command("ping")).get("ok") == 1
+    except Exception as exc:
+        logger.warning("[health] database readiness failed: %s", exc)
+    try:
+        checks["storage"] = PUBLIC_UPLOAD_DIR.exists() and os.access(PUBLIC_UPLOAD_DIR, os.W_OK)
+    except OSError:
+        checks["storage"] = False
+    scheduler_disabled = os.environ.get("DISABLE_SCHEDULER", "").lower() == "true"
+    if scheduler_disabled:
+        checks["scheduler"] = True
+    else:
+        try:
+            from services.scheduler import get_scheduler_status
+            checks["scheduler"] = bool(get_scheduler_status().get("running"))
+        except Exception:
+            checks["scheduler"] = False
+    ready = all(checks.values())
+    payload = {"status": "ok" if ready else "degraded", "checks": checks}
+    return JSONResponse(payload, status_code=200 if ready else 503)
 
 
 @app.get("/api/changes/stream")

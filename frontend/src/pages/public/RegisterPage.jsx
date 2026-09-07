@@ -118,8 +118,13 @@ export default function RegisterPage() {
     const res = attempt.value;
 
     if (res.ok) {
-      toast.success("Willkommen in der TLS Community!");
-      nav("/dashboard");
+      if (res.data?.verification_required) {
+        toast.success("Bestätigungslink wurde gesendet.");
+        nav(`/verify-email?sent=1&email=${encodeURIComponent(res.data.email || form.email.trim())}`);
+      } else {
+        toast.success("Willkommen in der TLS Community!");
+        nav("/dashboard");
+      }
     } else {
       setErr(res.error);
     }
@@ -220,7 +225,7 @@ export default function RegisterPage() {
               Ich akzeptiere die <Link to="/privacy" className="text-[#29B6E8] hover:underline">Datenschutzbestimmungen</Link>.
             </AuthCheckboxField>
             <AuthCheckboxField id="register-accept-terms" checked={acceptTerms} onChange={setCheckbox("acceptTerms", setAcceptTerms)} required error={fieldErrors.acceptTerms} testId="register-accept-terms">
-              Ich akzeptiere die Nutzungsbedingungen und Vereinsregeln.
+              Ich akzeptiere die <Link to="/terms" className="text-[#29B6E8] hover:underline">Nutzungsbedingungen und Vereinsregeln</Link>.
             </AuthCheckboxField>
             <AuthCheckboxField id="register-newsletter" checked={newsletter} onChange={setCheckbox("newsletter", setNewsletter)} testId="register-newsletter">
               Newsletter & Vereinsinfos per E-Mail erhalten (optional, jederzeit widerrufbar).
@@ -236,7 +241,14 @@ export default function RegisterPage() {
             {loading ? "Registriere ..." : "Account erstellen"}
           </button>
         </form>
-        <GoogleAuthButton label="Mit Google registrieren" returnPath="/dashboard" />
+        <GoogleAuthButton
+          label="Mit Google registrieren"
+          returnPath="/dashboard"
+          intent="register"
+          acceptPrivacy={accept}
+          acceptTerms={acceptTerms}
+          newsletterConsent={newsletter}
+        />
         <div className="mt-6 text-sm text-white/60 text-center">
           Bereits registriert? <Link to="/login" className="text-[#29B6E8] hover:text-white font-bold">Login</Link>
         </div>

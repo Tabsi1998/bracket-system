@@ -26,8 +26,8 @@ const parseUploadMb = (value, fallback) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
-const MAX_VIDEO_UPLOAD_MB = parseUploadMb(process.env.REACT_APP_MAX_VIDEO_UPLOAD_MB, 1536);
-const PROXY_UPLOAD_LIMIT_MB = parseUploadMb(process.env.REACT_APP_PROXY_UPLOAD_LIMIT_MB, 1700);
+const MAX_VIDEO_UPLOAD_MB = parseUploadMb(import.meta.env.VITE_MAX_VIDEO_UPLOAD_MB, 1536);
+const PROXY_UPLOAD_LIMIT_MB = parseUploadMb(import.meta.env.VITE_PROXY_UPLOAD_LIMIT_MB, 1700);
 const VIDEO_MAX_BYTES = MAX_VIDEO_UPLOAD_MB * 1024 * 1024;
 const MEDIA_SCOPE_LABELS = {
   all: "Alle",

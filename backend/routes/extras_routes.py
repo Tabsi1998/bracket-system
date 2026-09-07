@@ -1,4 +1,5 @@
 """Admin settings (email config, branding), Seasons/Circuits, Widgets, DSGVO, Audit Logs, PDF exports."""
+import os
 import re
 import secrets as secrets_lib
 from fastapi import APIRouter, HTTPException, Depends, Response
@@ -10,7 +11,7 @@ import io
 import httpx
 
 from database import get_db
-from auth import require_admin, require_role, require_super, get_current_user, get_optional_user
+from auth import require_admin, require_club_admin, require_role, require_super, get_current_user, get_optional_user
 from services.visibility import user_can_see
 from services.slug_utils import apply_slug_history, find_by_slug_or_history, slug_source_for_update, unique_slug
 from services.access_links import validate_access_link
@@ -18,7 +19,8 @@ from services.competition_privacy import registration_match_snapshot
 from services.competition_read import load_competition_read_model, observe_structure_read
 from services.competition_standings import standings_for_structure
 from services.public_site_settings import PUBLIC_LEGAL_SOURCE_FIELDS, build_public_legal_settings
-from services.auth_settings import load_auth_settings
+from services.auth_settings import is_google_client_id, load_auth_settings
+from services.secret_store import encrypt_secret, secret_is_configured
 from models import now_utc, new_id
 from email_service import send_template, _get_email_config
 from pdf_service import (
@@ -58,6 +60,7 @@ def _safe_regex(value: str | None, max_len: int = 80) -> str:
 
 class EmailSettings(BaseModel):
     resend_api_key: Optional[str] = None
+    clear_resend_api_key: Optional[bool] = None
     sender_name: Optional[str] = None
     sender_email: Optional[str] = None
     reply_to_email: Optional[str] = None
@@ -114,6 +117,7 @@ class BrandingSettings(BaseModel):
     paid_tournaments_enabled: Optional[bool] = None
     legal_extra: Optional[str] = None
     privacy_extra: Optional[str] = None
+    terms_of_use: Optional[str] = None
     discord_invite_url: Optional[str] = None
     twitch_channel: Optional[str] = None
     analytics_provider: Optional[Literal["", "google", "plausible"]] = None
@@ -132,6 +136,7 @@ class BrandingSettings(BaseModel):
     # Phase E — Twitch Helix credentials
     twitch_client_id: Optional[str] = None
     twitch_client_secret: Optional[str] = None
+    clear_twitch_client_secret: Optional[bool] = None
     twitch_live_detection: Optional[bool] = None
     site_banner_enabled: Optional[bool] = None
     site_banner_text: Optional[str] = None
@@ -241,7 +246,9 @@ class AuthSettings(BaseModel):
     password_login_enabled: Optional[bool] = None
     registration_enabled: Optional[bool] = None
     google_login_enabled: Optional[bool] = None
+    google_registration_enabled: Optional[bool] = None
     google_linking_enabled: Optional[bool] = None
+    google_client_id: Optional[str] = None
 
 
 SETTING_AUDIT_SECRET_FIELDS = {"resend_api_key", "smtp_pass", "webhook_url", "twitch_client_secret"}
@@ -249,7 +256,7 @@ SETTING_AUDIT_SECRET_FIELDS = {"resend_api_key", "smtp_pass", "webhook_url", "tw
 
 def _hide_branding_secrets(settings: dict) -> dict:
     out = dict(settings or {})
-    if out.get("twitch_client_secret"):
+    if secret_is_configured(out.get("twitch_client_secret")):
         out["twitch_client_secret_masked"] = "********"
         out.pop("twitch_client_secret", None)
     return out
@@ -688,38 +695,42 @@ async def track_site_banner_click(body: SiteBannerStatBody):
 
 
 @settings_router.get("/email")
-async def get_email_settings(me: dict = Depends(require_admin())):
+async def get_email_settings(me: dict = Depends(require_club_admin())):
     db = get_db()
     s = await db.settings.find_one({"id": "email"}, {"_id": 0}) or {}
     # Mask the API key
     if s.get("resend_api_key"):
-        k = s["resend_api_key"]
-        s["resend_api_key_masked"] = f"{k[:6]}…{k[-4:]}" if len(k) > 12 else "***"
+        s["resend_api_key_masked"] = "********"
         s.pop("resend_api_key", None)
     return s
 
 
 @settings_router.put("/email")
-async def update_email_settings(body: EmailSettings, me: dict = Depends(require_admin())):
+async def update_email_settings(body: EmailSettings, me: dict = Depends(require_club_admin())):
     db = get_db()
     updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    clear_secret = bool(updates.pop("clear_resend_api_key", False))
+    unset = {"resend_api_key": ""} if clear_secret else {}
     # Only overwrite api_key if a non-empty value given
     if "resend_api_key" in updates and not updates["resend_api_key"]:
         updates.pop("resend_api_key")
+    elif "resend_api_key" in updates:
+        updates["resend_api_key"] = encrypt_secret(updates["resend_api_key"])
     current = await db.settings.find_one({"id": "email"}, {"_id": 0}) or {}
-    changed_fields = _changed_setting_fields(current, updates)
+    changed_fields = _changed_setting_fields(current, updates, unset)
     if not changed_fields:
         return {"ok": True, "changed": False}
     updates["updated_at"] = now_utc().isoformat()
-    await db.settings.update_one(
-        {"id": "email"}, {"$set": updates, "$setOnInsert": {"id": "email"}}, upsert=True,
-    )
+    operation = {"$set": updates, "$setOnInsert": {"id": "email"}}
+    if unset:
+        operation["$unset"] = unset
+    await db.settings.update_one({"id": "email"}, operation, upsert=True)
     await _audit_settings_change(db, "settings.email.update", "email", me["id"], changed_fields)
     return {"ok": True, "changed": True}
 
 
 @settings_router.post("/email/test")
-async def send_test(body: TestEmailBody, me: dict = Depends(require_admin())):
+async def send_test(body: TestEmailBody, me: dict = Depends(require_club_admin())):
     res = await send_template("test", body.to, branding="THE LION SQUAD", queue=False)
     return res
 
@@ -793,6 +804,7 @@ class SmtpSettings(BaseModel):
     smtp_port: Optional[int] = None
     smtp_user: Optional[str] = None
     smtp_pass: Optional[str] = None
+    clear_smtp_pass: Optional[bool] = None
     smtp_auth: Optional[Literal["auto", "login", "none"]] = None
     smtp_security: Optional[Literal["auto", "starttls", "tls", "none"]] = None
     smtp_tls_verify: Optional[bool] = None
@@ -806,12 +818,11 @@ class SmtpSettings(BaseModel):
 
 
 @settings_router.get("/smtp")
-async def get_smtp_settings(me: dict = Depends(require_admin())):
+async def get_smtp_settings(me: dict = Depends(require_club_admin())):
     db = get_db()
     s = await db.settings.find_one({"id": "mail"}, {"_id": 0}) or {}
     if s.get("smtp_pass"):
-        p = s["smtp_pass"]
-        s["smtp_pass_masked"] = "•" * min(8, max(4, len(p)))
+        s["smtp_pass_masked"] = "••••••••"
     s.pop("smtp_pass", None)
     s.setdefault("provider", "smtp" if s.get("smtp_host") else "resend")
     s.setdefault("smtp_auth", "login")
@@ -828,45 +839,50 @@ async def get_smtp_settings(me: dict = Depends(require_admin())):
 
 
 @settings_router.put("/smtp")
-async def update_smtp_settings(body: SmtpSettings, me: dict = Depends(require_admin())):
+async def update_smtp_settings(body: SmtpSettings, me: dict = Depends(require_club_admin())):
     db = get_db()
     updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    clear_secret = bool(updates.pop("clear_smtp_pass", False))
+    unset = {"smtp_pass": ""} if clear_secret else {}
     # Only overwrite password if a non-empty value given
     if "smtp_pass" in updates and not updates["smtp_pass"]:
         updates.pop("smtp_pass")
+    elif "smtp_pass" in updates:
+        updates["smtp_pass"] = encrypt_secret(updates["smtp_pass"])
     current = await db.settings.find_one({"id": "mail"}, {"_id": 0}) or {}
-    changed_fields = _changed_setting_fields(current, updates)
+    changed_fields = _changed_setting_fields(current, updates, unset)
     if not changed_fields:
         return {"ok": True, "changed": False}
     updates["updated_at"] = now_utc().isoformat()
-    await db.settings.update_one(
-        {"id": "mail"}, {"$set": updates, "$setOnInsert": {"id": "mail"}}, upsert=True,
-    )
+    operation = {"$set": updates, "$setOnInsert": {"id": "mail"}}
+    if unset:
+        operation["$unset"] = unset
+    await db.settings.update_one({"id": "mail"}, operation, upsert=True)
     await _audit_settings_change(db, "settings.smtp.update", "mail", me["id"], changed_fields)
     return {"ok": True, "changed": True}
 
 
 @settings_router.post("/smtp/test")
-async def smtp_send_test(body: TestEmailBody, me: dict = Depends(require_admin())):
+async def smtp_send_test(body: TestEmailBody, me: dict = Depends(require_club_admin())):
     from services.mail_queue import smtp_test
     return await smtp_test(body.to)
 
 
 @settings_router.post("/smtp/diagnose")
-async def smtp_diagnose(body: TestEmailBody, me: dict = Depends(require_admin())):
+async def smtp_diagnose(body: TestEmailBody, me: dict = Depends(require_club_admin())):
     from services.mail_queue import smtp_diagnose as run_smtp_diagnose
     return await run_smtp_diagnose(body.to)
 
 
 @settings_router.get("/smtp/deliverability")
-async def smtp_deliverability(me: dict = Depends(require_admin())):
+async def smtp_deliverability(me: dict = Depends(require_club_admin())):
     from services.mail_queue import smtp_deliverability as run_smtp_deliverability
     return await run_smtp_deliverability()
 
 
 @settings_router.get("/mail-queue")
 async def list_mail_queue(status: Optional[str] = None, limit: int = 100,
-                          me: dict = Depends(require_admin())):
+                          me: dict = Depends(require_club_admin())):
     db = get_db()
     q = {}
     if status:
@@ -877,37 +893,37 @@ async def list_mail_queue(status: Optional[str] = None, limit: int = 100,
 
 
 @settings_router.get("/mail-queue/stats")
-async def mail_queue_statistics(me: dict = Depends(require_admin())):
+async def mail_queue_statistics(me: dict = Depends(require_club_admin())):
     from services.mail_queue import mail_queue_stats
     return await mail_queue_stats()
 
 
 @settings_router.post("/mail-queue/process")
-async def process_queue_now(me: dict = Depends(require_admin())):
+async def process_queue_now(me: dict = Depends(require_club_admin())):
     from services.mail_queue import process_mail_queue
     return await process_mail_queue(batch=20)
 
 
 @settings_router.post("/mail-queue/recover")
-async def recover_mail_queue(me: dict = Depends(require_admin())):
+async def recover_mail_queue(me: dict = Depends(require_club_admin())):
     from services.mail_queue import recover_stale_sending_jobs
     return {"recovered": await recover_stale_sending_jobs()}
 
 
 @settings_router.post("/mail-queue/retry-failed")
-async def retry_failed_mail_jobs(me: dict = Depends(require_admin())):
+async def retry_failed_mail_jobs(me: dict = Depends(require_club_admin())):
     from services.mail_queue import retry_failed_jobs
     return {"queued": await retry_failed_jobs()}
 
 
 @settings_router.delete("/mail-queue/cleanup")
-async def cleanup_mail_queue(days: int = 30, me: dict = Depends(require_admin())):
+async def cleanup_mail_queue(days: int = 30, me: dict = Depends(require_club_admin())):
     from services.mail_queue import cleanup_sent_jobs
     return {"deleted": await cleanup_sent_jobs(days=days)}
 
 
 @settings_router.post("/mail-queue/{job_id}/retry")
-async def retry_mail_job(job_id: str, me: dict = Depends(require_admin())):
+async def retry_mail_job(job_id: str, me: dict = Depends(require_club_admin())):
     db = get_db()
     res = await db.mail_jobs.update_one(
         {"id": job_id},
@@ -925,7 +941,7 @@ async def retry_mail_job(job_id: str, me: dict = Depends(require_admin())):
 
 
 @settings_router.delete("/mail-queue/{job_id}")
-async def delete_mail_job(job_id: str, me: dict = Depends(require_admin())):
+async def delete_mail_job(job_id: str, me: dict = Depends(require_club_admin())):
     db = get_db()
     res = await db.mail_jobs.delete_one({"id": job_id})
     if res.deleted_count == 0:
@@ -934,7 +950,7 @@ async def delete_mail_job(job_id: str, me: dict = Depends(require_admin())):
 
 
 @settings_router.get("/branding")
-async def get_branding(response: Response, me: dict = Depends(require_admin())):
+async def get_branding(response: Response, me: dict = Depends(require_club_admin())):
     """Returns the branding doc, merging in social-default URLs so the admin form
     pre-fills with sensible defaults instead of empty fields."""
     response.headers["Cache-Control"] = "no-store"
@@ -958,29 +974,36 @@ async def get_branding(response: Response, me: dict = Depends(require_admin())):
 
 
 @settings_router.put("/branding")
-async def update_branding(body: BrandingSettings, me: dict = Depends(require_admin())):
+async def update_branding(body: BrandingSettings, me: dict = Depends(require_club_admin())):
     db = get_db()
     nullable_fields = set(BrandingSettings.model_fields.keys())
     raw = body.model_dump(exclude_unset=True)
+    clear_twitch_secret = bool(raw.pop("clear_twitch_client_secret", False))
+    unset = {"twitch_client_secret": ""} if clear_twitch_secret else {}
     updates = {k: v for k, v in raw.items() if v is not None or k in nullable_fields}
+    if updates.get("twitch_client_secret"):
+        updates["twitch_client_secret"] = encrypt_secret(updates["twitch_client_secret"])
     _sync_legacy_social_fields(updates)
     current = await db.settings.find_one({"id": "branding"}, {"_id": 0}) or {}
-    changed_fields = _changed_setting_fields(current, updates)
+    changed_fields = _changed_setting_fields(current, updates, unset)
     if not changed_fields:
         return current or {"ok": True, "changed": False}
     updates["updated_at"] = now_utc().isoformat()
     if set(changed_fields) & PUBLIC_LEGAL_SOURCE_FIELDS:
         updates["legal_updated_at"] = updates["updated_at"]
-    await db.settings.update_one(
-        {"id": "branding"}, {"$set": updates, "$setOnInsert": {"id": "branding"}}, upsert=True,
-    )
+    operation = {"$set": updates, "$setOnInsert": {"id": "branding"}}
+    if unset:
+        operation["$unset"] = unset
+    await db.settings.update_one({"id": "branding"}, operation, upsert=True)
+    if clear_twitch_secret:
+        await db.settings.delete_one({"id": "twitch_app_token"})
     await _audit_settings_change(db, "settings.branding.update", "branding", me["id"], changed_fields)
     saved = await db.settings.find_one({"id": "branding"}, {"_id": 0})
     return _hide_branding_secrets(saved) if saved else {"ok": True}
 
 
 @settings_router.get("/auth")
-async def get_auth_settings(response: Response, me: dict = Depends(require_admin())):
+async def get_auth_settings(response: Response, me: dict = Depends(require_super())):
     """Central login & Google configuration for the admin area."""
     response.headers["Cache-Control"] = "no-store"
     db = get_db()
@@ -988,9 +1011,21 @@ async def get_auth_settings(response: Response, me: dict = Depends(require_admin
 
 
 @settings_router.put("/auth")
-async def update_auth_settings(body: AuthSettings, me: dict = Depends(require_admin())):
+async def update_auth_settings(body: AuthSettings, me: dict = Depends(require_super())):
     db = get_db()
-    updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if isinstance(v, bool)}
+    raw = body.model_dump(exclude_unset=True)
+    updates = {k: v for k, v in raw.items() if isinstance(v, bool)}
+    if "google_client_id" in raw:
+        client_id = str(raw.get("google_client_id") or "").strip()
+        if client_id and not is_google_client_id(client_id):
+            raise HTTPException(400, "Ungültige Google Web Client ID.")
+        updates["google_client_id"] = client_id
+        if not client_id:
+            updates.update({
+                "google_login_enabled": False,
+                "google_registration_enabled": False,
+                "google_linking_enabled": False,
+            })
     if not updates:
         return await load_auth_settings(db)
     current = await db.settings.find_one({"id": "auth"}, {"_id": 0}) or {}
@@ -1005,8 +1040,31 @@ async def update_auth_settings(body: AuthSettings, me: dict = Depends(require_ad
     return await load_auth_settings(db)
 
 
+@settings_router.post("/auth/google/test")
+async def test_google_auth_settings(me: dict = Depends(require_super())):
+    """Validate the stored client shape and Google's discovery availability."""
+    db = get_db()
+    settings = await load_auth_settings(db)
+    if not settings["google_configured"]:
+        raise HTTPException(400, "Bitte zuerst eine gültige Google Web Client ID speichern.")
+    provider_available = False
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get("https://accounts.google.com/.well-known/openid-configuration")
+            provider_available = response.status_code == 200 and bool(response.json().get("jwks_uri"))
+    except (httpx.HTTPError, ValueError):
+        provider_available = False
+    return {
+        "ok": provider_available,
+        "configured": True,
+        "provider_available": provider_available,
+        "expected_origin": os.environ.get("FRONTEND_URL", "").rstrip("/"),
+        "message": "Google ist erreichbar. Bitte den Anmeldebutton zusätzlich mit einem Testkonto prüfen." if provider_available else "Google ist derzeit nicht erreichbar.",
+    }
+
+
 @settings_router.post("/indexnow/submit")
-async def submit_indexnow(body: IndexNowSubmitBody, me: dict = Depends(require_admin())):
+async def submit_indexnow(body: IndexNowSubmitBody, me: dict = Depends(require_club_admin())):
     db = get_db()
     branding = await db.settings.find_one({"id": "branding"}, {"_id": 0}) or {}
     key = (branding.get("indexnow_key") or "").strip()
@@ -1042,20 +1100,19 @@ async def indexnow_key_file():
 
 
 @settings_router.get("/email/logs")
-async def email_logs(me: dict = Depends(require_admin())):
+async def email_logs(me: dict = Depends(require_club_admin())):
     db = get_db()
     return await db.email_logs.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 
 # ---- Discord webhook ----
 @settings_router.get("/discord")
-async def get_discord(me: dict = Depends(require_admin())):
+async def get_discord(me: dict = Depends(require_club_admin())):
     db = get_db()
     s = await db.settings.find_one({"id": "discord"}, {"_id": 0}) or {}
     s["configured"] = bool(s.get("webhook_url"))
     if s.get("webhook_url"):
-        u = s["webhook_url"]
-        s["webhook_url_masked"] = u[:30] + "…" if len(u) > 30 else "***"
+        s["webhook_url_masked"] = "https://discord.com/api/webhooks/…"
         s.pop("webhook_url", None)
     last = await db.email_logs.find_one(
         {"channel": "discord"},
@@ -1071,7 +1128,7 @@ async def get_discord(me: dict = Depends(require_admin())):
 
 
 @settings_router.put("/discord")
-async def update_discord(body: DiscordSettings, me: dict = Depends(require_admin())):
+async def update_discord(body: DiscordSettings, me: dict = Depends(require_club_admin())):
     db = get_db()
     updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
     clear_webhook = bool(updates.pop("clear_webhook", False))
@@ -1084,6 +1141,7 @@ async def update_discord(body: DiscordSettings, me: dict = Depends(require_admin
         from discord_service import is_valid_discord_webhook_url
         if not is_valid_discord_webhook_url(updates["webhook_url"]):
             raise HTTPException(400, "Ungültige Discord Webhook URL. Erlaubt sind https://discord.com/api/webhooks/... URLs.")
+        updates["webhook_url"] = encrypt_secret(updates["webhook_url"])
     for key in ("username", "avatar_url"):
         if key in updates and isinstance(updates[key], str):
             updates[key] = updates[key].strip()
@@ -1103,7 +1161,7 @@ async def update_discord(body: DiscordSettings, me: dict = Depends(require_admin
 
 
 @settings_router.post("/discord/test")
-async def discord_test(me: dict = Depends(require_admin())):
+async def discord_test(me: dict = Depends(require_club_admin())):
     from discord_service import send_discord
     res = await send_discord(
         "THE LION SQUAD · Testnachricht",
@@ -1458,7 +1516,7 @@ async def season_standings(slug_or_id: str):
     # Enrich users
     user_ids = list(per_user_points.keys())
     users = {u["id"]: u for u in await db.users.find(
-        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0}).to_list(500)}
+        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0}).to_list(500)}
     arr = []
     for uid, st in per_user_points.items():
         u = users.get(uid, {})
@@ -1586,7 +1644,7 @@ async def widget_f1(slug_or_id: str, track_id: Optional[str] = None):
             best_per_user[t["user_id"]] = {**t, "effective_ms": eff}
     user_ids = list(best_per_user.keys())
     users = {u["id"]: u for u in await db.users.find(
-        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0, "email": 0}).to_list(500)}
+        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0, "email": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0}).to_list(500)}
     entries = []
     for uid, tr in best_per_user.items():
         u = users.get(uid, {})
@@ -1607,64 +1665,116 @@ async def widget_f1(slug_or_id: str, track_id: Optional[str] = None):
 dsgvo_router = APIRouter(prefix="/api/dsgvo", tags=["dsgvo"])
 
 
+async def _user_data_export(db, user_id: str) -> dict:
+    user = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_pending_secret": 0,
+         "mfa_recovery_code_hashes": 0},
+    )
+    if not user:
+        raise HTTPException(404, "Account nicht gefunden")
+    email = user.get("email", "")
+    async def rows(collection, query, limit=5000):
+        return await collection.find(query, {"_id": 0}).to_list(limit)
+
+    registrations = await rows(db.tournament_registrations, {"user_id": user_id})
+    return {
+        "format_version": 2,
+        "exported_at": now_utc().isoformat(),
+        "user": user,
+        "consent_records": await rows(db.consent_records, {"user_id": user_id}),
+        "membership": await db.memberships.find_one({"user_id": user_id}, {"_id": 0}),
+        "social_accounts": await rows(db.user_socials, {"user_id": user_id}),
+        "tournament_registrations": registrations,
+        "competition_matches": await registration_match_snapshot(
+            db, [row.get("id") for row in registrations if row.get("id")],
+        ),
+        "event_registrations": await rows(db.event_registrations, {"user_id": user_id}),
+        "f1_lap_times": await rows(db.f1_lap_times, {"user_id": user_id}),
+        "teams": await rows(db.teams, {"$or": [{"member_ids": user_id}, {"leader_id": user_id}]}),
+        "team_memberships": await rows(db.team_members, {"user_id": user_id}),
+        "team_invites": await rows(db.team_invites, {"user_id": user_id}),
+        "achievements": await rows(db.user_achievements, {"user_id": user_id}),
+        "season_points": await rows(db.season_points, {"user_id": user_id}),
+        "prize_pickups": await rows(db.prize_pickups, {"user_id": user_id}),
+        "notifications": await rows(db.notifications, {"user_id": user_id}),
+        "direct_messages": await rows(db.direct_messages, {"$or": [{"sender_id": user_id}, {"recipient_id": user_id}]}),
+        "friendships": await rows(db.friendships, {"$or": [{"requester_id": user_id}, {"recipient_id": user_id}]}),
+        "blocks": await rows(db.user_blocks, {"$or": [{"blocker_id": user_id}, {"blocked_id": user_id}]}),
+        "moderation_reports": await rows(db.user_reports, {"$or": [{"reporter_id": user_id}, {"target_user_id": user_id}]}),
+        "email_logs": await rows(db.email_logs, {"to": email}),
+        "mobile_devices": await rows(db.mobile_push_tokens, {"user_id": user_id}),
+        "mobile_client_logs": await rows(db.mobile_client_logs, {"user_id": user_id}),
+        "audit_trail": await rows(db.audit_logs, {"$or": [{"actor_id": user_id}, {"target_id": user_id}]}),
+    }
+
+
+async def _anonymize_user_data(db, user_id: str, actor_id: str, action: str) -> None:
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(404, "Account nicht gefunden")
+    now = now_utc().isoformat()
+    anonymous_email = f"deleted_{user_id[:12]}@deleted.invalid"
+    anonymous_username = f"deleted_{user_id[:12]}"
+    await db.users.update_one({"id": user_id}, {
+        "$set": {
+            "email": anonymous_email, "username": anonymous_username, "display_name": "Gelöschter User",
+            "first_name": None, "last_name": None, "nickname": None, "birth_date": None, "gender": None,
+            "bio": None, "discord_name": None, "discord_id": None, "switch_code": None, "steam_id": None,
+            "epic_id": None, "psn_id": None, "xbox_id": None, "riot_id": None, "game_ids": {},
+            "country": None, "state": None, "city": None, "avatar_url": None, "banner_url": None,
+            "twitch_handle": None, "youtube_handle": None, "instagram_handle": None,
+            "newsletter_consent": False, "notification_preferences": {}, "privacy_public_profile": False,
+            "google_linked": False, "password_login_available": False, "email_verified": False,
+            "is_active": False, "is_banned": True, "mfa_enabled": False,
+            "password_hash": "!disabled", "anonymized_at": now, "updated_at": now,
+        },
+        "$unset": {
+            "google_id": "", "google_email": "", "mfa_secret": "", "mfa_pending_secret": "",
+            "mfa_pending_created_at": "", "mfa_recovery_code_hashes": "",
+        },
+    })
+    for collection in (db.refresh_tokens, db.auth_sessions, db.email_verification_tokens,
+                       db.password_reset_tokens, db.mfa_login_challenges, db.mobile_push_tokens,
+                       db.mobile_client_logs, db.notifications, db.user_socials):
+        await collection.delete_many({"user_id": user_id})
+    await db.friendships.delete_many({"$or": [{"requester_id": user_id}, {"recipient_id": user_id}]})
+    await db.user_blocks.delete_many({"$or": [{"blocker_id": user_id}, {"blocked_id": user_id}]})
+    await db.direct_messages.update_many({"sender_id": user_id}, {"$set": {"message": "[Nachricht gelöscht]", "sender_anonymized": True}})
+    await db.team_chat_messages.update_many({"user_id": user_id}, {"$set": {"message": "[Nachricht gelöscht]", "author_anonymized": True}})
+    await db.match_chat_messages.update_many({"user_id": user_id}, {"$set": {"message": "[Nachricht gelöscht]", "author_anonymized": True}})
+    await db.email_logs.update_many({"to": user.get("email")}, {"$set": {"to": anonymous_email, "recipient_anonymized": True}})
+    await db.memberships.update_many({"user_id": user_id}, {"$set": {
+        "email": anonymous_email, "first_name": None, "last_name": None, "phone": None,
+        "address": None, "member_status": "former", "updated_at": now,
+    }})
+    await db.audit_logs.insert_one({
+        "id": new_id(), "action": action, "actor_id": actor_id, "target_id": user_id,
+        "data": {"personal_data_removed": True}, "created_at": now,
+    })
+
+
 @dsgvo_router.get("/export-my-data")
 async def export_my_data(me: dict = Depends(get_current_user)):
     db = get_db()
-    u = await db.users.find_one({"id": me["id"]}, {"_id": 0, "password_hash": 0})
-    regs = await db.tournament_registrations.find({"user_id": me["id"]}, {"_id": 0}).to_list(500)
-    competition_matches = await registration_match_snapshot(
-        db,
-        [registration.get("id") for registration in regs if registration.get("id")],
-    )
-    lap_times = await db.f1_lap_times.find({"user_id": me["id"]}, {"_id": 0}).to_list(500)
-    teams = await db.teams.find({"member_ids": me["id"]}, {"_id": 0}).to_list(100)
-    emails = await db.email_logs.find({"to": u.get("email", "")}, {"_id": 0}).to_list(200)
-    return {
-        "exported_at": now_utc().isoformat(),
-        "user": u,
-        "tournament_registrations": regs,
-        "competition_matches": competition_matches,
-        "f1_lap_times": lap_times,
-        "teams": teams,
-        "email_logs": emails,
-    }
+    return await _user_data_export(db, me["id"])
 
 
 @dsgvo_router.post("/anonymize-me")
 async def anonymize_me(me: dict = Depends(get_current_user)):
     """Anonymize own account but keep tournament history for statistical integrity."""
     db = get_db()
-    anon_username = f"deleted_{me['id'][:8]}"
-    anon_email = f"deleted_{me['id'][:8]}@deleted.local"
-    await db.users.update_one({"id": me["id"]}, {"$set": {
-        "email": anon_email, "username": anon_username,
-        "display_name": "Gelöschter User", "bio": None,
-        "discord_name": None, "discord_id": None,
-        "switch_code": None, "steam_id": None, "epic_id": None,
-        "psn_id": None, "xbox_id": None, "riot_id": None,
-        "country": None, "state": None, "avatar_url": None,
-        "privacy_public_profile": False, "is_active": False, "is_banned": True,
-        "password_hash": "!disabled",
-        "updated_at": now_utc().isoformat(),
-    }})
-    await db.audit_logs.insert_one({"id": new_id(), "action": "user.self_anonymize",
-                                     "actor_id": me["id"], "created_at": now_utc().isoformat()})
+    await _anonymize_user_data(db, me["id"], me["id"], "user.self_anonymize")
     return {"ok": True}
 
 
 @dsgvo_router.post("/admin/anonymize/{user_id}")
 async def admin_anonymize(user_id: str, me: dict = Depends(require_super())):
     db = get_db()
-    anon_email = f"deleted_{user_id[:8]}@deleted.local"
-    anon_username = f"deleted_{user_id[:8]}"
-    await db.users.update_one({"id": user_id}, {"$set": {
-        "email": anon_email, "username": anon_username,
-        "display_name": "Gelöschter User", "is_active": False, "is_banned": True,
-        "password_hash": "!disabled", "updated_at": now_utc().isoformat(),
-    }})
-    await db.audit_logs.insert_one({"id": new_id(), "action": "user.admin_anonymize",
-                                     "target_id": user_id, "actor_id": me["id"],
-                                     "created_at": now_utc().isoformat()})
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1})
+    if target and target.get("role") == "superadmin" and user_id != me["id"]:
+        raise HTTPException(403, "Andere Superadmins dürfen nicht anonymisiert werden.")
+    await _anonymize_user_data(db, user_id, me["id"], "user.admin_anonymize")
     return {"ok": True}
 
 
@@ -2210,7 +2320,7 @@ audit_router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 
 @audit_router.get("")
-async def list_audit(action: Optional[str] = None, limit: int = 200, me: dict = Depends(require_admin())):
+async def list_audit(action: Optional[str] = None, limit: int = 200, me: dict = Depends(require_club_admin())):
     db = get_db()
     q = {}
     if action:
@@ -2220,7 +2330,7 @@ async def list_audit(action: Optional[str] = None, limit: int = 200, me: dict = 
     # Enrich actor
     ids = list({l.get("actor_id") for l in logs if l.get("actor_id")})
     users = {u["id"]: u for u in await db.users.find({"id": {"$in": ids}},
-                                                      {"_id": 0, "password_hash": 0}).to_list(500)}
+                                                      {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0}).to_list(500)}
     for l in logs:
         if l.get("actor_id"):
             u = users.get(l["actor_id"], {})

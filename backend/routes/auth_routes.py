@@ -1,12 +1,12 @@
 """Authentication routes."""
 import os
 import secrets
-import httpx
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Response, Request, HTTPException, Depends
 from pydantic import BaseModel
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
+from starlette.concurrency import run_in_threadpool
 from database import get_db
 from auth import (
     hash_password, verify_password, create_access_token, create_refresh_token,
@@ -20,12 +20,16 @@ from models import (
 )
 from services.rate_limit import enforce_rate_limit, get_client_ip
 from services.auth_settings import load_auth_settings
+from services.google_identity import GoogleIdentityError, verify_google_credential
+from services.secret_store import decrypt_secret, encrypt_secret
+from services.totp import generate_recovery_codes, generate_totp_secret, provisioning_uri, verify_totp
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 BRUTE_FORCE_MAX = 7
 BRUTE_FORCE_WINDOW_MIN = 15
 REFRESH_REPLAY_GRACE_SECONDS = 10
+ADMIN_ROLES = {"tournament_admin", "club_admin", "superadmin"}
 
 
 class MobileRefreshBody(BaseModel):
@@ -34,6 +38,42 @@ class MobileRefreshBody(BaseModel):
 
 class MobileLogoutBody(BaseModel):
     refresh_token: str | None = None
+
+
+class GoogleCredentialBody(BaseModel):
+    credential: str = ""
+    intent: str = "login"
+    accept_privacy: bool = False
+    accept_terms: bool = False
+    newsletter_consent: bool = False
+
+
+class EmailVerificationBody(BaseModel):
+    token: str = ""
+
+
+class MfaPasswordBody(BaseModel):
+    current_password: str = ""
+
+
+class MfaCodeBody(BaseModel):
+    code: str = ""
+
+
+class MfaDisableBody(BaseModel):
+    current_password: str = ""
+    code: str = ""
+
+
+class MfaLoginBody(BaseModel):
+    ticket: str = ""
+    code: str = ""
+    client: str = "web"
+
+
+class ConsentBody(BaseModel):
+    accept_privacy: bool = False
+    accept_terms: bool = False
 
 
 async def _check_brute_force(db, identifier: str):
@@ -65,6 +105,61 @@ async def _clear_failed(db, identifier: str):
     await db.login_attempts.delete_many({"identifier": identifier})
 
 
+async def _record_registration_consents(
+    db,
+    user_id: str,
+    *,
+    privacy: bool,
+    terms: bool,
+    newsletter: bool,
+    source: str,
+) -> None:
+    timestamp = now_utc()
+    rows = []
+    if privacy:
+        rows.append({"type": "privacy", "version": os.environ.get("PRIVACY_POLICY_VERSION", "2026-08-26")})
+    if terms:
+        rows.append({"type": "terms", "version": os.environ.get("TERMS_VERSION", "2026-08-26")})
+    rows.append({"type": "newsletter", "version": "1", "granted": bool(newsletter)})
+    documents = [{
+        "id": new_id(),
+        "user_id": user_id,
+        "consent_type": row["type"],
+        "policy_version": row["version"],
+        "granted": row.get("granted", True),
+        "source": source,
+        "created_at": timestamp,
+    } for row in rows]
+    if documents:
+        await db.consent_records.insert_many(documents)
+
+
+async def _send_email_verification(db, user: dict) -> None:
+    token = secrets.token_urlsafe(32)
+    now = now_utc()
+    await db.email_verification_tokens.update_many(
+        {"user_id": user["id"], "used": False},
+        {"$set": {"used": True, "invalidated_at": now}},
+    )
+    await db.email_verification_tokens.insert_one({
+        "id": new_id(),
+        "token_hash": hash_token(token),
+        "user_id": user["id"],
+        "used": False,
+        "created_at": now,
+        "expires_at": now + timedelta(hours=24),
+    })
+    frontend = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    verification_url = f"{frontend}/verify-email?token={token}" if frontend else f"/verify-email?token={token}"
+    await send_template(
+        "email_verification",
+        user["email"],
+        display_name=user.get("display_name") or user.get("username"),
+        verification_url=verification_url,
+        dedupe_key=f"email-verification:{user['id']}:{hash_token(token)[:12]}",
+    )
+
+
 def _request_identity(request: Request) -> tuple[str, str]:
     return (str(request.headers.get("user-agent") or "")[:512], get_client_ip(request))
 
@@ -81,6 +176,54 @@ def _eligible_session_user(user: dict | None) -> dict:
     return user
 
 
+def _requires_admin_mfa(user: dict) -> bool:
+    return user.get("role") in ADMIN_ROLES and user.get("mfa_enabled") is True
+
+
+async def _create_mfa_login_challenge(db, user: dict, request: Request, client: str) -> dict:
+    ticket = secrets.token_urlsafe(32)
+    now = now_utc()
+    user_agent, ip = _request_identity(request)
+    await db.mfa_login_challenges.insert_one({
+        "id": new_id(),
+        "ticket_hash": hash_token(ticket),
+        "user_id": user["id"],
+        "client": client,
+        "user_agent": user_agent,
+        "ip": ip,
+        "used": False,
+        "attempts": 0,
+        "created_at": now,
+        "expires_at": now + timedelta(minutes=5),
+    })
+    return {"mfa_required": True, "mfa_ticket": ticket, "expires_in": 300}
+
+
+async def _verify_mfa_code(db, user: dict, code: str) -> bool:
+    normalized = str(code or "").replace("-", "").replace(" ", "").upper()
+    secret = decrypt_secret(user.get("mfa_secret"))
+    if secret and verify_totp(secret, normalized):
+        return True
+    recovery_hash = hash_token(normalized)
+    if recovery_hash in (user.get("mfa_recovery_code_hashes") or []):
+        await db.users.update_one({"id": user["id"]}, {"$pull": {"mfa_recovery_code_hashes": recovery_hash}})
+        return True
+    return False
+
+
+async def _security_audit(db, user_id: str, action: str, request: Request) -> None:
+    user_agent, ip = _request_identity(request)
+    await db.audit_logs.insert_one({
+        "id": new_id(),
+        "action": action,
+        "actor_id": user_id,
+        "target_type": "user",
+        "target_id": user_id,
+        "data": {"ip": ip, "user_agent": user_agent},
+        "created_at": now_utc(),
+    })
+
+
 async def _store_session(
     db,
     user: dict,
@@ -91,10 +234,12 @@ async def _store_session(
     record_id: str,
     expires_at: datetime,
     client: str | None = None,
+    mfa_verified: bool = False,
 ) -> tuple[str, str]:
-    refresh = create_refresh_token(user["id"], token_id, family_id, expires_at)
+    refresh = create_refresh_token(user["id"], token_id, family_id, expires_at, mfa_verified=mfa_verified)
     access = create_access_token(
         user["id"], user["email"], user.get("role", "player"), token_id, family_id,
+        mfa_verified=mfa_verified,
     )
     user_agent, ip = _request_identity(request)
     document = {
@@ -108,6 +253,7 @@ async def _store_session(
         "expires_at": expires_at,
         "user_agent": user_agent,
         "ip": ip,
+        "mfa_verified": bool(mfa_verified),
     }
     if client:
         document["client"] = client
@@ -136,6 +282,7 @@ async def _issue_tokens(
     request: Request,
     *,
     client: str | None = None,
+    mfa_verified: bool = False,
 ) -> tuple[str, str]:
     token_id = secrets.token_urlsafe(24)
     return await _store_session(
@@ -147,19 +294,38 @@ async def _issue_tokens(
         record_id=new_id(),
         expires_at=refresh_expires_at(),
         client=client,
+        mfa_verified=mfa_verified,
     )
 
 
-async def _issue_session(db, response: Response, user: dict, request: Request):
-    access, refresh = await _issue_tokens(db, user, request)
+async def _issue_session(db, response: Response, user: dict, request: Request, *, mfa_verified: bool = False):
+    access, refresh = await _issue_tokens(db, user, request, mfa_verified=mfa_verified)
     set_auth_cookies(response, access, refresh)
     return access, refresh
 
 
 def _public_user(user: dict) -> dict:
     doc = dict(user)
-    doc.pop("_id", None)
-    doc.pop("password_hash", None)
+    for field in (
+        "_id",
+        "password_hash",
+        "google_id",
+        "mfa_secret",
+        "mfa_pending_secret",
+        "mfa_pending_created_at",
+        "mfa_recovery_code_hashes",
+    ):
+        doc.pop(field, None)
+    privacy_version = os.environ.get("PRIVACY_POLICY_VERSION", "2026-08-26")
+    terms_version = os.environ.get("TERMS_VERSION", "2026-08-26")
+    doc["consent_required"] = bool(
+        doc.get("accepted_privacy") is not True
+        or doc.get("accepted_terms") is not True
+        or doc.get("privacy_policy_version") != privacy_version
+        or doc.get("terms_version") != terms_version
+    )
+    doc["required_privacy_policy_version"] = privacy_version
+    doc["required_terms_version"] = terms_version
     return doc
 
 
@@ -175,8 +341,8 @@ async def _attach_membership(user: dict) -> dict:
     return user
 
 
-async def _issue_mobile_session(db, user: dict, request: Request) -> tuple[str, str]:
-    return await _issue_tokens(db, user, request, client="mobile")
+async def _issue_mobile_session(db, user: dict, request: Request, *, mfa_verified: bool = False) -> tuple[str, str]:
+    return await _issue_tokens(db, user, request, client="mobile", mfa_verified=mfa_verified)
 
 
 def _ua_fingerprint(user_agent: str) -> tuple[str, str]:
@@ -354,6 +520,7 @@ async def _rotate_session(
         record_id=replacement_id,
         expires_at=replacement_expires_at,
         client=client,
+        mfa_verified=bool(payload.get("mfa")),
     )
     return user, access, refresh
 
@@ -420,7 +587,7 @@ async def register(body: UserRegister, request: Request, response: Response):
         "gender": body.gender,
         "favorite_games": [],
         "main_platform": None, "preferred_role": None, "input_device": None,
-        "privacy_public_profile": True,
+        "privacy_public_profile": False,
         "profile_visibility": {},
         "dm_privacy": "everyone",
         "bio": None,
@@ -428,19 +595,26 @@ async def register(body: UserRegister, request: Request, response: Response):
         "accepted_privacy": body.accept_privacy,
         "accepted_terms": body.accept_terms,
         "newsletter_consent": body.newsletter_consent,
+        "privacy_policy_version": os.environ.get("PRIVACY_POLICY_VERSION", "2026-08-26"),
+        "terms_version": os.environ.get("TERMS_VERSION", "2026-08-26"),
+        "password_login_available": True,
         "created_at": now_utc().isoformat(),
         "updated_at": now_utc().isoformat(),
     }
     await db.users.insert_one(user_doc)
-    await _issue_session(db, response, user_doc, request)
-    # Send welcome email (silent fail if not configured)
-    await send_template("registration", email, display_name=user_doc["display_name"])
-    return _public_user(user_doc)
+    await _record_registration_consents(
+        db, user_id, privacy=body.accept_privacy, terms=body.accept_terms,
+        newsletter=body.newsletter_consent, source="web_registration",
+    )
+    await _send_email_verification(db, user_doc)
+    return {"verification_required": True, "email": email}
 
 
 @router.post("/login")
 async def login(body: UserLogin, request: Request, response: Response):
     db = get_db()
+    if not (await load_auth_settings(db))["password_login_enabled"]:
+        raise HTTPException(status_code=403, detail="Die Anmeldung mit E-Mail und Passwort ist derzeit deaktiviert.")
     email = body.email.lower().strip()
     identifier = _client_identifier(request, email)
     await _check_brute_force(db, identifier)
@@ -456,8 +630,12 @@ async def login(body: UserLogin, request: Request, response: Response):
         raise HTTPException(status_code=403, detail="Account deaktiviert")
     if user.get("is_banned"):
         raise HTTPException(status_code=403, detail="Account gesperrt")
+    if user.get("email_verified") is False:
+        raise HTTPException(status_code=403, detail="E-Mail-Adresse noch nicht bestätigt. Bitte prüfe dein Postfach.")
 
     await _clear_failed(db, identifier)
+    if _requires_admin_mfa(user):
+        return await _create_mfa_login_challenge(db, user, request, "web")
     await _issue_session(db, response, user, request)
     user = _public_user(user)
     # Attach membership for instant UI gating
@@ -465,26 +643,11 @@ async def login(body: UserLogin, request: Request, response: Response):
     return user
 
 
-EMERGENT_SESSION_DATA_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
-
-
-async def _resolve_google_identity(request: Request) -> dict:
-    """Read the session_id from the request body and resolve the Google identity server-side."""
+async def _resolve_google_identity(credential: str, client_id: str) -> dict:
     try:
-        payload = await request.json()
-    except Exception:
-        payload = None
-    session_id = (payload or {}).get("session_id") if isinstance(payload, dict) else None
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id fehlt")
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(EMERGENT_SESSION_DATA_URL, headers={"X-Session-ID": session_id})
-    except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="Google-Anmeldung derzeit nicht erreichbar")
-    if resp.status_code != 200:
-        raise HTTPException(status_code=401, detail="Google-Anmeldung fehlgeschlagen")
-    return resp.json()
+        return await run_in_threadpool(verify_google_credential, credential, client_id)
+    except GoogleIdentityError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 
@@ -513,6 +676,7 @@ def _google_user_doc(email: str, name: str, picture: str | None, google_id: str 
         "role": "player", "roles": ["player"], "user_type": "community_user",
         "is_club_member": False,
         "auth_provider": "google", "google_id": google_id,
+        "google_email": email, "google_linked": True,
         "discord_name": None, "discord_id": None,
         "switch_code": None, "steam_id": None, "epic_id": None,
         "psn_id": None, "xbox_id": None, "riot_id": None,
@@ -523,42 +687,64 @@ def _google_user_doc(email: str, name: str, picture: str | None, google_id: str 
         "first_name": None, "last_name": None, "nickname": None,
         "birth_date": None, "gender": None, "favorite_games": [],
         "main_platform": None, "preferred_role": None, "input_device": None,
-        "privacy_public_profile": True, "profile_visibility": {}, "dm_privacy": "everyone",
+        "privacy_public_profile": False, "profile_visibility": {}, "dm_privacy": "everyone",
         "bio": None,
         "is_active": True, "is_banned": False, "email_verified": True,
-        "accepted_privacy": True, "accepted_terms": True, "newsletter_consent": False,
-        "password_setup_required": False,
+        "accepted_privacy": False, "accepted_terms": False, "newsletter_consent": False,
+        "password_setup_required": False, "password_login_available": False,
         "created_at": ts, "updated_at": ts,
     }
 
 
 @router.post("/google/session")
-async def google_session(request: Request, response: Response):
-    """Exchange an Emergent Google-OAuth session_id for an app session.
-    Creates a real user in the users collection (or links an existing one by email)."""
+async def google_session(body: GoogleCredentialBody, request: Request, response: Response):
+    """Verify a Google ID token and issue an application-owned session."""
     await enforce_rate_limit(request, "auth:google:ip", limit=30, window_seconds=3600)
     db = get_db()
-    if not (await load_auth_settings(db))["google_login_enabled"]:
+    settings = await load_auth_settings(db)
+    if not settings["google_login_enabled"]:
         raise HTTPException(status_code=403, detail="Google-Login ist derzeit deaktiviert.")
-    data = await _resolve_google_identity(request)
+    data = await _resolve_google_identity(body.credential, settings["google_client_id"])
     email = (data.get("email") or "").lower().strip()
     if not email:
         raise HTTPException(status_code=400, detail="Keine E-Mail von Google erhalten")
 
-    user = await db.users.find_one({"email": email})
+    google_id = data.get("id")
+    user = await db.users.find_one({"google_id": google_id})
     created = False
     if not user:
+        existing_email = await db.users.find_one({"email": email})
+        if existing_email:
+            raise HTTPException(
+                status_code=409,
+                detail="Für diese E-Mail existiert bereits ein Konto. Bitte dort anmelden und Google im Profil verknüpfen.",
+            )
+        if body.intent != "register":
+            raise HTTPException(status_code=409, detail="Noch kein Google-Konto vorhanden. Bitte zuerst registrieren.")
+        if not settings["registration_enabled"] or not settings["google_registration_enabled"]:
+            raise HTTPException(status_code=403, detail="Die Registrierung mit Google ist derzeit deaktiviert.")
+        if not body.accept_privacy or not body.accept_terms:
+            raise HTTPException(status_code=400, detail="Datenschutz und Nutzungsbedingungen müssen akzeptiert werden.")
         username = await _unique_username(db, data.get("name") or email.split("@")[0])
-        user = _google_user_doc(email, data.get("name"), data.get("picture"), data.get("id"), username)
+        user = _google_user_doc(email, data.get("name"), data.get("picture"), google_id, username)
+        user.update({
+            "accepted_privacy": True,
+            "accepted_terms": True,
+            "newsletter_consent": body.newsletter_consent,
+            "privacy_policy_version": os.environ.get("PRIVACY_POLICY_VERSION", "2026-08-26"),
+            "terms_version": os.environ.get("TERMS_VERSION", "2026-08-26"),
+        })
         await db.users.insert_one(user)
+        await _record_registration_consents(
+            db, user["id"], privacy=True, terms=True,
+            newsletter=body.newsletter_consent, source="google_registration",
+        )
         created = True
         await send_template("registration", email, display_name=user["display_name"])
     else:
         updates = {
-            "google_id": data.get("id") or user.get("google_id"),
             "google_linked": True,
-            "auth_provider": user.get("auth_provider") or "google",
-            "email_verified": True,
+            "google_email": email,
             "updated_at": now_utc().isoformat(),
         }
         if not user.get("avatar_url") and data.get("picture"):
@@ -571,6 +757,8 @@ async def google_session(request: Request, response: Response):
     if user.get("is_banned"):
         raise HTTPException(status_code=403, detail="Account gesperrt")
 
+    if _requires_admin_mfa(user):
+        return await _create_mfa_login_challenge(db, user, request, "web")
     await _issue_session(db, response, user, request)
     public = _public_user(user)
     await _attach_membership(public)
@@ -579,7 +767,7 @@ async def google_session(request: Request, response: Response):
 
 
 @router.post("/google/link")
-async def google_link(request: Request, user: dict = Depends(get_current_user)):
+async def google_link(body: GoogleCredentialBody, request: Request, user: dict = Depends(get_current_user)):
     """Link a Google identity to the CURRENTLY authenticated local account.
 
     Secure account linking: requires an active session, re-verifies the Google
@@ -588,13 +776,16 @@ async def google_link(request: Request, user: dict = Depends(get_current_user)):
     """
     await enforce_rate_limit(request, "auth:google-link:ip", limit=30, window_seconds=3600)
     db = get_db()
-    if not (await load_auth_settings(db))["google_linking_enabled"]:
+    settings = await load_auth_settings(db)
+    if not settings["google_linking_enabled"]:
         raise HTTPException(status_code=403, detail="Google-Verknüpfung ist derzeit deaktiviert.")
-    data = await _resolve_google_identity(request)
+    data = await _resolve_google_identity(body.credential, settings["google_client_id"])
     google_id = data.get("id")
     google_email = (data.get("email") or "").lower().strip()
     if not google_id or not google_email:
         raise HTTPException(status_code=400, detail="Keine gültigen Google-Daten erhalten")
+    if google_email != str(user.get("email") or "").lower().strip():
+        raise HTTPException(status_code=409, detail="Das Google-Konto muss dieselbe E-Mail-Adresse verwenden.")
 
     existing_by_google = await db.users.find_one({"google_id": google_id})
     if existing_by_google and existing_by_google["id"] != user["id"]:
@@ -607,6 +798,7 @@ async def google_link(request: Request, user: dict = Depends(get_current_user)):
         "google_id": google_id,
         "google_email": google_email,
         "google_linked": True,
+        "auth_provider": "hybrid" if user.get("password_login_available", True) else "google",
         "email_verified": True,
         "updated_at": now_utc().isoformat(),
     }
@@ -621,7 +813,7 @@ async def google_unlink(user: dict = Depends(get_current_user)):
     full = await db.users.find_one({"id": user["id"]})
     if not full:
         raise HTTPException(status_code=404, detail="Account nicht gefunden")
-    if full.get("auth_provider") == "google":
+    if not full.get("password_login_available", full.get("auth_provider") != "google"):
         raise HTTPException(
             status_code=400,
             detail="Dieser Account nutzt nur Google-Login. Setze zuerst über \"Passwort vergessen\" ein Passwort, dann kannst du Google trennen.",
@@ -635,7 +827,10 @@ async def google_unlink(user: dict = Depends(get_current_user)):
 
 @router.post("/mobile/register")
 async def mobile_register(body: UserRegister, request: Request):
+    await enforce_rate_limit(request, "auth:register:ip", limit=5, window_seconds=3600)
     db = get_db()
+    if not (await load_auth_settings(db))["registration_enabled"]:
+        raise HTTPException(status_code=403, detail="Die Registrierung ist derzeit deaktiviert.")
     if not body.accept_privacy or not body.accept_terms:
         raise HTTPException(status_code=400, detail="Datenschutz und Nutzungsbedingungen müssen akzeptiert werden.")
     email = body.email.lower().strip()
@@ -669,7 +864,7 @@ async def mobile_register(body: UserRegister, request: Request):
         "gender": body.gender,
         "favorite_games": [],
         "main_platform": None, "preferred_role": None, "input_device": None,
-        "privacy_public_profile": True,
+        "privacy_public_profile": False,
         "profile_visibility": {},
         "dm_privacy": "everyone",
         "bio": None,
@@ -677,20 +872,26 @@ async def mobile_register(body: UserRegister, request: Request):
         "accepted_privacy": body.accept_privacy,
         "accepted_terms": body.accept_terms,
         "newsletter_consent": body.newsletter_consent,
+        "privacy_policy_version": os.environ.get("PRIVACY_POLICY_VERSION", "2026-08-26"),
+        "terms_version": os.environ.get("TERMS_VERSION", "2026-08-26"),
+        "password_login_available": True,
         "created_at": now_utc().isoformat(),
         "updated_at": now_utc().isoformat(),
     }
     await db.users.insert_one(user_doc)
-    access, refresh = await _issue_mobile_session(db, user_doc, request)
-    await send_template("registration", email, display_name=user_doc["display_name"])
-    user = _public_user(user_doc)
-    await _attach_membership(user)
-    return {"user": user, "access_token": access, "refresh_token": refresh, "token_type": "bearer"}
+    await _record_registration_consents(
+        db, user_doc["id"], privacy=body.accept_privacy, terms=body.accept_terms,
+        newsletter=body.newsletter_consent, source="mobile_registration",
+    )
+    await _send_email_verification(db, user_doc)
+    return {"verification_required": True, "email": email}
 
 
 @router.post("/mobile/login")
 async def mobile_login(body: UserLogin, request: Request):
     db = get_db()
+    if not (await load_auth_settings(db))["password_login_enabled"]:
+        raise HTTPException(status_code=403, detail="Die Anmeldung mit E-Mail und Passwort ist derzeit deaktiviert.")
     email = body.email.lower().strip()
     identifier = _client_identifier(request, email)
     await _check_brute_force(db, identifier)
@@ -706,8 +907,12 @@ async def mobile_login(body: UserLogin, request: Request):
         raise HTTPException(status_code=403, detail="Account deaktiviert")
     if user.get("is_banned"):
         raise HTTPException(status_code=403, detail="Account gesperrt")
+    if user.get("email_verified") is False:
+        raise HTTPException(status_code=403, detail="E-Mail-Adresse noch nicht bestätigt. Bitte prüfe dein Postfach.")
 
     await _clear_failed(db, identifier)
+    if _requires_admin_mfa(user):
+        return await _create_mfa_login_challenge(db, user, request, "mobile")
     access, refresh = await _issue_mobile_session(db, user, request)
     user = _public_user(user)
     await _attach_membership(user)
@@ -877,6 +1082,197 @@ async def forgot_password(body: ForgotPasswordBody, request: Request):
     return {"ok": True, "message": "Falls diese E-Mail registriert ist, wurde ein Link gesendet."}
 
 
+@router.post("/resend-verification")
+async def resend_verification(body: ForgotPasswordBody, request: Request):
+    db = get_db()
+    email = body.email.lower().strip()
+    await enforce_rate_limit(request, "auth:verify-resend:ip", limit=6, window_seconds=3600)
+    await enforce_rate_limit(request, "auth:verify-resend:email", limit=3, window_seconds=3600, subject=email)
+    user = await db.users.find_one({"email": email})
+    if user and user.get("email_verified") is False and user.get("is_active") is not False:
+        await _send_email_verification(db, user)
+    return {"ok": True, "message": "Falls eine Bestätigung aussteht, wurde ein neuer Link gesendet."}
+
+
+@router.post("/verify-email")
+async def verify_email(body: EmailVerificationBody, request: Request):
+    await enforce_rate_limit(request, "auth:verify:ip", limit=30, window_seconds=3600)
+    token = body.token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Bestätigungs-Token fehlt")
+    db = get_db()
+    doc = await db.email_verification_tokens.find_one({"token_hash": hash_token(token), "used": False})
+    if not doc:
+        raise HTTPException(status_code=400, detail="Bestätigungslink ist ungültig oder wurde bereits verwendet.")
+    expires_at = as_utc_datetime(doc.get("expires_at"))
+    if not expires_at or expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Bestätigungslink ist abgelaufen.")
+    user = await db.users.find_one({"id": doc["user_id"]})
+    if not user:
+        raise HTTPException(status_code=400, detail="Account wurde nicht gefunden.")
+    now = now_utc()
+    await db.email_verification_tokens.update_many(
+        {"user_id": user["id"], "used": False},
+        {"$set": {"used": True, "used_at": now}},
+    )
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"email_verified": True, "email_verified_at": now, "updated_at": now.isoformat()}},
+    )
+    await send_template("registration", user["email"], display_name=user.get("display_name") or user.get("username"))
+    return {"ok": True}
+
+
+@router.post("/mfa/complete")
+async def complete_mfa_login(body: MfaLoginBody, request: Request, response: Response):
+    await enforce_rate_limit(request, "auth:mfa:ip", limit=20, window_seconds=900)
+    db = get_db()
+    now = now_utc()
+    challenge = await db.mfa_login_challenges.find_one(
+        {
+            "ticket_hash": hash_token(body.ticket.strip()),
+            "used": False,
+            "expires_at": {"$gt": now},
+            "attempts": {"$lt": 5},
+        },
+    )
+    if not challenge:
+        raise HTTPException(status_code=401, detail="MFA-Anmeldung ist ungültig oder abgelaufen.")
+    user_agent, ip = _request_identity(request)
+    if challenge.get("ip") != ip or challenge.get("user_agent") != user_agent:
+        raise HTTPException(status_code=401, detail="MFA-Anmeldung gehört zu einem anderen Gerät.")
+    user = _eligible_session_user(await db.users.find_one({"id": challenge["user_id"]}))
+    if not await _verify_mfa_code(db, user, body.code):
+        await db.mfa_login_challenges.update_one(
+            {"_id": challenge["_id"], "used": False},
+            {"$inc": {"attempts": 1}, "$set": {"last_failed_at": now}},
+        )
+        await _security_audit(db, user["id"], "auth.mfa.failed", request)
+        raise HTTPException(status_code=401, detail="Ungültiger MFA- oder Wiederherstellungscode.")
+    claimed = await db.mfa_login_challenges.find_one_and_update(
+        {"_id": challenge["_id"], "used": False, "attempts": {"$lt": 5}},
+        {"$set": {"used": True, "used_at": now}},
+        return_document=ReturnDocument.BEFORE,
+    )
+    if not claimed:
+        raise HTTPException(status_code=401, detail="MFA-Anmeldung wurde bereits verwendet.")
+    client = "mobile" if challenge.get("client") == "mobile" or body.client == "mobile" else "web"
+    await _security_audit(db, user["id"], "auth.mfa.login", request)
+    if client == "mobile":
+        access, refresh = await _issue_mobile_session(db, user, request, mfa_verified=True)
+        public = _public_user(user)
+        await _attach_membership(public)
+        return {"user": public, "access_token": access, "refresh_token": refresh, "token_type": "bearer"}
+    await _issue_session(db, response, user, request, mfa_verified=True)
+    public = _public_user(user)
+    await _attach_membership(public)
+    return public
+
+
+@router.post("/consent")
+async def accept_current_consent(body: ConsentBody, user: dict = Depends(get_current_user)):
+    if not (body.accept_privacy and body.accept_terms):
+        raise HTTPException(400, "Datenschutz und Nutzungsbedingungen müssen akzeptiert werden.")
+    db = get_db()
+    privacy_version = os.environ.get("PRIVACY_POLICY_VERSION", "2026-08-26")
+    terms_version = os.environ.get("TERMS_VERSION", "2026-08-26")
+    now = now_utc()
+    await db.users.update_one({"id": user["id"]}, {"$set": {
+        "accepted_privacy": True, "accepted_terms": True,
+        "privacy_policy_version": privacy_version, "terms_version": terms_version,
+        "consent_required": False, "consent_updated_at": now.isoformat(), "updated_at": now.isoformat(),
+    }})
+    await _record_registration_consents(
+        db, user["id"], privacy=True, terms=True,
+        newsletter=bool(user.get("newsletter_consent")), source="policy_reconsent",
+    )
+    return {"ok": True, "privacy_policy_version": privacy_version, "terms_version": terms_version}
+
+
+@router.get("/mfa/status")
+async def mfa_status(user: dict = Depends(get_current_user)):
+    db = get_db()
+    secret_state = await db.users.find_one(
+        {"id": user["id"]},
+        {"_id": 0, "mfa_recovery_code_hashes": 1},
+    ) or {}
+    return {
+        "required_for_admin": user.get("role") in ADMIN_ROLES,
+        "enabled": bool(user.get("mfa_enabled")),
+        "session_verified": bool(user.get("auth_mfa_verified")),
+        "recovery_codes_remaining": len(secret_state.get("mfa_recovery_code_hashes") or []),
+    }
+
+
+@router.post("/mfa/setup")
+async def setup_mfa(body: MfaPasswordBody, request: Request, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="MFA-Einrichtung ist derzeit für Administrationskonten vorgesehen.")
+    await enforce_rate_limit(request, "auth:mfa-setup:user", limit=5, window_seconds=3600, subject=user["id"])
+    db = get_db()
+    full = await db.users.find_one({"id": user["id"]})
+    if not full or not full.get("password_login_available", full.get("auth_provider") != "google"):
+        raise HTTPException(status_code=400, detail="Bitte zuerst ein eigenes Passwort über Passwort vergessen setzen.")
+    if not verify_password(body.current_password, full.get("password_hash") or ""):
+        raise HTTPException(status_code=400, detail="Aktuelles Passwort falsch")
+    secret = generate_totp_secret()
+    now = now_utc()
+    await db.users.update_one({"id": user["id"]}, {"$set": {
+        "mfa_pending_secret": encrypt_secret(secret),
+        "mfa_pending_created_at": now,
+        "updated_at": now.isoformat(),
+    }})
+    branding = await db.settings.find_one({"id": "branding"}, {"_id": 0, "club_name": 1}) or {}
+    issuer = branding.get("club_name") or "THE LION SQUAD"
+    return {"secret": secret, "provisioning_uri": provisioning_uri(secret, user["email"], issuer)}
+
+
+@router.post("/mfa/enable")
+async def enable_mfa(body: MfaCodeBody, request: Request, user: dict = Depends(get_current_user)):
+    db = get_db()
+    full = await db.users.find_one({"id": user["id"]})
+    pending_at = as_utc_datetime((full or {}).get("mfa_pending_created_at"))
+    secret = decrypt_secret((full or {}).get("mfa_pending_secret"))
+    if not secret or not pending_at or pending_at < datetime.now(timezone.utc) - timedelta(minutes=10):
+        raise HTTPException(status_code=400, detail="MFA-Einrichtung ist abgelaufen. Bitte neu starten.")
+    if not verify_totp(secret, body.code):
+        raise HTTPException(status_code=400, detail="Der Bestätigungscode ist ungültig.")
+    recovery_codes = generate_recovery_codes()
+    now = now_utc()
+    await db.users.update_one({"id": user["id"]}, {
+        "$set": {
+            "mfa_enabled": True,
+            "mfa_secret": encrypt_secret(secret),
+            "mfa_recovery_code_hashes": [hash_token(code) for code in recovery_codes],
+            "mfa_enabled_at": now,
+            "updated_at": now.isoformat(),
+        },
+        "$unset": {"mfa_pending_secret": "", "mfa_pending_created_at": ""},
+    })
+    await _security_audit(db, user["id"], "auth.mfa.enabled", request)
+    return {"ok": True, "recovery_codes": recovery_codes, "requires_new_login": True}
+
+
+@router.post("/mfa/disable")
+async def disable_mfa(body: MfaDisableBody, request: Request, user: dict = Depends(get_current_user)):
+    db = get_db()
+    full = await db.users.find_one({"id": user["id"]})
+    if not full or not full.get("mfa_enabled"):
+        raise HTTPException(status_code=400, detail="MFA ist nicht aktiviert.")
+    if not verify_password(body.current_password, full.get("password_hash") or ""):
+        raise HTTPException(status_code=400, detail="Aktuelles Passwort falsch")
+    if not await _verify_mfa_code(db, full, body.code):
+        raise HTTPException(status_code=400, detail="MFA- oder Wiederherstellungscode ist ungültig.")
+    now = now_utc()
+    await db.users.update_one({"id": user["id"]}, {
+        "$set": {"mfa_enabled": False, "updated_at": now.isoformat()},
+        "$unset": {"mfa_secret": "", "mfa_recovery_code_hashes": "", "mfa_enabled_at": ""},
+    })
+    await _revoke_all_auth_sessions(db, user["id"], "mfa_disabled")
+    await _security_audit(db, user["id"], "auth.mfa.disabled", request)
+    return {"ok": True, "requires_new_login": True}
+
+
 @router.post("/reset-password")
 async def reset_password(body: ResetPasswordBody, request: Request):
     await enforce_rate_limit(request, "auth:reset:ip", limit=20, window_seconds=900)
@@ -888,13 +1284,32 @@ async def reset_password(body: ResetPasswordBody, request: Request):
     exp = as_utc_datetime(doc.get("expires_at"))
     if exp and exp < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Token abgelaufen")
+    is_invite = doc.get("purpose") == "admin_invite"
+    if is_invite and not (body.accept_privacy and body.accept_terms):
+        raise HTTPException(status_code=400, detail="Datenschutz und Nutzungsbedingungen müssen für die Account-Aktivierung akzeptiert werden.")
+    now = now_utc()
+    updates = {
+        "password_hash": hash_password(body.new_password),
+        "password_setup_required": False,
+        "password_login_available": True,
+        "auth_provider": "hybrid",
+        "email_verified": True,
+        "updated_at": now.isoformat(),
+    }
+    if is_invite:
+        updates.update({
+            "accepted_privacy": True, "accepted_terms": True, "consent_required": False,
+            "privacy_policy_version": os.environ.get("PRIVACY_POLICY_VERSION", "2026-08-26"),
+            "terms_version": os.environ.get("TERMS_VERSION", "2026-08-26"),
+        })
     await db.users.update_one(
         {"id": doc["user_id"]},
-        {"$set": {"password_hash": hash_password(body.new_password),
-                  "password_setup_required": False,
-                  "email_verified": True,
-                  "updated_at": now_utc().isoformat()}},
+        {"$set": updates},
     )
+    if is_invite:
+        await _record_registration_consents(
+            db, doc["user_id"], privacy=True, terms=True, newsletter=False, source="admin_invitation",
+        )
     await db.password_reset_tokens.update_one({"id": doc["id"]}, {"$set": {"used": True}})
     await db.refresh_tokens.update_many(
         {"user_id": doc["user_id"], "revoked": {"$ne": True}},

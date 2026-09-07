@@ -1,8 +1,8 @@
 import axios from "axios";
 import { emitApiInvalidation } from "./apiInvalidation";
 
-const configuredBackendUrl = (process.env.REACT_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
-const configuredUploadBackendUrl = (process.env.REACT_APP_UPLOAD_BACKEND_URL || "").trim().replace(/\/+$/, "");
+const configuredBackendUrl = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/+$/, "");
+const configuredUploadBackendUrl = (import.meta.env.VITE_UPLOAD_BACKEND_URL || "").trim().replace(/\/+$/, "");
 
 export const API_BASE =
   configuredBackendUrl || (typeof window !== "undefined" ? window.location.origin : "");

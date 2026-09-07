@@ -333,9 +333,9 @@ export default function MatchPage() {
 
           <div className={`mt-5 grid gap-3 items-stretch ${isV2 ? "sm:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-[1fr_auto_1fr]"}`}>
             {isV2 ? (
-              resultParticipants.map((participant) => (
+              resultParticipants.map((participant, index) => (
                 <ResultSide
-                  key={participant.registration_id || participant.slot}
+                  key={participant.registration_id || participant.slot || `result-${index}`}
                   participant={participant}
                   score={v2ResultDisplay(match, participant, v2Mode)}
                   isWinner={v2ResultRank(match, participant) === 1}
@@ -451,8 +451,8 @@ export default function MatchPage() {
             <div className="border border-white/10 bg-[#121212] rounded-sm p-5">
               <h2 className="font-heading text-xl font-black uppercase">Teilnehmer</h2>
               <div className="mt-4 grid md:grid-cols-2 gap-3">
-                {participants.map((p) => (
-                  <div key={p.slot} className="border border-white/10 bg-[#0A0A0A] rounded-sm p-4">
+                {participants.map((p, index) => (
+                  <div key={p.registration_id || p.slot || `participant-${index}`} className="border border-white/10 bg-[#0A0A0A] rounded-sm p-4">
                     <div className="text-[10px] uppercase tracking-widest text-white/35">Slot {p.slot}</div>
                     <div className="mt-1 font-heading text-lg font-bold uppercase">{p.display_name || "Offen"}</div>
                     {p.team && <div className="mt-1 text-xs text-[#29B6E8]">[{p.team.tag}] {p.team.name}</div>}
