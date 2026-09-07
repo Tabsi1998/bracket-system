@@ -12,7 +12,7 @@ drei unterschiedliche Zustände.** Ein fertiger Quellstand ist noch kein Go-live
 | Paket | Stand | Was ich umsetze | Wann abgeschlossen |
 | --- | --- | --- | --- |
 | R0 – Restplan | konsolidiert | Dieser Plan, eindeutige Verweise, historische Pläne kennzeichnen | Ein gemeinsamer Arbeitsstand ohne konkurrierende To-do-Listen |
-| R1 – Sicherheitsupdates | Änderungen in diesem Paket; CI/Main-Nachweis erforderlich | Tiptap-Familie 3.30.4, CSS-Parser 6.1.4, Editor-Sicherheitsregression; Build, Tests und Audit | PR und Main grün; die beiden GitHub-Meldungen geschlossen |
+| R1 – Sicherheitsupdates | umgesetzt und lokal geprüft; Integration über PR #152 | Tiptap-Familie 3.30.4, CSS-Parser 6.1.4, Editor-Sicherheitsregression; Build, Tests und Audit | PR und Main grün; die beiden GitHub-Meldungen geschlossen |
 | R2 – Staging | vorbereitet, noch nicht eingerichtet | Ressourcen und Proxy prüfen; getrennten Testbetrieb auf vorhandenem Server einrichten | Eigene HTTPS-Subdomain, DB, Volumes, Secrets und Testnutzer; Produktion unverändert gesund |
 | R3 – Praxistest | offen | Testdaten/Abläufe vorbereiten, Fehler nachstellen und korrigieren | Du bestätigst die Pflichtfälle aus STAGING_ABNAHME.md; kritische Fehler behoben |
 | R4 – Release/Betrieb | offen | Backup/Restore nachweisen, Release festhalten, kontrolliert deployen, Rollback und Monitoring prüfen | Abnahme dokumentiert, Backup extern gesichert, Produktiv-Smoke grün |
@@ -21,6 +21,18 @@ drei unterschiedliche Zustände.** Ein fertiger Quellstand ist noch kein Go-live
 R2 startet erst nach R1. R3 verwendet ausschließlich Staging-Testdaten. R4 benötigt
 deine fachliche Freigabe und ein vereinbartes Wartungsfenster. R5 verändert bis dahin
 keine Bestandswettbewerbe und ist keine Voraussetzung für den Test der heutigen Plattform.
+
+### Nachweise dieses Pakets
+
+- Vollständige lokale Nicht-Live-Backend-Suite: 368 bestanden, 19 übersprungen,
+  277 Live-Tests abgewählt; darunter 17 neue Backup-Zieltests.
+- Frontend: 16 Unit-Tests, Frozen-Lockfile-Installation, Build und Kontrastprüfung bestanden.
+- Vollständiger Yarn-Audit am 7. September 2026: 0 bekannte Schwachstellen in allen Stufen.
+- Secret-Scan und Syntaxprüfung aller Shell-Skripte bestanden.
+- Verbindliche Linux-/Docker-/Browser-/Mobile- und CodeQL-Nachweise:
+  [PR #152 mit Checks](https://github.com/Tabsi1998/THE-LION_SQUAD-eSPORT-Webseite/pull/152).
+  Ein laufender/fehlgeschlagener Check ist keine Freigabe; nach dem Merge auch Main prüfen.
+- Diese Nachweise ersetzen weder den echten Backup-/Restore-Drill noch deinen Praxistest.
 
 ## Bereits im Quellstand erledigt
 
@@ -56,9 +68,13 @@ ein eigenes Kompatibilitätspaket, nicht Teil dieses Patch-Updates.
 ## R2 – nur ein Server vorhanden
 
 Der Betreiber hat bestätigt: Es gibt nur den Produktivserver. Daher zuerst
-read-only prüfen: SSH-Ziel, tatsächlicher Installationspfad, freie RAM-/CPU-/Disk-
+read-only prüfen: vorhandener Zugangsweg, tatsächlicher Installationspfad, freie RAM-/CPU-/Disk-
 Kapazität, Docker/Compose, belegte Ports, Proxy/DNS/TLS und bestehende Backupziele.
-Keine Serverzugänge oder Secrets in Git oder Testberichte schreiben.
+Keine Serverzugänge oder Secrets in Git oder Testberichte schreiben. **Öffentliches SSH
+ist nicht erforderlich und soll dafür nicht freigeschaltet werden.** Eine vorhandene
+Hosting-/Serverkonsole oder ein privater Zugang reicht. Wenn ich keinen direkten Zugriff
+habe, bereite ich die geprüften Befehle vor und der Betreiber führt sie dort aus.
+Staging dient der Update-Abnahme und schaltet keine zusätzliche Website-Funktion frei.
 
 Bei ausreichender Reserve kann derselbe Host einen zweiten Stack betreiben:
 
@@ -84,8 +100,9 @@ Technischer Ablauf: [RELEASE.md](RELEASE.md). Nachweise und Testercheckliste:
 
 Du musst nicht programmieren. Von dir brauche ich:
 
-1. SSH-Alias/Server, Installationspfad und gewünschte Staging-Subdomain; Zugang über
-   einen sicheren lokalen Weg, nicht per Passwort im Chat.
+1. Vorhandenen Zugangsweg (zum Beispiel Hosting-Konsole), Installationspfad und gewünschte
+   Staging-Subdomain nennen. Kein öffentliches SSH einrichten, keine Passwörter im Chat.
+   Ohne direkten Agent-Zugriff nur die von mir vorbereiteten Befehle in deiner Konsole ausführen.
 2. Eigene Betreiberkonten für Google/Mail und bei Nutzung Discord/Twitch. Geheime
    Werte nur direkt in die geschützte Konfiguration eingeben. Ich begleite die Einrichtung
    nach [CONFIGURATION.md](CONFIGURATION.md).

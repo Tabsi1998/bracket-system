@@ -10,6 +10,11 @@ RAM/CPU/Plattenplatz, belegte Ports, Compose-Ziele, Backups und Reverse-Proxy re
 prüfen. Containerlimits begrenzen nicht die Last eines Image-Builds. Bei knappen
 Ressourcen nicht parallel bauen/starten; ein gemeinsamer Host bleibt eine Ausfallzone.
 
+Öffentliches SSH ist dafür nicht nötig. Die vorhandene Hosting-/Serverkonsole oder
+ein privater Zugang genügt; ohne direkten Agent-Zugriff führt der Betreiber die von
+mir vorbereiteten Befehle dort aus. Staging dient nur der sicheren Update-Abnahme,
+nicht dem Freischalten einer Website-Funktion.
+
 Ein **separates Checkout** verwenden, nicht den Git-Stand des laufenden Produktivstacks
 wechseln. Eigene HTTPS-Subdomain festlegen; Produktion und DNS nicht umschalten.
 `tls-staging` ist ein eigenes Compose-Projekt mit eigenen Volumes und Netzwerk.

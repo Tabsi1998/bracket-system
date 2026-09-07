@@ -5,7 +5,7 @@ Reihenfolge und Zuständigkeiten: [RESTPLAN.md](RESTPLAN.md).
 
 ## Technische Vorbereitung durch mich
 
-- [ ] Serverkapazität, Installationspfad, SSH-Ziel und Staging-Domain bestätigt.
+- [ ] Serverkapazität, Installationspfad, vorhandener Konsolen-/Privatzugang und Staging-Domain bestätigt.
 - [ ] Separates Checkout/Compose-Projekt; eigene DB, Uploads, Netzwerk und Secrets geprüft.
 - [ ] Staging-Ressourcen begrenzt; laufende Produktion vor/nach Start gesund.
 - [ ] HTTPS, Host-/CORS-Konfiguration, hostgebundene Cookies und API/Web-Health geprüft.
