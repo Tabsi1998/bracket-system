@@ -14,6 +14,7 @@ docker run --rm -d \
   --publish 127.0.0.1::80 \
   --volume "$PWD/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
   --volume "$PWD/frontend/public:/usr/share/nginx/html:ro" \
+  --volume "$PWD/frontend/index.html:/usr/share/nginx/html/index.html:ro" \
   nginx:alpine >/dev/null
 
 port="$(docker port "$container_name" 80/tcp | sed -E 's/.*:([0-9]+)$/\1/')"
@@ -101,7 +102,7 @@ for path in / /about /esports /tournaments /fastlap /galerie /players; do
 done
 
 while IFS='|' read -r legacy canonical; do
-  expect_redirect "$legacy" "https://lionsquad.at${canonical}"
+  expect_redirect "$legacy" "$canonical"
 done <<'ROUTES'
 /der-verein|/about
 /ueber-uns/|/about
