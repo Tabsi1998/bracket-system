@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11.16-slim-bookworm
 
 WORKDIR /app
 
@@ -16,7 +16,10 @@ RUN useradd --create-home --shell /usr/sbin/nologin appuser \
     && chown -R appuser:appuser /app \
     && chmod +x /app/docker-entrypoint.py
 
-USER root
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+USER appuser
 
 EXPOSE 8001
 

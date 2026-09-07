@@ -12,10 +12,10 @@ const parseUploadMb = (value, fallback) => {
 };
 
 const DOCUMENT_UPLOAD_LIMIT_MB = parseUploadMb(
-  process.env.REACT_APP_MAX_DOCUMENT_UPLOAD_MB || process.env.REACT_APP_MAX_IMAGE_UPLOAD_MB,
+  import.meta.env.VITE_MAX_DOCUMENT_UPLOAD_MB || import.meta.env.VITE_MAX_IMAGE_UPLOAD_MB,
   50,
 );
-const PROXY_UPLOAD_LIMIT_MB = parseUploadMb(process.env.REACT_APP_PROXY_UPLOAD_LIMIT_MB, Math.ceil(DOCUMENT_UPLOAD_LIMIT_MB * 1.2));
+const PROXY_UPLOAD_LIMIT_MB = parseUploadMb(import.meta.env.VITE_PROXY_UPLOAD_LIMIT_MB, Math.ceil(DOCUMENT_UPLOAD_LIMIT_MB * 1.2));
 
 const CATEGORY_LABELS = {
   statutes: "Statuten", minutes: "Protokolle", form: "Formular",

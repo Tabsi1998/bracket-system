@@ -1,9 +1,11 @@
 APScheduler==3.11.3
 aiosmtplib==5.1.2
 bcrypt==5.0.0
+cryptography==50.0.1
 email-validator==2.3.0
 dnspython==2.8.0
 fastapi==0.141.1
+google-auth==2.57.0
 httpx==0.28.1
 Jinja2==3.1.6
 motor==3.7.1
@@ -16,6 +18,7 @@ python-dotenv==1.2.2
 python-multipart==0.0.32
 rawpy==0.27.0
 reportlab==4.5.1
+requests==2.34.2
 resend==2.36.0
 starlette==1.6.0
 uvicorn==0.52.3

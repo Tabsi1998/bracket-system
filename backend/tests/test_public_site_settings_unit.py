@@ -50,6 +50,7 @@ def test_canonical_contract_uses_configured_values_and_folds_legacy_text_once():
         "legal_extra": "Alter Zusatz",
         "privacy_policy": "Bestehender Datenschutztext",
         "privacy_extra": "Neuer Zusatz",
+        "terms_of_use": "Eigene Community-Regeln",
     }
 
     result = build_public_legal_settings(branding)
@@ -58,6 +59,7 @@ def test_canonical_contract_uses_configured_values_and_folds_legacy_text_once():
     assert result["privacy_contact_email"] == "dsgvo@lionsquad.at"
     assert result["legal_extra"] == "Alter Zusatz"
     assert result["privacy_extra"] == "Neuer Zusatz\n\nBestehender Datenschutztext"
+    assert result["terms_of_use"] == "Eigene Community-Regeln"
     assert result["legal_ready"] is True
     assert result["missing_legal_fields"] == []
     assert result["legal_updated_at"] == COMPLETE_BRANDING["legal_updated_at"]

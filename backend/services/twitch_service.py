@@ -15,6 +15,7 @@ from typing import Iterable
 import httpx
 
 from database import get_db
+from services.secret_store import decrypt_secret, encrypt_secret
 
 logger = logging.getLogger("tls.twitch")
 TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
@@ -27,7 +28,7 @@ async def _get_credentials() -> dict | None:
     if not s:
         return None
     cid = s.get("twitch_client_id") or os.environ.get("TWITCH_CLIENT_ID")
-    secret = s.get("twitch_client_secret") or os.environ.get("TWITCH_CLIENT_SECRET")
+    secret = decrypt_secret(s.get("twitch_client_secret")) or os.environ.get("TWITCH_CLIENT_SECRET")
     if not cid or not secret:
         return None
     return {
@@ -46,7 +47,7 @@ async def _get_app_token(creds: dict) -> str | None:
             if exp.tzinfo is None:
                 exp = exp.replace(tzinfo=timezone.utc)
             if exp > datetime.now(timezone.utc):
-                return cached["access_token"]
+                return decrypt_secret(cached["access_token"])
         except Exception:
             pass
     async with httpx.AsyncClient(timeout=10) as cli:
@@ -65,7 +66,7 @@ async def _get_app_token(creds: dict) -> str | None:
         tz=timezone.utc).isoformat()
     await db.settings.update_one(
         {"id": "twitch_app_token"},
-        {"$set": {"id": "twitch_app_token", "access_token": body["access_token"], "expires_at": exp_iso}},
+        {"$set": {"id": "twitch_app_token", "access_token": encrypt_secret(body["access_token"]), "expires_at": exp_iso}},
         upsert=True,
     )
     return body["access_token"]

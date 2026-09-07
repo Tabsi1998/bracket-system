@@ -19,15 +19,23 @@ type RegisterPayload = {
   newsletter_consent?: boolean;
 };
 
+type RegistrationResponse = {
+  verification_required: boolean;
+  email: string;
+};
+
+type LoginResult = { mfaRequired: boolean; ticket?: string };
+
 type AuthContextValue = {
   user: User | null;
   accessToken: string | null;
   refreshToken: string | null;
   rememberSession: boolean;
   loading: boolean;
-  login: (email: string, password: string, remember?: boolean) => Promise<void>;
+  login: (email: string, password: string, remember?: boolean) => Promise<LoginResult>;
+  completeMfa: (ticket: string, code: string, remember?: boolean) => Promise<void>;
   continueAsGuest: () => Promise<void>;
-  register: (payload: RegisterPayload) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<RegistrationResponse>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
 };
@@ -149,7 +157,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(
     async (email: string, password: string, remember = true) => {
       const { data } = await api.post<AuthResponse>("/auth/mobile/login", { email, password });
+      const challenge = data as AuthResponse & { mfa_required?: boolean; mfa_ticket?: string };
+      if (challenge.mfa_required) return { mfaRequired: true, ticket: challenge.mfa_ticket };
       await persistSession(data, remember);
+      return { mfaRequired: false };
     },
     [persistSession]
   );
@@ -171,11 +182,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = useCallback(
     async (payload: RegisterPayload) => {
-      const { data } = await api.post<AuthResponse>("/auth/mobile/register", payload);
-      await persistSession(data);
+      const { data } = await api.post<RegistrationResponse>("/auth/mobile/register", payload);
+      return data;
     },
-    [persistSession]
+    []
   );
+
+  const completeMfa = useCallback(async (ticket: string, code: string, remember = true) => {
+    const { data } = await api.post<AuthResponse>("/auth/mfa/complete", { ticket, code, client: "mobile" });
+    await persistSession(data, remember);
+  }, [persistSession]);
 
   const logout = useCallback(async () => {
     try {
@@ -189,8 +205,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession, refreshToken, user]);
 
   const value = useMemo(
-    () => ({ user, accessToken, refreshToken, rememberSession, loading, login, continueAsGuest, register, logout, refreshMe }),
-    [accessToken, continueAsGuest, loading, login, logout, refreshMe, refreshToken, register, rememberSession, user]
+    () => ({ user, accessToken, refreshToken, rememberSession, loading, login, completeMfa, continueAsGuest, register, logout, refreshMe }),
+    [accessToken, completeMfa, continueAsGuest, loading, login, logout, refreshMe, refreshToken, register, rememberSession, user]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

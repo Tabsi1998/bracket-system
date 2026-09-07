@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, formatApiError, resolveMediaUrl } from "@/lib/api";
 import { AdminLayout } from "@/components/tls/AdminLayout";
+import { ACHIEVEMENT_ICON_NAMES, AchievementIcon } from "@/components/tls/AchievementIcon";
 import { useConfirm } from "@/components/tls/ConfirmDialog";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
 import { toast } from "sonner";
@@ -187,7 +188,7 @@ function GroupForm({ group, onClose, onSaved }) {
           <Field label="Sortierung"><input type="number" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: parseInt(e.target.value) || 0 })} className="input" /></Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Icon (lucide-react kebab-case)"><input value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} className="input" /></Field>
+          <IconField value={form.icon} onChange={(icon) => setForm({ ...form, icon })} />
           <Field label="Farbe"><input type="color" value={form.accent_color} onChange={(e) => setForm({ ...form, accent_color: e.target.value })} className="input h-10" /></Field>
         </div>
         <Field label="Beschreibung"><textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="input" /></Field>
@@ -356,7 +357,7 @@ function TierForm({ tier, groupCode, onClose, onSaved }) {
             <Field label="Ziel"><input type="number" value={form.progress_target} onChange={(e) => setForm({ ...form, progress_target: parseInt(e.target.value) || 1 })} className="input" /></Field>
           </div>
         )}
-        <Field label="Icon (lucide-react)"><input value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} className="input" /></Field>
+        <IconField value={form.icon} onChange={(icon) => setForm({ ...form, icon })} />
         <div className="flex justify-end gap-2 pt-3">
           <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-white/60 hover:text-white">Abbrechen</button>
           <button type="submit" disabled={saving} data-testid="tier-save" className="px-5 py-2 bg-[#FFD700] text-black font-bold uppercase tracking-wider rounded-sm text-xs">{saving ? "Speichere…" : "Speichern"}</button>
@@ -524,6 +525,19 @@ function Field({ label, children }) {
       <div className="text-[11px] font-bold uppercase tracking-widest text-white/60 mb-1.5">{label}</div>
       {children}
     </label>
+  );
+}
+
+function IconField({ value, onChange }) {
+  return (
+    <Field label="Icon">
+      <div className="flex items-center gap-2">
+        <AchievementIcon name={value} fallback="trophy" className="w-5 h-5 shrink-0 text-[#FFD700]" aria-hidden="true" />
+        <select value={value} onChange={(event) => onChange(event.target.value)} className="input">
+          {ACHIEVEMENT_ICON_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+      </div>
+    </Field>
   );
 }
 

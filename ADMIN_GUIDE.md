@@ -2,6 +2,21 @@
 
 Dieses Dokument beschreibt die wichtigsten Admin-Ablaeufe fuer die THE LION SQUAD eSPORT Webseite.
 
+## Sicherheitsstart für neue Admins
+
+Nach der ersten Anmeldung zuerst im eigenen Profil TOTP-MFA aktivieren, QR-Code mit einer
+Authenticator-App scannen und Recovery-Codes offline sichern. Ohne bestätigte MFA-Sitzung bleiben
+Adminbereiche gesperrt. Recovery-Codes sind Einmalcodes und werden nicht erneut angezeigt.
+
+Nur Superadmins dürfen unter `Einstellungen → Anmeldung` den eigenen Google-OAuth-Webclient
+konfigurieren oder Rollen vergeben. Google benötigt hier nur die öffentliche Client-ID, niemals
+ein Client-Secret. Club-Admins verwalten Vereinsdaten und Integrationen, Tournament-Admins den
+Wettbewerbsbetrieb, Moderatoren die Meldungen unter `Admin → Moderation`.
+
+Bei einer Meldung Inhalt und Kontext prüfen, Status dokumentieren und nur notwendige Maßnahmen
+ergreifen. Schwere Fälle intern eskalieren; personenbezogene Meldedaten nicht in Discord oder
+öffentliche Tickets kopieren.
+
 ## Grundprinzip
 
 - Inhalte werden im Adminbereich gepflegt.

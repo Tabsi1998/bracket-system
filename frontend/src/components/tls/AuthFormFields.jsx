@@ -186,10 +186,12 @@ export function AuthCheckboxField({ id, checked, onChange, required = false, err
 export function AuthFormAlert({ id, tone = "error", children }) {
   const cls = tone === "success"
     ? "text-white/75 bg-[#00FF88]/10 border-[#00FF88]/30"
+    : tone === "info"
+      ? "text-white/75 bg-[#29B6E8]/10 border-[#29B6E8]/30"
     : "text-[#FF8A80] bg-[#FF3B30]/10 border-[#FF3B30]/35";
 
   return (
-    <div id={id} role={tone === "success" ? "status" : "alert"} className={`text-sm border p-3 rounded-sm ${cls}`}>
+    <div id={id} role={tone === "error" ? "alert" : "status"} className={`text-sm border p-3 rounded-sm ${cls}`}>
       {children}
     </div>
   );

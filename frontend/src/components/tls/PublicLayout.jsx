@@ -206,8 +206,9 @@ export function PublicLayout({ children }) {
             <div className="flex flex-wrap items-center justify-center md:justify-end gap-4">
               <Link to="/imprint" className="hover:text-[#29B6E8] transition" data-testid="footer-imprint">Impressum</Link>
               <Link to="/privacy" className="hover:text-[#29B6E8] transition" data-testid="footer-privacy">Datenschutz</Link>
+              <Link to="/terms" className="hover:text-[#29B6E8] transition">Nutzungsbedingungen</Link>
               <button type="button" onClick={openCookieSettings} className="hover:text-[#29B6E8] transition">Cookies</button>
-              <span className="font-display tracking-widest hidden md:inline">v{process.env.REACT_APP_VERSION || "2.2"}</span>
+              <span className="font-display tracking-widest hidden md:inline">v{import.meta.env.VITE_APP_VERSION || "2.2"}</span>
             </div>
           </div>
         </div>

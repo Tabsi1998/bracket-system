@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { PublicLayout } from "@/components/tls/PublicLayout";
 import { ImageUpload } from "@/components/tls/ImageUpload";
 import { MultiSelect } from "@/components/tls/MultiSelect";
-import { useConfirm } from "@/components/tls/ConfirmDialog";
+import { useConfirm, usePrompt } from "@/components/tls/ConfirmDialog";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
 import { gameLabel } from "@/lib/gameLabels";
 import { buildDirtyPayload, hasPayloadChanges, sameValue } from "@/lib/dirtyPayload";
@@ -14,7 +14,8 @@ import { Save, Crown, User, Globe, Gamepad2, Eye, Medal, Users, Plus, Trash2, Pe
 import { AchievementGroupsView } from "@/components/tls/AchievementGroups";
 import { AchievementUnlockOverlay } from "@/components/tls/AchievementUnlockOverlay";
 import { GermanDateField } from "@/components/tls/GermanDateField";
-import { startGoogleLink } from "@/context/AuthContext";
+import { GoogleAuthButton } from "@/components/tls/GoogleAuthButton";
+import { MfaSetupPanel } from "@/components/tls/MfaSetupPanel";
 import { usePublicSiteSettings } from "@/hooks/usePublicSiteSettings";
 
 const TABS = [
@@ -235,7 +236,7 @@ export default function ProfilePage() {
   const { user, refresh, isClubMember } = useAuth();
   const siteSettings = usePublicSiteSettings();
   const confirmGoogle = useConfirm();
-  const googleLinked = !!(user?.google_linked || user?.google_id);
+  const googleLinked = !!user?.google_linked;
   const googleOnly = user?.auth_provider === "google";
   const unlinkGoogle = async () => {
     if (!await confirmGoogle({
@@ -510,19 +511,11 @@ export default function ProfilePage() {
                       >
                         Trennen
                       </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => startGoogleLink("/profile")}
-                        data-testid="profile-google-link-button"
-                        className="px-4 py-2.5 rounded-sm bg-white text-[#1f1f1f] text-xs font-bold uppercase tracking-wider hover:bg-white/90 shrink-0"
-                      >
-                        Google verknüpfen
-                      </button>
-                    )}
+                    ) : <div data-testid="profile-google-link-button"><GoogleAuthButton label="Google verknüpfen" intent="link" onSuccess={refresh} /></div>}
                   </div>
                 </div>
               )}
+              <MfaSetupPanel user={user} onChanged={refresh} />
             </Section>
           )}
 
@@ -1211,11 +1204,14 @@ function FriendList({ title, rows, empty, children }) {
 
 function MessagesPanel() {
   const { user } = useAuth();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const [params] = useSearchParams();
   const [threads, setThreads] = useState([]);
   const [active, setActive] = useState(null);
   const [messages, setMessages] = useState([]);
   const [canSend, setCanSend] = useState(true);
+  const [blockedByMe, setBlockedByMe] = useState(false);
   const [hint, setHint] = useState("");
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState([]);
@@ -1236,6 +1232,7 @@ function MessagesPanel() {
       setActive(data.user || target);
       setMessages(data.messages || []);
       setCanSend(data.can_send !== false);
+      setBlockedByMe(!!data.blocked_by_me);
       setHint(data.message_hint || "");
       loadThreads();
     } catch (err) {
@@ -1295,6 +1292,51 @@ function MessagesPanel() {
       toast.error(formatRequestError(err, "Nachricht konnte nicht gesendet werden."));
     } finally {
       setSending(false);
+    }
+  };
+
+  const toggleBlock = async () => {
+    if (!active?.id) return;
+    if (blockedByMe) {
+      await api.delete(`/moderation/blocks/${active.id}`);
+      toast.success("Blockierung aufgehoben.");
+    } else {
+      const accepted = await confirm({
+        title: "Benutzer blockieren?",
+        description: "Direktnachrichten und Freundschaftsanfragen werden in beide Richtungen unterbunden.",
+        confirmLabel: "Blockieren",
+        destructive: true,
+      });
+      if (!accepted) return;
+      await api.post(`/moderation/blocks/${active.id}`);
+      toast.success("Benutzer blockiert.");
+    }
+    await openThread(active);
+    await loadThreads();
+  };
+
+  const report = async () => {
+    if (!active?.id) return;
+    const details = await prompt({
+      title: "Benutzer melden",
+      description: "Beschreibe sachlich, was passiert ist. Die Moderation prüft die Meldung.",
+      placeholder: "Grund und Kontext der Meldung",
+      confirmLabel: "Meldung senden",
+      multiline: true,
+      required: true,
+    });
+    if (!details || details.trim().length < 5) return;
+    try {
+      const latestForeign = [...messages].reverse().find((message) => message.sender_id === active.id);
+      await api.post("/moderation/reports", {
+        target_user_id: active.id,
+        category: "other",
+        details: details.trim(),
+        message_id: latestForeign?.id || null,
+      });
+      toast.success("Meldung wurde an die Moderation gesendet.");
+    } catch (error) {
+      toast.error(formatRequestError(error, "Meldung konnte nicht gesendet werden."));
     }
   };
 
@@ -1376,7 +1418,11 @@ function MessagesPanel() {
                   <div className="font-heading font-black uppercase truncate">{active.display_name || active.username}</div>
                   <div className="text-xs text-white/45">@{active.username}</div>
                 </div>
-                {!canSend && <div className="text-xs text-[#FFD700] max-w-xs text-right">{hint}</div>}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {!canSend && <div className="text-xs text-[#FFD700] max-w-xs text-right">{hint}</div>}
+                  <button type="button" onClick={report} className="px-2 py-1 border border-[#FFD700]/35 text-[#FFD700] text-[10px] uppercase font-bold">Melden</button>
+                  <button type="button" onClick={() => toggleBlock().catch((error) => toast.error(formatRequestError(error, "Blockierung konnte nicht geändert werden.")))} className="px-2 py-1 border border-[#FF3B30]/35 text-[#FF6B6B] text-[10px] uppercase font-bold">{blockedByMe ? "Freigeben" : "Blockieren"}</button>
+                </div>
               </div>
               <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
                 {messages.map((message) => {

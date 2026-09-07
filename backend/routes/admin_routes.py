@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from database import get_db
-from auth import require_admin, get_current_user
+from auth import require_admin, require_club_admin, get_current_user
 from models import now_utc
 from services.competition_read import count_matches_by_status
 from services.user_notifications import create_user_notification
@@ -173,7 +173,7 @@ async def dashboard(me: dict = Depends(require_admin())):
 
 
 @router.get("/audit-logs")
-async def audit_logs(limit: int = 100, me: dict = Depends(require_admin())):
+async def audit_logs(limit: int = 100, me: dict = Depends(require_club_admin())):
     db = get_db()
     safe_limit = max(1, min(int(limit or 100), 500))
     logs = await db.audit_logs.find({}, {"_id": 0}).sort("created_at", -1).to_list(safe_limit)
@@ -189,7 +189,7 @@ async def mobile_client_logs(
     platform: str = "",
     user_id: str = "",
     q: str = "",
-    me: dict = Depends(require_admin()),
+    me: dict = Depends(require_club_admin()),
 ):
     db = get_db()
     query = {}
@@ -216,7 +216,7 @@ async def mobile_client_logs(
 
 
 @router.get("/logs")
-async def admin_logs_overview(limit: int = Query(default=80, ge=1, le=200), me: dict = Depends(require_admin())):
+async def admin_logs_overview(limit: int = Query(default=80, ge=1, le=200), me: dict = Depends(require_club_admin())):
     db = get_db()
     safe_limit = _safe_log_limit(limit)
 
@@ -373,7 +373,7 @@ async def admin_logs_overview(limit: int = Query(default=80, ge=1, le=200), me: 
 
 
 @router.patch("/mobile-logs/{log_id}")
-async def update_mobile_client_log(log_id: str, body: MobileLogPatch, me: dict = Depends(require_admin())):
+async def update_mobile_client_log(log_id: str, body: MobileLogPatch, me: dict = Depends(require_club_admin())):
     db = get_db()
     update = {"updated_at": now_utc().isoformat()}
     if body.status is not None:
@@ -393,7 +393,7 @@ async def update_mobile_client_log(log_id: str, body: MobileLogPatch, me: dict =
 
 
 @router.get("/mobile-push/users")
-async def mobile_push_users(q: str = "", limit: int = Query(default=40, ge=1, le=100), me: dict = Depends(require_admin())):
+async def mobile_push_users(q: str = "", limit: int = Query(default=40, ge=1, le=100), me: dict = Depends(require_club_admin())):
     db = get_db()
     token_rows = await db.mobile_push_tokens.find(
         {},
@@ -445,7 +445,7 @@ async def mobile_push_users(q: str = "", limit: int = Query(default=40, ge=1, le
 
 
 @router.get("/mobile-push/status/{user_id}")
-async def mobile_push_status_for_user(user_id: str, me: dict = Depends(require_admin())):
+async def mobile_push_status_for_user(user_id: str, me: dict = Depends(require_club_admin())):
     db = get_db()
     user = await db.users.find_one(
         {"id": user_id},
@@ -466,7 +466,7 @@ async def mobile_push_status_for_user(user_id: str, me: dict = Depends(require_a
 
 
 @router.post("/mobile-push/test")
-async def mobile_push_test(body: MobilePushTestCreate, me: dict = Depends(require_admin())):
+async def mobile_push_test(body: MobilePushTestCreate, me: dict = Depends(require_club_admin())):
     target_id = body.user_id or me["id"]
     notification = await create_user_notification(
         target_id,
@@ -482,7 +482,7 @@ async def mobile_push_test(body: MobilePushTestCreate, me: dict = Depends(requir
 
 
 @router.post("/mobile-push/receipts/{user_id}")
-async def mobile_push_receipts_for_user(user_id: str, me: dict = Depends(require_admin())):
+async def mobile_push_receipts_for_user(user_id: str, me: dict = Depends(require_club_admin())):
     db = get_db()
     exists = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
     if not exists:
@@ -492,7 +492,7 @@ async def mobile_push_receipts_for_user(user_id: str, me: dict = Depends(require
 
 
 @router.post("/mobile-push/receipts")
-async def mobile_push_receipts_all(me: dict = Depends(require_admin())):
+async def mobile_push_receipts_all(me: dict = Depends(require_club_admin())):
     from services.push_notifications import check_recent_mobile_push_receipts
     return await check_recent_mobile_push_receipts(limit=200)
 

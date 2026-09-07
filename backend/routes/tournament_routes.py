@@ -3,6 +3,7 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import random
 import re
 from fastapi import APIRouter, HTTPException, Depends
@@ -71,6 +72,7 @@ from bracket_extensions import (
 from services.user_notifications import create_user_notification
 
 router = APIRouter(prefix="/api/tournaments", tags=["tournaments"])
+logger = logging.getLogger("tls.tournament")
 STAFF_ROLES = {"moderator", "tournament_admin", "club_admin", "superadmin"}
 REGISTRATION_CHECKIN_STATUSES = {"approved", "checked_in", "no_show"}
 MENTION_RE = re.compile(r"@([A-Za-z0-9_.-]{2,32})")
@@ -1893,7 +1895,7 @@ async def list_registrations(tid: str, access: str | None = None, user=Depends(g
     user_ids = list({r["user_id"] for r in regs if r.get("user_id")})
     team_ids = list({r["team_id"] for r in regs if r.get("team_id")})
     users = {u["id"]: u for u in await db.users.find(
-        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0}).to_list(500)}
+        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0}).to_list(500)}
     teams = {t["id"]: t for t in await db.teams.find(
         {"id": {"$in": team_ids}}, {"_id": 0}).to_list(500)}
     for r in regs:
@@ -2071,7 +2073,7 @@ async def admin_create_registration(tid: str, body: RegistrationAdminCreate,
     payload = body.model_dump()
     user = None
     if payload.get("user_id"):
-        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0, "password_hash": 0})
+        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0})
         if not user:
             raise HTTPException(status_code=404, detail="Nutzer nicht gefunden")
         existing = await db.tournament_registrations.find_one(
@@ -3366,7 +3368,7 @@ async def _build_bracket_payload(db, t: dict, user: dict | None, is_staff: bool)
         regs.append(_preview_seed_reg(seed, t["id"]))
     user_ids = list({r["user_id"] for r in regs if r.get("user_id")})
     users = {u["id"]: u for u in await db.users.find(
-        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0}).to_list(500)}
+        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0}).to_list(500)}
     for r in regs:
         if r.get("user_id"):
             u = users.get(r["user_id"]) or {}
@@ -3429,7 +3431,7 @@ async def standings(tid: str, access: str | None = None, user=Depends(get_option
     regs = [_public_registration(r, user, is_staff) for r in regs]
     user_ids = list({r["user_id"] for r in regs if r.get("user_id")})
     users = {u["id"]: u for u in await db.users.find(
-        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0}).to_list(500)}
+        {"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0}).to_list(500)}
     for r in regs:
         u = users.get(r.get("user_id") or "", {})
         r["display_name"] = r.get("display_name") or u.get("display_name") or u.get("username")

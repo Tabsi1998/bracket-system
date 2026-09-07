@@ -529,7 +529,7 @@ async def member_profile_meta(db, slug: str, base: dict, origin: str) -> dict:
 
 
 async def user_profile_meta(db, username: str, base: dict, origin: str) -> dict:
-    user = await db.users.find_one({"username": username, "privacy_public_profile": True, "is_active": True, "is_banned": {"$ne": True}}, {"_id": 0, "password_hash": 0, "email": 0})
+    user = await db.users.find_one({"username": username, "privacy_public_profile": True, "is_active": True, "is_banned": {"$ne": True}}, {"_id": 0, "password_hash": 0, "email": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0})
     if not user:
         raise HTTPException(404, "SEO-Vorschau nicht gefunden.")
     label = user.get("display_name") or user.get("username")
@@ -623,6 +623,7 @@ def static_page_meta(slug: str, base: dict) -> dict | None:
         "contact": ("Kontakt", "Kontakt zu THE LION SQUAD eSports für Mitgliedschaft, Turniere, Events, Sponsoring, Kooperationen und Gaming-Anfragen in Tirol."),
         "privacy": ("Datenschutz", "Datenschutzerklärung von THE LION SQUAD eSports mit Informationen zu Cookies, Diensten und Rechten."),
         "imprint": ("Impressum", "Impressum, Vereinsangaben, Kontaktinformationen und rechtliche Hinweise von THE LION SQUAD eSports."),
+        "terms": ("Nutzungsbedingungen", "Nutzungsbedingungen für Accounts, Community-Funktionen und Wettbewerbe von THE LION SQUAD eSports."),
     }
     item = labels.get(slug)
     if not item:
@@ -630,7 +631,7 @@ def static_page_meta(slug: str, base: dict) -> dict | None:
     title, description = item
     breadcrumb_label = "Verein" if slug == "about" else title
     meta = {**base, "title": f"{title} · {base['site_name']}", "description": description, "breadcrumb_label": breadcrumb_label}
-    if slug in {"membership/apply", "players", "privacy", "imprint"}:
+    if slug in {"membership/apply", "players", "privacy", "imprint", "terms"}:
         meta["robots"] = "noindex, follow"
     meta["json_ld"] = webpage_json_ld(meta)
     if slug in {"about", "membership", "membership/join", "contact"}:

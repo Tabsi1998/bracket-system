@@ -14,13 +14,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function LoginPage() {
   useDocumentTitle("Login", "Login für Mitglieder und Community-User von THE LION SQUAD eSports.", { robots: "noindex, follow" });
 
-  const { login } = useAuth();
+  const { login, completeMfa } = useAuth();
   const settings = usePublicSiteSettings();
   const [params] = useSearchParams();
   const next = params.get("next") || "/dashboard";
   const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaTicket, setMfaTicket] = useState(() => sessionStorage.getItem("tls.mfa.ticket") || "");
   const [showPw, setShowPw] = useState(false);
   const { submitting: loading, submitOnce } = useSubmissionGuard();
   const [err, setErr] = useState(null);
@@ -46,6 +48,23 @@ export default function LoginPage() {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (mfaTicket) {
+      if (!mfaCode.trim()) {
+        setErr("Bitte gib den sechsstelligen MFA- oder einen Wiederherstellungscode ein.");
+        return;
+      }
+      const attempt = await submitOnce(() => completeMfa(mfaTicket, mfaCode.trim()));
+      if (!attempt.started) return;
+      const result = attempt.value;
+      if (result?.ok) {
+        sessionStorage.removeItem("tls.mfa.ticket");
+        toast.success("Admin-Anmeldung bestätigt.");
+        nav(next);
+      } else {
+        setErr(result?.error || "MFA-Anmeldung fehlgeschlagen.");
+      }
+      return;
+    }
     if (!validate()) return;
 
     setErr(null);
@@ -58,6 +77,12 @@ export default function LoginPage() {
     const res = attempt.value;
 
     if (res.ok) {
+      if (res.mfaRequired) {
+        setMfaTicket(res.ticket);
+        sessionStorage.setItem("tls.mfa.ticket", res.ticket);
+        setErr(null);
+        return;
+      }
       toast.success("Willkommen zurück!");
       nav(next);
     } else {
@@ -70,9 +95,27 @@ export default function LoginPage() {
       <div className="w-full max-w-md border border-white/10 rounded-sm bg-[#121212] p-8 md:p-10">
         <div className="flex justify-center mb-8"><Logo size="xl" /></div>
         <h1 className="font-heading text-2xl font-black uppercase text-center">Login</h1>
-        <p className="text-sm text-white/60 text-center mt-1">Willkommen bei THE LION SQUAD.</p>
+        <p className="text-sm text-white/60 text-center mt-1">{mfaTicket ? "Bestätige deine Admin-Anmeldung." : "Willkommen bei THE LION SQUAD."}</p>
 
-        <form onSubmit={submit} className="mt-8 space-y-4" noValidate aria-describedby={err ? "login-error" : undefined}>
+        {mfaTicket ? (
+          <form onSubmit={submit} className="mt-8 space-y-4" noValidate>
+            <AuthTextField
+              id="login-mfa-code"
+              label="MFA- oder Wiederherstellungscode"
+              value={mfaCode}
+              onChange={(value) => { setMfaCode(value); setErr(null); }}
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              required
+              testId="login-mfa-code"
+            />
+            {err && <AuthFormAlert id="login-error">{err}</AuthFormAlert>}
+            <button disabled={loading} type="submit" className="w-full py-3 bg-[#29B6E8] text-black font-bold uppercase tracking-wider rounded-sm disabled:opacity-50" data-testid="login-mfa-submit">
+              {loading ? "Prüfe …" : "Anmeldung bestätigen"}
+            </button>
+            <button type="button" onClick={() => { setMfaTicket(""); sessionStorage.removeItem("tls.mfa.ticket"); }} className="w-full text-xs text-white/45 hover:text-white">Zurück</button>
+          </form>
+        ) : settings.password_login_enabled !== false ? <form onSubmit={submit} className="mt-8 space-y-4" noValidate aria-describedby={err ? "login-error" : undefined}>
           <AuthTextField
             id="login-email"
             label="E-Mail"
@@ -105,8 +148,12 @@ export default function LoginPage() {
           >
             {loading ? "Login ..." : "Einloggen"}
           </button>
-        </form>
-        <GoogleAuthButton label="Mit Google einloggen" returnPath={next} />
+        </form> : (
+          <div className="mt-8 border border-white/10 bg-white/5 p-4 text-sm text-white/60" data-testid="password-login-disabled">
+            Die Anmeldung mit E-Mail und Passwort ist derzeit deaktiviert.
+          </div>
+        )}
+        {!mfaTicket && <GoogleAuthButton label="Mit Google einloggen" returnPath={next} intent="login" />}
         <div className="mt-6 text-sm text-white/60 text-center space-y-2">
           {settings.registration_enabled !== false && (
             <div>Kein Account? <Link to="/register" className="text-[#29B6E8] hover:text-white font-bold">Registrieren</Link></div>

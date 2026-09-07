@@ -93,6 +93,8 @@ export function ResetPasswordPage() {
   const [confirm, setConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [acceptPrivacy, setAcceptPrivacy] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const { submitting: loading, submitOnce } = useSubmissionGuard();
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitError, setSubmitError] = useState("");
@@ -109,6 +111,8 @@ export function ResetPasswordPage() {
     else if (password.length < 10) errors.password = "Das Passwort braucht mindestens 10 Zeichen.";
     if (!confirm) errors.confirm = "Bitte wiederhole dein Passwort.";
     else if (password !== confirm) errors.confirm = "Die Passwörter stimmen nicht überein.";
+    if (isInvite && !acceptPrivacy) errors.acceptPrivacy = "Bitte akzeptiere die Datenschutzerklärung.";
+    if (isInvite && !acceptTerms) errors.acceptTerms = "Bitte akzeptiere die Nutzungsbedingungen.";
 
     setFieldErrors(errors);
     const first = errors.password ? "reset-password" : errors.confirm ? "reset-password-confirm" : null;
@@ -121,7 +125,12 @@ export function ResetPasswordPage() {
     if (!validate()) return;
 
     setSubmitError("");
-    const attempt = await submitOnce(() => api.post("/auth/reset-password", { token, new_password: password }));
+    const attempt = await submitOnce(() => api.post("/auth/reset-password", {
+      token,
+      new_password: password,
+      accept_privacy: isInvite ? acceptPrivacy : false,
+      accept_terms: isInvite ? acceptTerms : false,
+    }));
     if (!attempt.started) return;
     if (!attempt.error) {
       toast.success(isInvite ? "Account aktiviert. Du kannst dich jetzt einloggen." : "Passwort aktualisiert.");
@@ -168,6 +177,16 @@ export function ResetPasswordPage() {
             error={fieldErrors.confirm}
             testId="reset-password-confirm"
           />
+          {isInvite && <div className="space-y-3 border border-white/10 rounded-sm p-4 bg-black/20">
+            <label className="flex items-start gap-3 text-sm text-white/70">
+              <input type="checkbox" checked={acceptPrivacy} onChange={(event) => setAcceptPrivacy(event.target.checked)} className="mt-1 accent-[#29B6E8]" />
+              <span>Ich akzeptiere die <Link to="/privacy" target="_blank" className="text-[#29B6E8] underline">Datenschutzerklärung</Link>.{fieldErrors.acceptPrivacy && <span role="alert" className="block text-xs text-[#FF8A80] mt-1">{fieldErrors.acceptPrivacy}</span>}</span>
+            </label>
+            <label className="flex items-start gap-3 text-sm text-white/70">
+              <input type="checkbox" checked={acceptTerms} onChange={(event) => setAcceptTerms(event.target.checked)} className="mt-1 accent-[#29B6E8]" />
+              <span>Ich akzeptiere die <Link to="/terms" target="_blank" className="text-[#29B6E8] underline">Nutzungsbedingungen</Link>.{fieldErrors.acceptTerms && <span role="alert" className="block text-xs text-[#FF8A80] mt-1">{fieldErrors.acceptTerms}</span>}</span>
+            </label>
+          </div>}
           {submitError && <AuthFormAlert id="reset-submit-error">{submitError}</AuthFormAlert>}
           <button disabled={loading} data-testid="reset-submit" className="w-full py-3 bg-[#29B6E8] text-black font-bold uppercase tracking-wider rounded-sm hover:bg-[#1E95C2] disabled:opacity-50 transition">
             {loading ? "Speichere ..." : "Passwort speichern"}

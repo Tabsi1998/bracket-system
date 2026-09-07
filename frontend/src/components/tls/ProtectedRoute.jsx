@@ -1,7 +1,7 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 
-export function ProtectedRoute({ children, requireAdmin = false, requireMember = false, requireModerator = false }) {
+export function ProtectedRoute({ children, requireAdmin = false, requireClubAdmin = false, requireMember = false, requireModerator = false }) {
   const { user } = useAuth();
   const loc = useLocation();
   if (user === undefined) {
@@ -12,8 +12,17 @@ export function ProtectedRoute({ children, requireAdmin = false, requireMember =
     );
   }
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname)}`} replace />;
-  if (requireAdmin && !["tournament_admin", "club_admin", "superadmin"].includes(user.role)) {
+  if (user.consent_required && loc.pathname !== "/consent") {
+    return <Navigate to="/consent" replace />;
+  }
+  if ((requireAdmin || requireClubAdmin) && !["tournament_admin", "club_admin", "superadmin"].includes(user.role)) {
     return <Navigate to="/403" replace />;
+  }
+  if (requireClubAdmin && !["club_admin", "superadmin"].includes(user.role)) {
+    return <Navigate to="/403" replace />;
+  }
+  if ((requireAdmin || requireClubAdmin) && (!user.mfa_enabled || !user.auth_mfa_verified)) {
+    return <Navigate to="/profile?tab=basic&mfa=required" replace />;
   }
   if (requireModerator && !user.is_tournament_staff && !["moderator", "tournament_admin", "club_admin", "superadmin"].includes(user.role)) {
     return <Navigate to="/403" replace />;

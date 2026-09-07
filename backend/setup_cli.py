@@ -19,6 +19,7 @@ load_dotenv(ROOT / ".env")
 from motor.motor_asyncio import AsyncIOMotorClient
 import bcrypt
 from runtime_config import is_placeholder_secret, resolve_app_environment
+from services.secret_store import encrypt_secret
 
 
 RESET = "\033[0m"
@@ -204,7 +205,7 @@ async def main():
     if resend_key:
         await db.settings.update_one(
             {"id": "email"}, {"$set": {
-                "id": "email", "resend_api_key": resend_key,
+                "id": "email", "resend_api_key": encrypt_secret(resend_key),
                 "sender_name": sender_name, "sender_email": sender_email,
                 "enabled": True, "updated_at": now_iso,
             }}, upsert=True,

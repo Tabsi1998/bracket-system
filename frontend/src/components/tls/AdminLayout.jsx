@@ -8,7 +8,7 @@ import {
   ShieldCheck, Code2, Star, Crown, Gift, Image as ImageIcon,
   Award, Inbox, UserCheck, Medal,
   FolderOpen, FileText, AlertTriangle, Handshake, Bug, BellRing,
-  Search, Server, QrCode, Activity,
+  Search, Server, QrCode, Activity, MessagesSquare,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -23,13 +23,13 @@ const ADMIN_GROUPS = [
   {
     label: "Mitglieder",
     items: [
-      { to: "/admin/members", label: "Mitglieder", icon: Crown },
-      { to: "/admin/member-profiles", label: "Mitgliederprofile", icon: UserCheck },
-      { to: "/admin/membership-applications", label: "Bewerbungen", icon: Inbox },
-      { to: "/admin/benefits", label: "Mitgliedervorteile", icon: Gift },
-      { to: "/admin/documents", label: "Dokumente", icon: FileText },
-      { to: "/admin/users", label: "Alle Benutzer", icon: UsersIcon },
-      { to: "/admin/board", label: "Vorstand", icon: UserCheck },
+      { to: "/admin/members", label: "Mitglieder", icon: Crown, clubOnly: true },
+      { to: "/admin/member-profiles", label: "Mitgliederprofile", icon: UserCheck, clubOnly: true },
+      { to: "/admin/membership-applications", label: "Bewerbungen", icon: Inbox, clubOnly: true },
+      { to: "/admin/benefits", label: "Mitgliedervorteile", icon: Gift, clubOnly: true },
+      { to: "/admin/documents", label: "Dokumente", icon: FileText, clubOnly: true },
+      { to: "/admin/users", label: "Alle Benutzer", icon: UsersIcon, clubOnly: true },
+      { to: "/admin/board", label: "Vorstand", icon: UserCheck, clubOnly: true },
     ],
   },
   {
@@ -40,7 +40,7 @@ const ADMIN_GROUPS = [
       { to: "/admin/seasons", label: "Saisons / Circuit", icon: Trophy },
       { to: "/admin/games", label: "Spiele", icon: Gamepad2 },
       { to: "/admin/stations", label: "Stationen", icon: Building2 },
-      { to: "/admin/game-servers", label: "Game-Server", icon: Server },
+      { to: "/admin/game-servers", label: "Game-Server", icon: Server, clubOnly: true },
       { to: "/admin/prizes", label: "Gewinne", icon: Award },
       { to: "/admin/penalties", label: "Strafen", icon: AlertTriangle },
     ],
@@ -60,21 +60,22 @@ const ADMIN_GROUPS = [
   {
     label: "Verein",
     items: [
-      { to: "/admin/sponsors", label: "Sponsoren", icon: Star },
-      { to: "/admin/partners", label: "Partner", icon: Handshake },
-      { to: "/admin/references", label: "Referenzen", icon: Medal },
-      { to: "/admin/contact", label: "Kontakt-Inbox", icon: Inbox },
+      { to: "/admin/sponsors", label: "Sponsoren", icon: Star, clubOnly: true },
+      { to: "/admin/partners", label: "Partner", icon: Handshake, clubOnly: true },
+      { to: "/admin/references", label: "Referenzen", icon: Medal, clubOnly: true },
+      { to: "/admin/contact", label: "Kontakt-Inbox", icon: Inbox, clubOnly: true },
     ],
   },
   {
     label: "System",
     items: [
       { to: "/admin/downloads", label: "Downloads & QR", icon: QrCode },
-      { to: "/admin/logs", label: "Logs", icon: Activity },
-      { to: "/admin/audit", label: "Audit Logs", icon: ShieldCheck },
-      { to: "/admin/mobile-logs", label: "App-Logs", icon: Bug },
-      { to: "/admin/mobile-push", label: "Push-Tests", icon: BellRing },
-      { to: "/admin/settings", label: "Einstellungen", icon: SettingsIcon },
+      { to: "/admin/logs", label: "Logs", icon: Activity, clubOnly: true },
+      { to: "/admin/audit", label: "Audit Logs", icon: ShieldCheck, clubOnly: true },
+      { to: "/admin/moderation", label: "Moderation", icon: MessagesSquare },
+      { to: "/admin/mobile-logs", label: "App-Logs", icon: Bug, clubOnly: true },
+      { to: "/admin/mobile-push", label: "Push-Tests", icon: BellRing, clubOnly: true },
+      { to: "/admin/settings", label: "Einstellungen", icon: SettingsIcon, clubOnly: true },
     ],
   },
 ];
@@ -140,6 +141,7 @@ const MODERATOR_ROUTES = [
   "/admin/tournaments",
   "/admin/f1",
   "/admin/stations",
+  "/admin/moderation",
 ];
 
 export function AdminLayout({ children }) {
@@ -168,11 +170,12 @@ export function AdminLayout({ children }) {
           ...group,
           items: group.items.filter((it) => MODERATOR_ROUTES.includes(it.to)),
         })).filter((group) => group.items.length > 0);
+    const canSeeClub = ["club_admin", "superadmin"].includes(user?.role);
     return roleGroups.map((group) => ({
       ...group,
-      items: group.items.filter((item) => itemMatchesQuery(item, group.label, searchQuery)),
+      items: group.items.filter((item) => (!item.clubOnly || canSeeClub) && itemMatchesQuery(item, group.label, searchQuery)),
     })).filter((group) => group.items.length > 0);
-  }, [isAdmin, searchQuery]);
+  }, [isAdmin, searchQuery, user?.role]);
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white flex">

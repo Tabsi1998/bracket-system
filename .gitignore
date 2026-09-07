@@ -8,6 +8,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+!.env.staging.example
 *.env
 *.pem
 *.key
@@ -21,6 +22,7 @@ credentials.json
 node_modules/
 frontend/node_modules/
 frontend/build/
+frontend/dist/
 frontend/.cache/
 npm-debug.log*
 yarn-debug.log*
@@ -63,20 +65,8 @@ memory/test_credentials.md
 *.dylib
 
 # Deployment/editor tooling
-.emergent/
 .vercel/
 .chainlit/
 chainlit.md
 .ipynb_checkpoints/
-frontend/node_modules/.cache/default-development/1.pack
-frontend/node_modules/.cache/default-development/31.pack
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
-frontend/node_modules/.cache/default-development/2.pack
+.deploy/

@@ -35,6 +35,7 @@ PUBLIC_LEGAL_SOURCE_FIELDS = frozenset({
     "paid_tournaments_enabled",
     "legal_extra",
     "privacy_extra",
+    "terms_of_use",
 })
 
 PUBLIC_LEGAL_REQUIRED_FIELDS = (
@@ -143,6 +144,7 @@ def build_public_legal_settings(branding: dict[str, Any] | None) -> dict[str, An
         "paid_tournaments_enabled": bool(source.get("paid_tournaments_enabled", False)),
         "legal_extra": _merge_unique_text(source.get("legal_extra"), source.get("imprint")),
         "privacy_extra": _merge_unique_text(source.get("privacy_extra"), source.get("privacy_policy")),
+        "terms_of_use": public_text(source.get("terms_of_use")),
         "legal_updated_at": public_text(source.get("legal_updated_at")),
     }
     missing = [field for field in PUBLIC_LEGAL_REQUIRED_FIELDS if not result.get(field)]

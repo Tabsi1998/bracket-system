@@ -49,7 +49,7 @@ class AdminUserCreate(BaseModel):
     gender: Optional[Literal["male", "female", "diverse"]] = None
     role: Role = "player"
     is_active: bool = True
-    privacy_public_profile: bool = True
+    privacy_public_profile: bool = False
     send_invite: bool = True
 
 
@@ -200,6 +200,8 @@ class ForgotPasswordBody(BaseModel):
 class ResetPasswordBody(BaseModel):
     token: str
     new_password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
+    accept_privacy: bool = False
+    accept_terms: bool = False
 
 
 class ChangePasswordBody(BaseModel):

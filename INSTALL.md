@@ -23,28 +23,24 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-## 2. Clone + Configure
+## 2. Clone + Installieren
 
 ```bash
 cd /root
 sudo git clone <your-repo> THE-LION_SQUAD-eSPORT-Webseite
 cd THE-LION_SQUAD-eSPORT-Webseite
-sudo cp .env.example .env
-sudo nano .env
+sudo ./install.sh
 ```
 
-Set:
-- `JWT_SECRET` — `python3 -c "import secrets; print(secrets.token_hex(32))"`
-- `ADMIN_PASSWORD` — strong one-time bootstrap password; `install.sh` removes it afterwards
-- `FRONTEND_URL`, `CORS_ORIGINS`, `PUBLIC_BACKEND_URL` — your public URLs
-- `PUBLIC_UPLOAD_BACKEND_URL` — optional DNS-only upload URL for large media behind Cloudflare
-- optional `PUBLIC_BASE_URL` — public website URL for generated links and Discord webhook media
-- `APP_ENV=production` (required; missing/unknown values fail closed)
+Der Installer erzeugt `JWT_SECRET`, `SETTINGS_ENCRYPTION_KEY`, Mongo-Zugang und – sofern die
+Dateirechte es erlauben – das separate Backup-Passwort. Er fragt URL und einmaliges
+Adminpasswort ab. Provider wie Google, SMTP, Discord und Twitch werden danach ausschließlich mit
+deinen eigenen Zugängen im Adminbereich konfiguriert; siehe [CONFIGURATION.md](CONFIGURATION.md).
 
-## 3. Start
+## 3. Laufende Installation prüfen
 
 ```bash
-sudo docker compose up -d --build
+sudo docker compose ps
 sudo docker compose logs -f
 ```
 

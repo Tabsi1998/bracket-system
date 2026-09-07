@@ -1,17 +1,25 @@
 services:
   mongodb:
-    image: mongo:7
+    image: mongo:7.0.40-jammy
     container_name: tls-mongodb
     restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: "${MONGO_USERNAME:?Set MONGO_USERNAME in .env before deploying}"
+      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env before deploying}"
     volumes:
       - mongo_data:/data/db
     networks:
       - tls-net
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+      test: ["CMD-SHELL", "mongosh --quiet --username \"$$MONGO_INITDB_ROOT_USERNAME\" --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)\""]
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   backend:
     build: ./backend
@@ -21,12 +29,15 @@ services:
       mongodb:
         condition: service_healthy
     environment:
-      MONGO_URL: "mongodb://mongodb:27017"
+      MONGO_URL: "mongodb://${MONGO_USERNAME:?Set MONGO_USERNAME in .env before deploying}:${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env before deploying}@mongodb:27017/?authSource=admin"
       DB_NAME: "${DB_NAME:-tls_arena}"
       APP_ENV: "${APP_ENV:-production}"
       CORS_ORIGINS: "${CORS_ORIGINS:?Set CORS_ORIGINS in .env before deploying}"
       FRONTEND_URL: "${FRONTEND_URL:?Set FRONTEND_URL in .env before deploying}"
       JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in .env before deploying}"
+      SETTINGS_ENCRYPTION_KEY: "${SETTINGS_ENCRYPTION_KEY:?Set SETTINGS_ENCRYPTION_KEY in .env before deploying}"
+      PRIVACY_POLICY_VERSION: "${PRIVACY_POLICY_VERSION:-2026-08-26}"
+      TERMS_VERSION: "${TERMS_VERSION:-2026-08-26}"
       AUTH_COOKIE_DOMAIN: "${AUTH_COOKIE_DOMAIN:-}"
       TRUST_PROXY_HEADERS: "${TRUST_PROXY_HEADERS:-true}"
       TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-127.0.0.1/32,::1/128,172.16.0.0/12}"
@@ -44,6 +55,16 @@ services:
       USER_UPLOAD_RATE_LIMIT: "${USER_UPLOAD_RATE_LIMIT:-30}"
       USER_UPLOAD_RATE_WINDOW_SECONDS: "${USER_UPLOAD_RATE_WINDOW_SECONDS:-3600}"
       ALLOW_INSECURE_CORS: "${ALLOW_INSECURE_CORS:-false}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    mem_limit: 2g
+    cpus: 2.0
     ports:
       - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8001}:8001"
     volumes:
@@ -56,6 +77,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - tls-net
 
@@ -63,15 +89,25 @@ services:
     build:
       context: ./frontend
       args:
-        REACT_APP_BACKEND_URL: "${PUBLIC_BACKEND_URL:?Set PUBLIC_BACKEND_URL in .env before deploying}"
-        REACT_APP_UPLOAD_BACKEND_URL: "${PUBLIC_UPLOAD_BACKEND_URL:-}"
-        REACT_APP_MAX_IMAGE_UPLOAD_MB: "${MAX_IMAGE_UPLOAD_MB:-50}"
-        REACT_APP_MAX_VIDEO_UPLOAD_MB: "${MAX_VIDEO_UPLOAD_MB:-1536}"
-        REACT_APP_MAX_DOCUMENT_UPLOAD_MB: "${MAX_DOCUMENT_UPLOAD_MB:-50}"
-        REACT_APP_PROXY_UPLOAD_LIMIT_MB: "${PROXY_UPLOAD_LIMIT_MB:-1700}"
-        REACT_APP_CLIENT_LOGGING: "${CLIENT_LOGGING_ENABLED:-false}"
+        VITE_BACKEND_URL: "${PUBLIC_BACKEND_URL:?Set PUBLIC_BACKEND_URL in .env before deploying}"
+        VITE_UPLOAD_BACKEND_URL: "${PUBLIC_UPLOAD_BACKEND_URL:-}"
+        VITE_MAX_IMAGE_UPLOAD_MB: "${MAX_IMAGE_UPLOAD_MB:-50}"
+        VITE_MAX_VIDEO_UPLOAD_MB: "${MAX_VIDEO_UPLOAD_MB:-1536}"
+        VITE_MAX_DOCUMENT_UPLOAD_MB: "${MAX_DOCUMENT_UPLOAD_MB:-50}"
+        VITE_PROXY_UPLOAD_LIMIT_MB: "${PROXY_UPLOAD_LIMIT_MB:-1700}"
+        VITE_CLIENT_LOGGING: "${CLIENT_LOGGING_ENABLED:-false}"
+        VITE_APP_VERSION: "${APP_VERSION:-2.3}"
     container_name: tls-frontend
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m
+      - /var/run:size=8m
+      - /tmp:size=32m
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
     depends_on:
       backend:
         condition: service_healthy
@@ -83,6 +119,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - tls-net
 

@@ -7,6 +7,7 @@ from auth import get_current_user
 from database import get_db
 from models import new_id, now_utc
 from services.friend_service import are_friends
+from services.moderation import block_between, interaction_is_blocked
 from services.notification_preferences import send_user_template
 from services.rate_limit import enforce_rate_limit
 from services.user_notifications import build_public_url, create_user_notification
@@ -89,6 +90,8 @@ async def _share_team(db, sender_id: str, recipient_id: str) -> bool:
 async def _message_permission(db, sender: dict, recipient: dict) -> tuple[bool, str]:
     if sender["id"] == recipient["id"]:
         return False, "Du kannst dir selbst keine Direktnachricht senden."
+    if await interaction_is_blocked(db, sender["id"], recipient["id"]):
+        return False, "Zwischen diesen Konten sind keine Direktnachrichten möglich."
     if _is_staff(sender):
         return True, ""
     privacy = recipient.get("dm_privacy") or "everyone"
@@ -116,7 +119,7 @@ async def _message_permission(db, sender: dict, recipient: dict) -> tuple[bool, 
 async def _get_active_user(db, user_id: str) -> dict:
     user = await db.users.find_one(
         {"id": user_id, "is_active": True, "is_banned": {"$ne": True}},
-        {"_id": 0, "password_hash": 0},
+        {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0},
     )
     if not user:
         raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
@@ -142,18 +145,21 @@ async def search_message_users(q: str | None = None, me: dict = Depends(get_curr
                 {"display_name": {"$regex": pattern, "$options": "i"}},
             ],
         },
-        {"_id": 0, "password_hash": 0, "email": 0},
+        {"_id": 0, "password_hash": 0, "email": 0, "mfa_secret": 0, "mfa_pending_secret": 0, "mfa_recovery_code_hashes": 0},
     ).sort("display_name", 1).to_list(25)
     for user in users:
         membership = await db.memberships.find_one({"user_id": user["id"]}, {"_id": 0})
         user["is_club_member"] = bool(membership and membership.get("member_status") in ("active", "honorary"))
         can_send, hint = await _message_permission(db, me, user)
+        block = await block_between(db, me["id"], user["id"])
         user["can_message"] = can_send
         user["message_hint"] = hint
+        user["blocked_by_me"] = bool(block and block.get("blocker_id") == me["id"])
         user["dm_privacy_label"] = DM_PRIVACY_LABELS.get(user.get("dm_privacy") or "everyone")
     return [_public_user(user) | {
         "can_message": user["can_message"],
         "message_hint": user["message_hint"],
+        "blocked_by_me": user["blocked_by_me"],
         "dm_privacy_label": user["dm_privacy_label"],
     } for user in users]
 
@@ -186,12 +192,14 @@ async def list_conversations(me: dict = Depends(get_current_user)):
         if not other:
             continue
         can_send, hint = await _message_permission(db, me, other)
+        block = await block_between(db, me["id"], other["id"])
         result.append({
             "user": _public_user(other),
             "latest_message": _public_message(thread["latest_message"], users),
             "unread_count": thread["unread_count"],
             "can_send": can_send,
             "message_hint": hint,
+            "blocked_by_me": bool(block and block.get("blocker_id") == me["id"]),
         })
     return result
 
@@ -201,6 +209,7 @@ async def get_direct_thread(user_id: str, me: dict = Depends(get_current_user)):
     db = get_db()
     other = await _get_active_user(db, user_id)
     can_send, hint = await _message_permission(db, me, other)
+    block = await block_between(db, me["id"], other["id"])
     rows = await db.direct_messages.find(
         {
             "$or": [
@@ -224,6 +233,7 @@ async def get_direct_thread(user_id: str, me: dict = Depends(get_current_user)):
         "user": _public_user(other),
         "can_send": can_send,
         "message_hint": hint,
+        "blocked_by_me": bool(block and block.get("blocker_id") == me["id"]),
         "messages": [_public_message(row, users) for row in rows],
     }
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import * as Icons from "lucide-react";
 import { Trophy, X, Volume2, VolumeX } from "lucide-react";
+import { AchievementIcon } from "@/components/tls/AchievementIcon";
 import { playUnlockSound, isSoundMuted, setSoundMuted } from "@/lib/unlockSounds";
 
 const LEVEL_META = {
@@ -20,10 +20,6 @@ const RARITY = {
   4: { name: "Platin", color: "#29B6E8", particles: 28, rings: 3, confetti: true, beams: true, flash: true, shake: false },
   5: { name: "Legendär", color: "#FF3B30", secondary: "#FFD700", particles: 38, rings: 3, confetti: true, beams: true, flash: true, shake: true },
 };
-
-function pascal(s) {
-  return String(s || "circle").split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
-}
 
 const CONFETTI = Array.from({ length: 30 }, (_, i) => i);
 const CONFETTI_COLORS = ["#29B6E8", "#FFD700", "#00FF88", "#FF3B30", "#A855F7"];
@@ -228,7 +224,6 @@ export function AchievementUnlockOverlay({ tiers = [], onClose, heading, sub }) 
               <div className="relative px-5 pb-4 space-y-2 max-h-[42vh] overflow-y-auto">
                 {tiers.map((tier, index) => {
                   const lvl = LEVEL_META[tier.level] || LEVEL_META[1];
-                  const Icon = Icons[pascal(tier.icon || "trophy")] || Trophy;
                   const framed = Number(tier.level) >= 3;
                   return (
                     <motion.div
@@ -244,7 +239,7 @@ export function AchievementUnlockOverlay({ tiers = [], onClose, heading, sub }) 
                         className={`w-11 h-11 rounded-sm flex items-center justify-center shrink-0 relative overflow-hidden ${framed ? `tls-frame tls-frame--${tier.level}` : ""}`}
                         style={framed ? {} : { border: `1px solid ${lvl.color}66`, backgroundColor: `${lvl.color}14` }}
                       >
-                        <Icon className="w-5 h-5 relative z-[1]" style={{ color: lvl.color, filter: framed ? `drop-shadow(0 0 4px ${lvl.color})` : undefined }} />
+                        <AchievementIcon name={tier.icon} fallback="trophy" className="w-5 h-5 relative z-[1]" style={{ color: lvl.color, filter: framed ? `drop-shadow(0 0 4px ${lvl.color})` : undefined }} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: lvl.color }}>

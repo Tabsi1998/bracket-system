@@ -7,10 +7,11 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from auth import get_optional_user, require_admin
+from auth import get_optional_user, require_club_admin
 from database import get_db
 from models import new_id, now_utc
 from services.slug_utils import apply_slug_history, slug_source_for_update, slugify, unique_slug
+from services.secret_store import decrypt_secret, encrypt_secret
 
 
 ServerVisibility = Literal["public", "community", "members", "internal"]
@@ -226,7 +227,7 @@ async def list_game_servers(me: dict | None = Depends(get_optional_user)):
 
 
 @router.get("/admin")
-async def admin_list_game_servers(me: dict = Depends(require_admin())):
+async def admin_list_game_servers(me: dict = Depends(require_club_admin())):
     db = get_db()
     rows = await db.game_servers.find({}, {"_id": 0}).sort([("sort_order", 1), ("name", 1)]).to_list(500)
     game_by_id = await _game_lookup(db, [row.get("game_id") for row in rows if row.get("game_id")])
@@ -246,12 +247,12 @@ async def get_game_server_access(server_id: str, me: dict | None = Depends(get_o
     return {
         "kind": server.get("access_secret_kind") or "password",
         "label": server.get("access_label"),
-        "access_secret": server.get("access_secret"),
+        "access_secret": decrypt_secret(server.get("access_secret")),
     }
 
 
 @router.get("/{server_id}/diagnostics")
-async def diagnose_game_server_route(server_id: str, me: dict = Depends(require_admin())):
+async def diagnose_game_server_route(server_id: str, me: dict = Depends(require_club_admin())):
     from services.game_server_status import diagnose_game_server
     db = get_db()
     server = await db.game_servers.find_one({"id": server_id}, {"_id": 0})
@@ -261,9 +262,11 @@ async def diagnose_game_server_route(server_id: str, me: dict = Depends(require_
 
 
 @router.post("")
-async def create_game_server(body: GameServerPayload, me: dict = Depends(require_admin())):
+async def create_game_server(body: GameServerPayload, me: dict = Depends(require_club_admin())):
     db = get_db()
     data = body.model_dump()
+    if data.get("access_secret"):
+        data["access_secret"] = encrypt_secret(data["access_secret"])
     data["slug"] = await unique_slug(db.game_servers, data.get("slug") or data["name"], fallback="server", max_length=80)
     now = now_utc().isoformat()
     doc = {
@@ -276,12 +279,12 @@ async def create_game_server(body: GameServerPayload, me: dict = Depends(require
     }
     await db.game_servers.insert_one(doc)
     doc.pop("_id", None)
-    return doc
+    return _public_doc(doc, include_admin_fields=True)
 
 
 @router.put("/{server_id}")
 @router.patch("/{server_id}")
-async def update_game_server(server_id: str, body: GameServerPatch, me: dict = Depends(require_admin())):
+async def update_game_server(server_id: str, body: GameServerPatch, me: dict = Depends(require_club_admin())):
     db = get_db()
     existing = await db.game_servers.find_one({"id": server_id}, {"_id": 0})
     if not existing:
@@ -294,6 +297,8 @@ async def update_game_server(server_id: str, body: GameServerPatch, me: dict = D
     }
     raw = body.model_dump(exclude_unset=True)
     updates = {k: v for k, v in raw.items() if v is not None or k in nullable_fields}
+    if updates.get("access_secret"):
+        updates["access_secret"] = encrypt_secret(updates["access_secret"])
     slug_source = slug_source_for_update(raw, existing, "name", fallback="server")
     if slug_source is not None:
         updates["slug"] = await unique_slug(db.game_servers, slug_source, current_id=server_id, fallback="server", max_length=80)
@@ -302,7 +307,8 @@ async def update_game_server(server_id: str, body: GameServerPatch, me: dict = D
         raise HTTPException(400, "Keine Änderungen.")
     updates["updated_at"] = now_utc().isoformat()
     await db.game_servers.update_one({"id": server_id}, {"$set": updates})
-    return await db.game_servers.find_one({"id": server_id}, {"_id": 0})
+    saved = await db.game_servers.find_one({"id": server_id}, {"_id": 0})
+    return _public_doc(saved, include_admin_fields=True)
 
 
 async def _sync_one(db, server: dict) -> dict:
@@ -350,7 +356,7 @@ async def _sync_one(db, server: dict) -> dict:
 
 
 @router.post("/sync")
-async def sync_all_game_servers(me: dict = Depends(require_admin())):
+async def sync_all_game_servers(me: dict = Depends(require_club_admin())):
     return await sync_configured_game_servers()
 
 
@@ -370,7 +376,7 @@ async def sync_configured_game_servers() -> dict:
 
 
 @router.post("/{server_id}/sync")
-async def sync_game_server(server_id: str, me: dict = Depends(require_admin())):
+async def sync_game_server(server_id: str, me: dict = Depends(require_club_admin())):
     db = get_db()
     server = await db.game_servers.find_one({"id": server_id}, {"_id": 0})
     if not server:
@@ -379,7 +385,7 @@ async def sync_game_server(server_id: str, me: dict = Depends(require_admin())):
 
 
 @router.post("/{server_id}/touch")
-async def touch_game_server(server_id: str, me: dict = Depends(require_admin())):
+async def touch_game_server(server_id: str, me: dict = Depends(require_club_admin())):
     db = get_db()
     res = await db.game_servers.update_one(
         {"id": server_id},
@@ -391,7 +397,7 @@ async def touch_game_server(server_id: str, me: dict = Depends(require_admin()))
 
 
 @router.delete("/seeded-defaults")
-async def delete_seeded_default_game_servers(me: dict = Depends(require_admin())):
+async def delete_seeded_default_game_servers(me: dict = Depends(require_club_admin())):
     db = get_db()
     res = await db.game_servers.delete_many({
         "slug": {"$in": sorted(DEMO_GAME_SERVER_SLUGS)},
@@ -401,7 +407,7 @@ async def delete_seeded_default_game_servers(me: dict = Depends(require_admin())
 
 
 @router.delete("/{server_id}")
-async def delete_game_server(server_id: str, me: dict = Depends(require_admin())):
+async def delete_game_server(server_id: str, me: dict = Depends(require_club_admin())):
     db = get_db()
     res = await db.game_servers.delete_one({"id": server_id})
     if res.deleted_count == 0:

@@ -428,3 +428,43 @@ export function PrivacyPage() {
     </LegalArticle>
   );
 }
+
+export function TermsPage() {
+  const branding = usePublicSiteSettings();
+  const clubName = branding.legal_name || branding.club_name || "THE LION SQUAD";
+
+  return (
+    <LegalArticle
+      title="Nutzungsbedingungen"
+      intro={`Regeln für Accounts, Community-Funktionen und Wettbewerbe von ${clubName}.`}
+      updatedAt={branding.legal_updated_at}
+    >
+      <Section title="Geltungsbereich">
+        <p>Diese Bedingungen gelten für die Nutzung der Website, der mobilen App, von Community-Funktionen sowie für Anmeldungen zu Turnieren und Vereinsveranstaltungen.</p>
+      </Section>
+      <Section title="Account und Sicherheit">
+        <p>Angaben müssen wahrheitsgemäß sein. Zugangsdaten dürfen nicht weitergegeben werden. Missbrauch, Umgehung von Sperren und automatisierte Angriffe sind untersagt.</p>
+      </Section>
+      <Section title="Community-Regeln">
+        <p>Beleidigungen, Bedrohungen, Diskriminierung, Belästigung, Spam, Betrug und rechtswidrige Inhalte sind nicht erlaubt. Inhalte können gemeldet und bei Verstößen moderiert werden.</p>
+      </Section>
+      <Section title="Wettbewerbe">
+        <p>Zusätzliche Turnierregeln, Teilnahmevoraussetzungen und Entscheidungen der Turnierleitung gelten für den jeweiligen Wettbewerb. Manipulation, Cheating und falsche Ergebnisangaben können zum Ausschluss führen.</p>
+      </Section>
+      <Section title="Verfügbarkeit und Haftung">
+        <p>Ein unterbrechungsfreier Betrieb kann nicht garantiert werden. Gesetzlich zwingende Ansprüche bleiben unberührt. Für externe Dienste und verlinkte Inhalte gelten zusätzlich deren Bedingungen.</p>
+      </Section>
+      <Section title="Beendigung und Änderungen">
+        <p>Accounts können selbst beendet oder bei schweren beziehungsweise wiederholten Verstößen eingeschränkt werden. Wesentliche Änderungen werden mit einer neuen Versionskennung zur erneuten Bestätigung vorgelegt.</p>
+      </Section>
+      {branding.terms_of_use && (
+        <Section title="Ergänzende Bedingungen des Vereins">
+          <TextBlock>{branding.terms_of_use}</TextBlock>
+        </Section>
+      )}
+      <Section title="Kontakt">
+        <p>Fragen zu diesen Bedingungen können über <Link to="/contact" className="text-[#29B6E8] hover:underline">das Kontaktformular</Link> gestellt werden.</p>
+      </Section>
+    </LegalArticle>
+  );
+}

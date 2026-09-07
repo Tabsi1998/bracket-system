@@ -1,17 +1,26 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, formatRequestError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PublicLayout } from "@/components/tls/PublicLayout";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { Download, AlertTriangle } from "lucide-react";
+import { Download, AlertTriangle, ShieldOff } from "lucide-react";
 import { usePrompt } from "@/components/tls/ConfirmDialog";
 
 export default function PrivacyAccountPage() {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [blocks, setBlocks] = useState([]);
   const prompt = usePrompt();
+
+  const loadBlocks = useCallback(async () => {
+    try {
+      const { data } = await api.get("/moderation/blocks");
+      setBlocks(data || []);
+    } catch { setBlocks([]); }
+  }, []);
+  useEffect(() => { loadBlocks(); }, [loadBlocks]);
 
   const exportData = async () => {
     setBusy(true);
@@ -47,6 +56,14 @@ export default function PrivacyAccountPage() {
     setBusy(false);
   };
 
+  const unblock = async (userId) => {
+    try {
+      await api.delete(`/moderation/blocks/${userId}`);
+      await loadBlocks();
+      toast.success("Blockierung aufgehoben.");
+    } catch (err) { toast.error(formatRequestError(err, "Blockierung konnte nicht aufgehoben werden.")); }
+  };
+
   return (
     <PublicLayout>
       <div className="max-w-3xl mx-auto px-4 py-12">
@@ -79,6 +96,23 @@ export default function PrivacyAccountPage() {
                 <button onClick={anonymize} disabled={busy} data-testid="dsgvo-anonymize-btn" className="mt-4 px-5 py-2.5 border border-[#FF3B30] text-[#FF3B30] font-bold uppercase tracking-wider rounded-sm hover:bg-[#FF3B30]/10 disabled:opacity-50">
                   Account anonymisieren
                 </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-white/10 rounded-sm bg-[#121212] p-5 md:p-6">
+            <div className="flex items-start gap-3">
+              <ShieldOff className="w-5 h-5 text-[#FFD700] mt-1 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <h2 className="font-heading text-lg md:text-xl font-bold uppercase">Blockierte Benutzer</h2>
+                <p className="mt-1 text-sm text-white/60">Blockierte Konten können dir keine Nachrichten oder Freundschaftsanfragen senden.</p>
+                <div className="mt-4 divide-y divide-white/5 border border-white/10 rounded-sm">
+                  {blocks.map((row) => <div key={row.id} className="p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0"><div className="font-bold truncate">{row.user?.display_name || row.user?.username || "Gelöschter Benutzer"}</div>{row.user?.username && <div className="text-xs text-white/40">@{row.user.username}</div>}</div>
+                    <button type="button" onClick={() => unblock(row.blocked_id)} className="px-3 py-1.5 border border-white/15 text-xs uppercase font-bold text-white/65">Freigeben</button>
+                  </div>)}
+                  {blocks.length === 0 && <div className="p-4 text-sm text-white/35">Keine blockierten Benutzer.</div>}
+                </div>
               </div>
             </div>
           </div>

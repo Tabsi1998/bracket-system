@@ -10,11 +10,11 @@ const parseUploadMb = (value, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const DEFAULT_IMAGE_UPLOAD_MB = parseUploadMb(process.env.REACT_APP_MAX_IMAGE_UPLOAD_MB, 120);
-const PROXY_UPLOAD_LIMIT_MB = parseUploadMb(process.env.REACT_APP_PROXY_UPLOAD_LIMIT_MB, Math.ceil(DEFAULT_IMAGE_UPLOAD_MB * 1.25));
-const IMAGE_COMPRESS_TRIGGER_MB = parseUploadMb(process.env.REACT_APP_IMAGE_COMPRESS_TRIGGER_MB, 4);
-const IMAGE_COMPRESS_TARGET_MB = parseUploadMb(process.env.REACT_APP_IMAGE_COMPRESS_TARGET_MB, Math.min(10, DEFAULT_IMAGE_UPLOAD_MB));
-const IMAGE_MAX_DIMENSION = Number.parseInt(process.env.REACT_APP_IMAGE_MAX_DIMENSION || "4096", 10) || 4096;
+const DEFAULT_IMAGE_UPLOAD_MB = parseUploadMb(import.meta.env.VITE_MAX_IMAGE_UPLOAD_MB, 120);
+const PROXY_UPLOAD_LIMIT_MB = parseUploadMb(import.meta.env.VITE_PROXY_UPLOAD_LIMIT_MB, Math.ceil(DEFAULT_IMAGE_UPLOAD_MB * 1.25));
+const IMAGE_COMPRESS_TRIGGER_MB = parseUploadMb(import.meta.env.VITE_IMAGE_COMPRESS_TRIGGER_MB, 4);
+const IMAGE_COMPRESS_TARGET_MB = parseUploadMb(import.meta.env.VITE_IMAGE_COMPRESS_TARGET_MB, Math.min(10, DEFAULT_IMAGE_UPLOAD_MB));
+const IMAGE_MAX_DIMENSION = Number.parseInt(import.meta.env.VITE_IMAGE_MAX_DIMENSION || "4096", 10) || 4096;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const SUPPORTED_IMAGE_EXT_RE = /\.(png|jpe?g|webp)$/i;
 let activeImageUploads = 0;

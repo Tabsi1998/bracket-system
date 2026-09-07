@@ -5,6 +5,7 @@ from auth import get_current_user
 from database import get_db
 from models import new_id, now_utc
 from services.friend_service import friend_pair_key, relationship_status
+from services.moderation import interaction_is_blocked
 from services.user_notifications import create_user_notification
 
 router = APIRouter(prefix="/api/friends", tags=["friends"])
@@ -84,6 +85,8 @@ async def request_friend(user_id: str, me: dict = Depends(get_current_user)):
     recipient = await _active_user_or_404(db, user_id)
     if recipient["id"] == me["id"]:
         raise HTTPException(status_code=400, detail="Du kannst dich nicht selbst als Freund hinzufügen")
+    if await interaction_is_blocked(db, me["id"], recipient["id"]):
+        raise HTTPException(status_code=403, detail="Zwischen diesen Konten sind keine Freundschaftsanfragen möglich.")
     pair_key = friend_pair_key(me["id"], recipient["id"])
     existing = await db.friendships.find_one({"pair_key": pair_key}, {"_id": 0})
     if existing and existing.get("status") == "accepted":
@@ -119,6 +122,8 @@ async def accept_friend(friendship_id: str, me: dict = Depends(get_current_user)
     row = await db.friendships.find_one({"id": friendship_id, "recipient_id": me["id"], "status": "pending"}, {"_id": 0})
     if not row:
         raise HTTPException(status_code=404, detail="Freundschaftsanfrage nicht gefunden")
+    if await interaction_is_blocked(db, me["id"], row["requester_id"]):
+        raise HTTPException(status_code=403, detail="Diese Freundschaftsanfrage kann nicht angenommen werden.")
     now = now_utc().isoformat()
     await db.friendships.update_one(
         {"id": friendship_id},

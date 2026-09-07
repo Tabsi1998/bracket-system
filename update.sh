@@ -17,7 +17,7 @@ fetch_html() {
 }
 
 extract_main_assets() {
-  grep -oE 'static/(js|css)/main\.[^" ]+' | sort -u
+  grep -oE 'assets/[^" ]+\.(js|css)' | sort -u
 }
 
 env_int() {
@@ -74,7 +74,7 @@ check_frontend_route() {
 }
 
 # 1. Git update (if this is a git checkout)
-if [ -d .git ]; then
+if [ -d .git ] && [ "${SKIP_GIT_UPDATE:-false}" != "true" ]; then
   TARGET_BRANCH="${DEPLOY_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
   [ -n "$TARGET_BRANCH" ] && [ "$TARGET_BRANCH" != "HEAD" ] || fail "Cannot determine git branch. Set DEPLOY_BRANCH=<branch>."
 
@@ -103,6 +103,10 @@ if [ "${PRE_UPDATE_BACKUP:-false}" = "true" ]; then
   info "Creating pre-update backup..."
   bash scripts/backup.sh
 fi
+
+# Ensure encryption and Mongo credentials exist. For legacy installations this
+# also creates the Mongo admin before the authenticated container is started.
+bash scripts/prepare-security-env.sh
 
 MIN_VIDEO_UPLOAD_MB=1536
 MIN_ORIGINAL_UPLOAD_MB=1536
@@ -145,7 +149,7 @@ BACKEND_PORT="$(grep -E '^BACKEND_PORT=' .env 2>/dev/null | cut -d= -f2 || echo 
 info "Waiting for backend health…"
 BACKEND_READY=false
 for i in $(seq 1 60); do
-  if curl -fsS "http://localhost:${BACKEND_PORT:-8001}/api/health" >/dev/null 2>&1; then
+  if curl -fsS "http://localhost:${BACKEND_PORT:-8001}/api/health/ready" >/dev/null 2>&1; then
     ok "Backend up."
     BACKEND_READY=true
     break

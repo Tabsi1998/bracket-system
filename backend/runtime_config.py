@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from ipaddress import ip_network
 from urllib.parse import urlparse
 
+from cryptography.fernet import Fernet
+
 
 ENV_ALIASES = {
     "dev": "development",
@@ -129,6 +131,13 @@ def validate_runtime_environment(environ: Mapping[str, str] | None = None) -> st
     jwt_secret = str(source.get("JWT_SECRET", ""))
     if len(jwt_secret) < 32 or is_placeholder_secret(jwt_secret):
         raise RuntimeError("JWT_SECRET must be a real secret with at least 32 characters in production.")
+    settings_key = str(source.get("SETTINGS_ENCRYPTION_KEY", "")).strip()
+    if len(settings_key) < 40 or is_placeholder_secret(settings_key):
+        raise RuntimeError("SETTINGS_ENCRYPTION_KEY must be a real Fernet key in production.")
+    try:
+        Fernet(settings_key.encode("ascii"))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("SETTINGS_ENCRYPTION_KEY must be a valid Fernet key in production.") from exc
     if not str(source.get("FRONTEND_URL", "")).strip():
         raise RuntimeError("FRONTEND_URL must be set in production.")
     frontend_url = urlparse(str(source.get("FRONTEND_URL", "")).strip())

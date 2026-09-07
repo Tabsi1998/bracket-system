@@ -80,7 +80,25 @@ if is_placeholder "$CUR_SECRET"; then
   ok "Generated JWT_SECRET ($(echo "$SECRET" | head -c 8)…)"
 fi
 
-# 3. Admin email + password
+# 3. Encryption and database credentials
+CUR_SETTINGS_KEY="$(get_env SETTINGS_ENCRYPTION_KEY)"
+if is_placeholder "$CUR_SETTINGS_KEY"; then
+  SETTINGS_KEY="$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+  set_env SETTINGS_ENCRYPTION_KEY "$SETTINGS_KEY"
+  ok "Generated SETTINGS_ENCRYPTION_KEY"
+fi
+
+CUR_MONGO_USER="$(get_env MONGO_USERNAME)"
+if [ -z "$CUR_MONGO_USER" ]; then set_env MONGO_USERNAME "tls_admin"; fi
+CUR_MONGO_PASS="$(get_env MONGO_PASSWORD)"
+if is_placeholder "$CUR_MONGO_PASS"; then
+  MONGO_PASS="$(openssl rand -hex 32 2>/dev/null || python3 -c 'import secrets;print(secrets.token_hex(32))')"
+  set_env MONGO_PASSWORD "$MONGO_PASS"
+  set_env MONGO_URL "mongodb://$(get_env MONGO_USERNAME):${MONGO_PASS}@mongodb:27017/?authSource=admin"
+  ok "Generated MongoDB credentials"
+fi
+
+# 4. Admin email + password
 CUR_EMAIL="$(get_env ADMIN_EMAIL)"
 CUR_PASS="$(get_env ADMIN_PASSWORD)"
 if ! $NON_INTERACTIVE; then
@@ -99,36 +117,13 @@ if ! $NON_INTERACTIVE; then
     set_env ADMIN_PASSWORD "$PASS"
   fi
 
-  # 4. Branding
-  CUR_CLUB="$(get_env CLUB_NAME)"
-  if [ -z "$CUR_CLUB" ] || [ "$CUR_CLUB" = "THE LION SQUAD" ]; then
-    read -rp "Club name [THE LION SQUAD]: " IN_CLUB
-    set_env CLUB_NAME "${IN_CLUB:-THE LION SQUAD}"
-  fi
-
-  # 5. Public URL
-  CUR_URL="$(get_env PUBLIC_BACKEND_URL)"
-  read -rp "Public backend URL [${CUR_URL:-http://localhost:8001}]: " IN_URL
-  if [ -n "$IN_URL" ]; then set_env PUBLIC_BACKEND_URL "$IN_URL"; fi
-
-  # 6. Mail provider (optional)
-  echo
-  echo "Mail provider for system notifications (optional):"
-  echo "  1) None     — configure later in admin panel (default)"
-  echo "  2) SMTP     — bring your own SMTP server"
-  echo "  3) Resend   — use Resend API"
-  read -rp "Choice [1]: " MP
-  case "${MP:-1}" in
-    2) set_env MAIL_PROVIDER smtp
-       read -rp "SMTP host: " V; set_env SMTP_HOST "$V"
-       read -rp "SMTP port [587]: " V; set_env SMTP_PORT "${V:-587}"
-       read -rp "SMTP user: " V; set_env SMTP_USER "$V"
-       read -srp "SMTP password: " V; echo; set_env SMTP_PASS "$V"
-       read -rp "From address [no-reply@thelionsquad.at]: " V; set_env SMTP_FROM "${V:-no-reply@thelionsquad.at}" ;;
-    3) set_env MAIL_PROVIDER resend
-       read -rp "Resend API key: " V; set_env RESEND_API_KEY "$V" ;;
-    *) set_env MAIL_PROVIDER none ;;
-  esac
+  # 5. Public URL. Branding and providers are configured in the admin UI.
+  CUR_URL="$(get_env FRONTEND_URL)"
+  read -rp "Public site URL [${CUR_URL:-https://lionsquad.at}]: " IN_URL
+  SITE_URL="${IN_URL:-${CUR_URL:-https://lionsquad.at}}"
+  set_env FRONTEND_URL "$SITE_URL"
+  set_env PUBLIC_BACKEND_URL "$SITE_URL"
+  set_env CORS_ORIGINS "$SITE_URL"
 fi
 
 if is_placeholder "$(get_env ADMIN_PASSWORD)"; then
@@ -137,6 +132,19 @@ fi
 
 chmod 600 .env
 
+# 6. Prepare the host-side backup encryption password when the installer has
+# permission. It is intentionally stored outside the repository and .env.
+BACKUP_PASSWORD_FILE="${BACKUP_ENCRYPTION_PASSWORD_FILE:-/etc/tls-arena/backup-password}"
+if [ ! -e "$BACKUP_PASSWORD_FILE" ]; then
+  if mkdir -p "$(dirname "$BACKUP_PASSWORD_FILE")" 2>/dev/null; then
+    (umask 077; openssl rand -base64 48 > "$BACKUP_PASSWORD_FILE")
+    chmod 600 "$BACKUP_PASSWORD_FILE"
+    ok "Generated backup encryption password at ${BACKUP_PASSWORD_FILE}"
+  else
+    warn "Could not create ${BACKUP_PASSWORD_FILE}. Complete the one-time backup setup in BACKUP_RESTORE.md."
+  fi
+fi
+
 # 7. Build & up
 info "Building containers (first run takes a few minutes)…"
 docker compose pull mongodb 2>/dev/null || true
@@ -144,10 +152,14 @@ docker compose build
 docker compose up -d
 
 # 8. Wait for backend health
-info "Waiting for backend health…"
+info "Waiting for backend readiness…"
 HEALTHY=false
+BACKEND_PORT_VALUE="$(get_env BACKEND_PORT)"
+BACKEND_PORT_VALUE="${BACKEND_PORT_VALUE:-8001}"
+FRONTEND_PORT_VALUE="$(get_env FRONTEND_PORT)"
+FRONTEND_PORT_VALUE="${FRONTEND_PORT_VALUE:-3000}"
 for i in $(seq 1 60); do
-  if curl -fsS "http://localhost:$(get_env BACKEND_PORT || echo 8001)/api/health" >/dev/null 2>&1; then
+  if curl -fsS "http://localhost:${BACKEND_PORT_VALUE}/api/health/ready" >/dev/null 2>&1; then
     HEALTHY=true
     break
   fi
@@ -178,13 +190,14 @@ cat <<EOF
 ====================================================
 ✅  THE LION SQUAD installation complete!
 
-   Frontend : http://localhost:$(get_env FRONTEND_PORT || echo 3000)
-   Backend  : http://localhost:$(get_env BACKEND_PORT || echo 8001)/api/health
+   Frontend : http://localhost:${FRONTEND_PORT_VALUE:-3000}
+   Backend  : http://localhost:${BACKEND_PORT_VALUE}/api/health/ready
    Admin    : $(get_env ADMIN_EMAIL)
 
    Next steps:
-     • Open the frontend, login, and visit /admin/setup-wizard
-     • Configure mail / discord / twitch in /admin/settings (or .env)
+     • Open the frontend, login, and visit /setup
+     • Configure branding, mail, Discord, Twitch and Google in /admin/settings
+     • Verify encrypted off-site backups using BACKUP_RESTORE.md
 
    Useful commands:
      docker compose logs -f backend

@@ -1,0 +1,11 @@
+[Unit]
+Description=THE LION SQUAD monthly restore drill
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/the-lion-squad
+ExecStart=/usr/bin/bash -lc 'archive=$(find /opt/tls-arena/backups -type f -name "tls_*.archive.gz.enc" -printf "%%T@ %%p\n" | sort -nr | head -n1 | cut -d" " -f2-); test -n "$archive"; scripts/restore-drill.sh "$archive"'
+User=root
+UMask=0077

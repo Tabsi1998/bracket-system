@@ -1,117 +1,84 @@
-# Backup & Restore Guide
+# Verschlüsseltes Backup und Restore
 
-## Automated backup
-
-Empfohlene Variante auf dem Server:
+## Einmalige Vorbereitung
 
 ```bash
-cd /root/THE-LION_SQUAD-eSPORT-Webseite
+sudo install -d -m 700 /etc/tls-arena
+sudo sh -c 'umask 077; openssl rand -base64 48 > /etc/tls-arena/backup-password'
+sudo install -d -m 700 /opt/tls-arena/backups
+```
+
+Die Passwortdatei und `SETTINGS_ENCRYPTION_KEY` separat in einem vertrauenswürdigen Passwort-
+oder Secret-Store sichern. Ohne diese Werte sind Backups beziehungsweise gespeicherte
+Integrationszugänge nicht wiederherstellbar.
+
+## Backup
+
+```bash
 BACKUP_DIR=/opt/tls-arena/backups bash scripts/backup.sh
 ```
 
-Das Skript erstellt:
+Das Skript authentifiziert sich an MongoDB und erzeugt AES-256-CBC/PBKDF2-verschlüsselte Archive
+für Datenbank und Uploads sowie ein Manifest mit Prüfsummen. Unverschlüsselte Zwischenarchive
+werden nicht angelegt. `RETENTION_DAYS` ist standardmäßig 14.
 
-- einen MongoDB-Dump als `tls_<db>_<timestamp>.archive.gz`
-- ein Upload-Archiv als `tls_uploads_<timestamp>.tar.gz`
-- ein Manifest mit Git-Commit, Dateinamen und optionalen SHA256-Pruefsummen
-
-Standardwerte:
+Für eine Offsite-Kopie zuerst ein rclone-Remote konfigurieren und danach zum Beispiel:
 
 ```bash
-BACKUP_DIR=/opt/tls-arena/backups
-RETENTION_DAYS=14
-DB_NAME=aus .env oder tls_arena
-UPLOADS_VOLUME=automatisch erkannt oder the-lion_squad-esport-webseite_uploads_data
+BACKUP_REMOTE=secure-remote:tls-production bash scripts/backup.sh
 ```
 
-Wenn dein Compose-Projektname vom Repository-Namen abweicht, setze das Upload-Volume explizit:
+Ein Backup auf demselben Server ist kein ausreichender Schutz.
+
+## Zeitplan mit systemd
+
+Repository-Pfad in den Dateien unter `deploy/systemd/` anpassen und installieren:
 
 ```bash
-UPLOADS_VOLUME=deinprojekt_uploads_data bash scripts/backup.sh
+sudo cp deploy/systemd/tls-backup.* /etc/systemd/system/
+sudo cp deploy/systemd/tls-restore-drill.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tls-backup.timer tls-restore-drill.timer
+systemctl list-timers 'tls-*'
 ```
 
-Cron-Beispiel:
-
-```cron
-15 3 * * * cd /root/THE-LION_SQUAD-eSPORT-Webseite && BACKUP_DIR=/opt/tls-arena/backups bash scripts/backup.sh >> /var/log/tls-backup.log 2>&1
-```
-
-Optional vor einem Update:
+Fehler prüfen:
 
 ```bash
-PRE_UPDATE_BACKUP=true ./update.sh u
+journalctl -u tls-backup.service -u tls-restore-drill.service --since '7 days ago'
 ```
 
-Die alte Minimalvariante ohne Projektskript:
+## Integrität und nicht-destruktiver Restore-Drill
 
 ```bash
-# Daily MongoDB dump (put into /etc/cron.daily/tls-arena-backup)
-#!/bin/bash
-BACKUP_DIR=/opt/tls-arena/backups
-mkdir -p $BACKUP_DIR
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-docker exec tls-mongodb mongodump --db tls_arena --archive --gzip > $BACKUP_DIR/tls_arena_$TIMESTAMP.archive.gz
-tar -C /var/lib/docker/volumes -czf $BACKUP_DIR/tls_uploads_$TIMESTAMP.tar.gz the-lion_squad-esport-webseite_uploads_data
-# Retention: keep last 14 days
-find $BACKUP_DIR -name "tls_arena_*.archive.gz" -mtime +14 -delete
-find $BACKUP_DIR -name "tls_uploads_*.tar.gz" -mtime +14 -delete
+bash scripts/restore-check.sh \
+  /opt/tls-arena/backups/tls_tls_arena_YYYYMMDD_HHMMSS.archive.gz.enc \
+  /opt/tls-arena/backups/tls_uploads_YYYYMMDD_HHMMSS.tar.gz.enc
+
+bash scripts/restore-drill.sh \
+  /opt/tls-arena/backups/tls_tls_arena_YYYYMMDD_HHMMSS.archive.gz.enc
 ```
 
-## Manual backup
+Der Drill restauriert in eine temporäre Datenbank, prüft Collections und entfernt die
+Drill-Datenbank wieder. Er verändert die Produktivdaten nicht.
+
+## Destruktiver Restore
+
+Nur bei bestätigtem Datenverlust und in einem Wartungsfenster. Beide Dateien müssen aus demselben
+Backup-Satz stammen:
 
 ```bash
-docker exec tls-mongodb mongodump --db tls_arena --archive --gzip > tls_arena_backup.archive.gz
-docker run --rm -v the-lion_squad-esport-webseite_uploads_data:/uploads -v "$PWD":/backup alpine tar -czf /backup/tls_uploads_backup.tar.gz -C /uploads .
+export DB_NAME=tls_arena
+export RESTORE_CONFIRM=tls_arena
+bash scripts/restore.sh \
+  /opt/tls-arena/backups/tls_tls_arena_YYYYMMDD_HHMMSS.archive.gz.enc \
+  /opt/tls-arena/backups/tls_uploads_YYYYMMDD_HHMMSS.tar.gz.enc
+unset RESTORE_CONFIRM
 ```
 
-## Restore
+Das Skript validiert beide Archive, erstellt standardmäßig ein zusätzliches Sicherheitsbackup,
+restauriert MongoDB mit `--drop`, ersetzt das Upload-Volume und startet Web/API neu. Danach
+Readiness, Adminlogin, Uploads, ein historisches Turnier, Mailqueue und Auditlog prüfen.
 
-```bash
-# Stop backend to avoid concurrent writes
-sudo docker compose stop backend
-
-# Wipe current database (dangerous — make sure your backup is valid)
-docker exec tls-mongodb mongosh --eval "use tls_arena; db.dropDatabase()"
-
-# Restore from archive
-cat tls_arena_backup.archive.gz | docker exec -i tls-mongodb mongorestore --gzip --archive --db tls_arena
-
-# Restart backend
-sudo docker compose start backend
-```
-
-## Restore uploads
-
-```bash
-# Stop backend while restoring uploaded files
-sudo docker compose stop backend
-
-# Restore into the Docker volume
-docker run --rm -v the-lion_squad-esport-webseite_uploads_data:/uploads -v "$PWD":/backup alpine sh -c "rm -rf /uploads/* && tar -xzf /backup/tls_uploads_backup.tar.gz -C /uploads"
-
-sudo docker compose start backend
-```
-
-## Restore test
-
-At least once after setup and after major releases:
-
-```bash
-bash scripts/restore-check.sh tls_arena_backup.archive.gz tls_uploads_backup.tar.gz
-```
-
-Also verify in the admin UI:
-
-- `Einstellungen -> Status` shows Uploads as writable.
-- Recent images still load.
-- Mailqueue and users are present after database restore.
-
-## Export individual collections (CSV)
-
-Use the admin UI:
-- F1 leaderboards → `/api/f1/challenges/:id/export.csv`
-- More exports will be added over time.
-
-## Off-site backups
-
-Sync `/opt/tls-arena/backups` to S3 / Backblaze / rsync remote with `rclone` or `restic`.
+`SKIP_PRE_RESTORE_BACKUP=true` nur verwenden, wenn der aktuelle Zustand nachweislich unbrauchbar
+ist und nicht mehr forensisch gesichert werden soll.

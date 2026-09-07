@@ -8,13 +8,13 @@ Dokumenten, Achievements, Kontaktformular, Mailversand und Discord-Integrationen
 
 ## Aktueller Stand
 
-- Frontend: React, Tailwind, Nginx
+- Frontend: React 19, Vite, Tailwind, Nginx, PWA-Service-Worker
 - Backend: FastAPI, MongoDB
 - Betrieb: Docker Compose
 - Domain: `https://lionsquad.at`
 - API: `/api`
 - Uploads: persistentes Docker-Volume
-- Auth: JWT ueber httpOnly Cookies mit CSRF-Schutz
+- Auth: JWT ueber httpOnly Cookies mit CSRF-Schutz, E-Mail-Verifikation und Admin-MFA
 - Admin-Setup: per `.env` und Admin-Oberflaeche
 
 ## Hauptfunktionen
@@ -39,7 +39,8 @@ Dokumenten, Achievements, Kontaktformular, Mailversand und Discord-Integrationen
 - Mail-Queue mit SMTP oder Resend, Testmail, Diagnose und Versandlogs.
 - Discord Webhook fuer automatische Benachrichtigungen.
 - Branding-Hauptsettings fuer Vereinsname, Logo, Maskottchen, Favicon, Farben, Domain und Kontaktmail.
-- Rechtliche Vereinsdaten fuer Tirol/Oesterreich: Adresse, ZVR-Zahl, Vertretung, Vereinsbehoerde, Impressum, Datenschutz und optionale Preisturnier-Hinweise.
+- Rechtliche Vereinsdaten fuer Tirol/Oesterreich: Adresse, ZVR-Zahl, Vertretung, Vereinsbehoerde, Impressum, Datenschutz, Nutzungsbedingungen und optionale Preisturnier-Hinweise.
+- Nutzerblockierung, Nachrichtenmeldungen und rollenbasierte Moderationsbearbeitung.
 - Systemstatus fuer SMTP, Discord, Uploads, Scheduler, Mailqueue und letzte Fehler.
 
 ## Repository-Struktur
@@ -48,13 +49,15 @@ Dokumenten, Achievements, Kontaktformular, Mailversand und Discord-Integrationen
 backend/      FastAPI API, Datenmodelle, Routen, Services
 frontend/     React App, Admin UI, Public UI, Nginx Build
 tests/        vorhandene Test- und Pruefdateien
-memory/       lokale Projekt-/Agentennotizen
 docker-compose.yml
 .env.example
 INSTALL.md
 UPDATE.md
 ADMIN_GUIDE.md
 OPERATIONS.md
+CONFIGURATION.md
+DATA_PROTECTION.md
+RELEASE.md
 LIVE_TESTS.md
 BACKUP_RESTORE.md
 ROLE_AUDIT.md
@@ -648,7 +651,7 @@ mit Gateway-Events, der `discord_messages_count` pro verknuepftem Konto aktualis
 
 ## Rechtliches
 
-`/imprint` und `/privacy` sind vorhanden und nutzen die Branding-Hauptsettings.
+`/imprint`, `/privacy` und `/terms` sind vorhanden und nutzen die Branding-Hauptsettings.
 Die rechtlichen Inhalte muessen im Adminbereich mit den echten Vereinsdaten gepflegt werden:
 
 - vollstaendiger Vereinsname
@@ -662,21 +665,11 @@ Die rechtlichen Inhalte muessen im Adminbereich mit den echten Vereinsdaten gepf
 
 ## Backup und Restore
 
-Siehe:
-
-- [BACKUP_RESTORE.md](BACKUP_RESTORE.md)
-
-Kurzform Backup:
+Nur den verschlüsselten, authentifizierten Ablauf aus [BACKUP_RESTORE.md](BACKUP_RESTORE.md)
+verwenden. Kurzform nach der einmaligen Einrichtung:
 
 ```bash
-docker exec tls-mongodb mongodump --archive=/tmp/tls.archive --gzip --db tls_arena
-docker cp tls-mongodb:/tmp/tls.archive ./tls.archive
-```
-
-Uploads separat sichern:
-
-```bash
-docker run --rm -v the-lion_squad-esport-webseite_uploads_data:/data -v "$PWD":/backup alpine tar czf /backup/uploads.tar.gz -C /data .
+BACKUP_DIR=/opt/tls-arena/backups bash scripts/backup.sh
 ```
 
 ## Troubleshooting
@@ -757,14 +750,12 @@ cd frontend
 corepack yarn build
 ```
 
-## Offene sinnvolle Verbesserungen
+## Betreiberaufgaben vor Livegang
 
-- Impressum und Datenschutz mit echten finalen Vereinsdaten befuellen.
-- Admin-Dashboard fuer Systemstatus erweitern: SMTP, Discord, Uploads, Scheduler, Health.
-- E-Mail-Templates weiter vereinheitlichen und rechtlich pruefen.
-- Achievements/Profilbereich weiter visuell polieren.
-- Backups automatisieren und Restore-Test dokumentieren.
-- Monitoring und Logrotation fuer den Server einrichten.
+- Eigene Anbieter und Vereinsdaten nach [CONFIGURATION.md](CONFIGURATION.md) konfigurieren.
+- Staging, Abnahme, Release und Rollback nach [RELEASE.md](RELEASE.md) durchführen.
+- Verschlüsselte Offsite-Backups sowie Restore-Drills nach [BACKUP_RESTORE.md](BACKUP_RESTORE.md) aktivieren.
+- Rechtliche Texte und Löschfristen aus [DATA_PROTECTION.md](DATA_PROTECTION.md) fachlich prüfen lassen.
 
 ## Lizenz
 
