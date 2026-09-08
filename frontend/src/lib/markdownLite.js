@@ -11,6 +11,7 @@ function escapeHtml(value) {
 
 function sanitizeHref(rawHref) {
   const href = String(rawHref ?? "").trim();
+  // eslint-disable-next-line no-control-regex -- rejecting control characters is the point here
   if (!href || /[\u0000-\u001F\u007F\s]/.test(href)) return null;
   if (href.startsWith("#") || href.startsWith("/")) return href;
   if (href.startsWith("//")) return null;

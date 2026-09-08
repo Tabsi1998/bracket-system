@@ -17,7 +17,6 @@ import { toast } from "sonner";
 import { Copy, Crown, Edit, Lock, MessageSquare, Plus, Search, Send, Shield, Star, Swords, Trash2, TrendingUp, Trophy, Users, UserPlus, Zap } from "lucide-react";
 
 const emptyTeam = { name: "", tag: "", description: "", logo_url: "", banner_url: "", discord_link: "" };
-const TEAM_ROLE_LABELS = { leader: "Leader", co_leader: "Co-Leader", member: "Mitglied" };
 
 export default function TeamsPage() {
   const { id } = useParams();
@@ -300,7 +299,6 @@ function TeamDetail({ id }) {
               const showKick = canEdit && !isLead && !isMe;
               const showRole = !!user && team.leader_id === user.id && !isLead;
               const showTransfer = !!user && team.leader_id === user.id && !isLead;
-              const role = isLead ? "leader" : (isCo ? "co_leader" : "member");
               const roleLabel = isLead ? "Leader" : (isCo ? "Co-Leader" : "Mitglied");
               const roleColor = isLead ? "text-[#FFD700] border-[#FFD700]/40 bg-[#FFD700]/5" :
                                 isCo ? "text-[#29B6E8] border-[#29B6E8]/40 bg-[#29B6E8]/5" :

@@ -5,6 +5,7 @@ Steam/A2S and a generic TCP reachability check for ports that do not expose a
 stable public query protocol.
 """
 import asyncio
+import ipaddress
 import json
 import socket
 import struct
@@ -58,6 +59,46 @@ def _resolve_host_sync(host: str) -> list[str]:
         if address not in addresses:
             addresses.append(address)
     return addresses
+
+
+def probe_target_block_reason(host: str) -> str | None:
+    """Name the reason a probe target must not be contacted, or None if it may be.
+
+    Private LAN ranges stay allowed on purpose: an internal sync address such as
+    ``host.docker.internal`` or ``192.168.x.x`` is a documented setup for servers
+    that run next to the backend. Rejected are only the addresses that can never
+    be a community game server - the platform's own loopback services and
+    link-local space, which is where cloud metadata endpoints live.
+
+    A hostname is resolved once for this check and again by the connect call, so
+    this is defense in depth against misconfigured or malicious server entries,
+    not a guarantee against a DNS rebinding attack.
+    """
+    raw = (host or "").strip().strip("[]")
+    if not raw:
+        return "Kein Host angegeben."
+    try:
+        addresses = [ipaddress.ip_address(raw)]
+    except ValueError:
+        try:
+            addresses = [ipaddress.ip_address(item) for item in _resolve_host_sync(raw)]
+        except (OSError, ValueError):
+            return None
+    for address in addresses:
+        checked = getattr(address, "ipv4_mapped", None) or address
+        if checked.is_loopback:
+            return "Loopback-Adressen zeigen auf die Plattform selbst und werden nicht abgefragt."
+        if checked.is_link_local:
+            return "Link-local- und Metadatenadressen werden nicht abgefragt."
+        if checked.is_unspecified or checked.is_multicast or checked.is_reserved:
+            return "Diese Zieladresse ist keine gueltige Serveradresse."
+    return None
+
+
+def ensure_probe_target_allowed(host: str) -> None:
+    reason = probe_target_block_reason(host)
+    if reason:
+        raise GameServerProbeError(reason)
 
 
 def explain_connection_error(error: str | None) -> str | None:
@@ -122,6 +163,7 @@ def _read_exact(sock: socket.socket, size: int) -> bytes:
 
 
 def _minecraft_status_sync(host: str, port: int, timeout: float) -> dict:
+    ensure_probe_target_allowed(host)
     with socket.create_connection((host, port), timeout=timeout) as sock:
         sock.settimeout(timeout)
         host_bytes = host.encode("utf-8")
@@ -168,6 +210,7 @@ def _read_c_string(data: bytes, offset: int) -> tuple[str, int]:
 
 
 def _a2s_query_sync(host: str, port: int, timeout: float) -> dict:
+    ensure_probe_target_allowed(host)
     request = b"\xff\xff\xff\xffTSource Engine Query\x00"
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.settimeout(timeout)
@@ -200,6 +243,7 @@ def _a2s_query_sync(host: str, port: int, timeout: float) -> dict:
 
 
 def _tcp_reachable_sync(host: str, port: int, timeout: float) -> dict:
+    ensure_probe_target_allowed(host)
     with socket.create_connection((host, port), timeout=timeout):
         return {"status": "online"}
 

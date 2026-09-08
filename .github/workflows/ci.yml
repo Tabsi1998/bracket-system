@@ -105,6 +105,11 @@ jobs:
       - name: Audit frontend dependencies
         working-directory: frontend
         run: yarn audit:high
+      - name: Lint frontend
+        # Known accessibility findings are recorded in eslint-suppressions.json,
+        # so this gate blocks new ones while the existing list is worked off.
+        working-directory: frontend
+        run: yarn lint
       - name: Build frontend
         working-directory: frontend
         run: yarn build

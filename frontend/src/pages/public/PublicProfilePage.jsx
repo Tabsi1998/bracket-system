@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { api, formatMs, formatRequestError, resolveMediaUrl } from "@/lib/api";
+import { api, formatRequestError, resolveMediaUrl } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PublicLayout } from "@/components/tls/PublicLayout";
 import { Breadcrumbs } from "@/components/tls/Breadcrumbs";
@@ -16,9 +16,9 @@ import { gameLabel } from "@/lib/gameLabels";
 import { seoTextPreview } from "@/lib/textPreview";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import {
-  Trophy, Flag, Users as UsersIcon, Medal, Shield, Calendar,
+  Trophy, Flag, Medal, Shield, Calendar,
   MapPin, Zap, TrendingUp, Lock, ExternalLink, Radio, Gamepad2, Globe,
-  MessageSquare, UserPlus, UserCheck, X, Copy, Info, User, AtSign, Cake, Crown,
+  MessageSquare, UserPlus, UserCheck, X, Info, User, AtSign, Cake, Crown,
   Monitor, Keyboard, BadgeCheck, Heart,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -134,11 +134,6 @@ function labelValue(value, labels = {}) {
   const raw = String(value || "").trim();
   if (!raw) return "";
   return labels[raw] || raw.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function listText(value, labels = {}) {
-  if (Array.isArray(value)) return value.filter(Boolean).map((item) => labelValue(item, labels)).join(", ");
-  return labelValue(value, labels);
 }
 
 function listItems(value, labels = {}) {
@@ -720,67 +715,6 @@ function PublicSetupPanel({ profile }) {
   );
 }
 
-function ProfileInfoTab({ profile, joinedDate, socialLinks, gamingIds, isOwnProfile, onMessage }) {
-  const birthday = formatPublicDate(profile.birth_date);
-  const location = [profile.city, profile.country].filter(Boolean).join(", ");
-  const membership = profile.membership?.membership_type
-    ? labelValue(profile.membership.membership_type, MEMBERSHIP_TYPE_LABELS)
-    : (profile.is_club_member ? "Vereinsmitglied" : "");
-  const setupRows = [
-    { label: "Plattformen", value: listText(profile.main_platforms || profile.main_platform, PLATFORM_LABELS) },
-    { label: "Eingabe", value: listText(profile.input_devices, INPUT_DEVICE_LABELS) },
-    { label: "Abos", value: listText(profile.gaming_subscriptions, SUBSCRIPTION_LABELS) },
-    { label: "Lieblingsspiele", value: listText(profile.favorite_games) },
-  ].filter((row) => row.value);
-  const infoRows = [
-    { label: "Name", value: profile.display_name || profile.username },
-    { label: "Username", value: `@${profile.username}` },
-    { label: "Mitglied seit", value: joinedDate ? joinedDate.toLocaleDateString("de-DE", { month: "long", year: "numeric" }) : "" },
-    { label: "Geburtstag", value: birthday },
-    { label: "Ort", value: location },
-    { label: "Rolle", value: profile.role && profile.role !== "player" ? labelValue(profile.role, ROLE_LABELS) : "" },
-    { label: "Mitgliedschaft", value: membership },
-  ].filter((row) => row.value);
-
-  return (
-    <div className="grid lg:grid-cols-3 gap-6">
-      <section className="lg:col-span-2 border border-white/10 bg-[#121212] rounded-sm p-5">
-        <h2 className="font-heading text-2xl font-bold uppercase mb-4 flex items-center gap-2">
-          <Info className="w-5 h-5 text-[#29B6E8]" /> Öffentliche Infos
-        </h2>
-        {infoRows.length ? (
-          <div className="grid sm:grid-cols-2 gap-3" data-testid="public-profile-info">
-            {infoRows.map((row) => <InfoValue key={row.label} label={row.label} value={row.value} />)}
-          </div>
-        ) : (
-          <EmptyState text="Keine öffentlichen Profildaten freigegeben." />
-        )}
-      </section>
-
-      <div className="space-y-6 min-w-0">
-        {profile.discord_name && (
-          <DiscordContactCard discordName={profile.discord_name} isOwnProfile={isOwnProfile} onMessage={onMessage} />
-        )}
-        {socialLinks.length > 0 && <ProfileLinksCard links={socialLinks} />}
-        {gamingIds.length > 0 && <GamingIdsCard ids={gamingIds} />}
-      </div>
-
-      <section className="lg:col-span-3 border border-white/10 bg-[#121212] rounded-sm p-5">
-        <h2 className="font-heading text-2xl font-bold uppercase mb-4 flex items-center gap-2">
-          <Gamepad2 className="w-5 h-5 text-[#FFD700]" /> Setup & Games
-        </h2>
-        {setupRows.length ? (
-          <div className="grid md:grid-cols-4 gap-3">
-            {setupRows.map((row) => <InfoValue key={row.label} label={row.label} value={row.value} />)}
-          </div>
-        ) : (
-          <EmptyState text="Keine Setup-Daten freigegeben." />
-        )}
-      </section>
-    </div>
-  );
-}
-
 const PROFILE_TONES = {
   blue: "border-[#29B6E8]/35 bg-[#29B6E8]/10 text-[#29B6E8]",
   gold: "border-[#FFD700]/35 bg-[#FFD700]/10 text-[#FFD700]",
@@ -822,42 +756,6 @@ function SetupGroupCard({ icon: Icon, label, items, tone = "white" }) {
           </span>
         ))}
       </div>
-    </div>
-  );
-}
-
-function InfoValue({ label, value }) {
-  return (
-    <div className="border border-white/10 bg-[#0A0A0A] rounded-sm px-3 py-2 min-w-0">
-      <div className="text-[10px] uppercase tracking-widest text-white/40 font-bold">{label}</div>
-      <div className="mt-1 text-sm text-white/85 break-words">{value}</div>
-    </div>
-  );
-}
-
-function DiscordContactCard({ discordName, isOwnProfile, onMessage }) {
-  return (
-    <div className="border border-[#5865F2]/35 rounded-sm bg-[#121212] p-4" data-testid="public-profile-discord-contact">
-      <h2 className="font-heading text-xl font-bold uppercase mb-3 flex items-center gap-2 text-white">
-        <SocialIcon kind="discord" className="w-4 h-4 text-[#5865F2]" /> Discord
-      </h2>
-      <button
-        type="button"
-        onClick={() => copyText(discordName, "Discord-Name kopiert.")}
-        className="w-full text-left border border-white/10 bg-[#0A0A0A] rounded-sm px-3 py-2 text-white/85 hover:border-[#5865F2]/60 transition inline-flex items-center justify-between gap-3"
-      >
-        <span className="truncate">{discordName}</span>
-        <Copy className="w-4 h-4 text-[#5865F2] shrink-0" />
-      </button>
-      {!isOwnProfile && (
-        <button
-          type="button"
-          onClick={onMessage}
-          className="mt-3 w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#5865F2] text-white rounded-sm text-xs uppercase tracking-wider font-bold hover:bg-[#4752C4]"
-        >
-          <MessageSquare className="w-3.5 h-3.5" /> TLS Nachricht
-        </button>
-      )}
     </div>
   );
 }

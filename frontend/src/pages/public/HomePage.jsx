@@ -211,7 +211,7 @@ function FeaturedNews({ news }) {
   );
 }
 
-function NextUp({ items, wide = false }) {
+function NextUp({ items }) {
   if (!items.length) return (
     <div className="border border-dashed border-white/15 rounded-sm p-6 text-white/45 min-w-0">
       <div className="text-[10px] uppercase tracking-widest font-bold text-white/40">Nächster Termin</div>

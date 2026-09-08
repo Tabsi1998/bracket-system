@@ -15,7 +15,7 @@ function clip(value, limit) {
 export function scrubClientLogText(value, limit) {
   const safe = String(value ?? "")
     .replace(/https?:\/\/[^\s)]+/gi, (url) => url.split(/[?#]/, 1)[0])
-    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [redacted]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[redacted-token]")
     .replace(/([?&](?:access_token|refresh_token|token|code|key|secret|email)=)[^&#\s]*/gi, "$1[redacted]")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]");

@@ -295,7 +295,7 @@ function NewsModal({ post, meta, onClose, onSaved }) {
     if (kind === "fastlap") setLinkedF((ids) => (ids.includes(item.id) ? ids : [...ids, item.id]));
   };
   const userLabel = (user) => user?.display_name || user?.username || "Benutzer";
-  const safeMentionLabel = (user) => userLabel(user).replace(/[\[\]\n\r]/g, "").trim() || user.username;
+  const safeMentionLabel = (user) => userLabel(user).replace(/[[\]\n\r]/g, "").trim() || user.username;
   const insertMention = (user) => {
     const mention = `[@${safeMentionLabel(user)}](/u/${encodeURIComponent(user.username)})`;
     setForm((f) => {

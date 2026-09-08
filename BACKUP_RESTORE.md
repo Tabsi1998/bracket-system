@@ -61,7 +61,16 @@ Für eine Offsite-Kopie zuerst ein rclone-Remote konfigurieren und danach zum Be
 BACKUP_REMOTE=secure-remote:tls-production bash scripts/backup.sh
 ```
 
-Ein Backup auf demselben Server ist kein ausreichender Schutz.
+Ein Backup auf demselben Server ist kein ausreichender Schutz. Deshalb bricht das Skript
+bei `APP_ENV=production` ohne `BACKUP_REMOTE` ab, bevor es überhaupt ein Archiv schreibt.
+Wer bewusst nur lokal sichern will, muss das ausdrücklich erklären:
+
+```bash
+BACKUP_REMOTE_OPTIONAL=true bash scripts/backup.sh
+```
+
+Der Grund für diesen Abbruch steht in der Ausgabe; ausserhalb von `production` bleibt es
+bei einer Warnung.
 
 ## Zeitplan mit systemd
 
@@ -94,6 +103,22 @@ bash scripts/restore-drill.sh \
 
 Der Drill restauriert in eine temporäre Datenbank, prüft Collections und entfernt die
 Drill-Datenbank wieder. Er verändert die Produktivdaten nicht.
+
+### Nachweis, dass ein Restore wirklich geprüft wurde
+
+Jeder Drill schreibt eine Zeile nach `${BACKUP_DIR}/restore-drills.log` — mit Zeitstempel,
+Ergebnis, Archivname und Collection-/Nutzerzahl. Ein erfolgreicher Drill und ein nie
+durchgeführter Drill sehen sonst gleich aus. Wie alt der letzte erfolgreiche Nachweis ist,
+beantwortet:
+
+```bash
+bash scripts/restore-drill-status.sh
+```
+
+Rückgabewert `0` bedeutet: erfolgreicher Drill innerhalb der erlaubten Frist
+(`RESTORE_DRILL_MAX_AGE_DAYS`, Standard 35 Tage). `1` bedeutet zu alt, fehlgeschlagen oder
+nie durchgeführt, `2` bedeutet: das Protokoll ist nicht lesbar. Der Check ist rein lesend
+und eignet sich damit auch für einen Monitoring-Job.
 
 ## Destruktiver Restore
 

@@ -13,7 +13,7 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useSubmissionGuard } from "@/hooks/useSubmissionGuard";
 import { AuthFormAlert } from "@/components/tls/AuthFormFields";
 import { toast } from "sonner";
-import { Crown, CheckCircle2, FileText, Mail } from "lucide-react";
+import { Crown, FileText, Mail } from "lucide-react";
 
 const CONTRIB_OPTIONS = [
   { value: "full", label: "Vollmitgliedschaft" },

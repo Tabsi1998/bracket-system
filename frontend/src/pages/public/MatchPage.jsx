@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { CalendarClock, Check, ExternalLink, Flag, MessageSquare, RefreshCw, Send, Trophy, X } from "lucide-react";
+import { CalendarClock, Check, Flag, MessageSquare, RefreshCw, Send, Trophy, X } from "lucide-react";
 import { toast } from "sonner";
 import { PublicLayout } from "@/components/tls/PublicLayout";
 import { Breadcrumbs } from "@/components/tls/Breadcrumbs";
