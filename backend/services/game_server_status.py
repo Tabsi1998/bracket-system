@@ -320,7 +320,7 @@ async def probe_game_server(server: dict) -> dict:
     provider = server.get("sync_provider") or "manual"
     if provider == "manual":
         raise GameServerProbeError("Dieser Server steht auf manueller Pflege.")
-    if provider in {"auto_public", "amp"}:
+    if provider == "auto_public":
         return await probe_auto_public(server)
     if provider == "minecraft":
         return await probe_minecraft(server)
@@ -328,7 +328,11 @@ async def probe_game_server(server: dict) -> dict:
         return await probe_steam_a2s(server)
     if provider == "rcon":
         return await probe_rcon_reachable(server)
-    raise GameServerProbeError(f"Unbekannte Sync-Quelle: {provider}")
+    # Eine unbekannte Quelle stammt aus einem älteren oder von Hand gesetzten
+    # Eintrag. Der Server soll deswegen nicht dauerhaft ohne Status dastehen,
+    # also wird öffentlich abgefragt statt abgebrochen. Bis Block 2 gilt das
+    # ausdrücklich auch für "amp": echte AMP-Anbindung gibt es noch nicht.
+    return await probe_auto_public(server)
 
 
 async def diagnose_game_server(server: dict) -> dict:

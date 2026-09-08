@@ -95,7 +95,9 @@ CAPABILITIES: tuple[Capability, ...] = (
        ["POST /api/tournaments/{tid}/reset-bracket"], [CLASSIC, GRAPH]),
     _c("structure.plan_apply", "Struktur planen und anwenden",
        ["POST /api/tournaments/{tid}/bracket/plan", "POST /api/tournaments/{tid}/bracket/apply"], [GRAPH],
-       note="Vollständig gebaut, aber ohne Aufrufer - Entscheidung steht in Block 1 an."),
+       note="Entscheidung aus Block 1: bleibt und wird in Block 4 der gemeinsame Schreibweg. "
+            "Plant erst und zeigt dabei, wie viele Matches ein Umbau ersetzen würde - genau die "
+            "Absicherung, die das Überführen des Bestands braucht. Bis dahin bewusst ohne Aufrufer."),
     _c("structure.stages", "Abschnitte verwalten",
        ["GET /api/tournaments/{tid}/stages", "POST /api/tournaments/{tid}/stages",
         "PATCH /api/tournaments/{tid}/stages/{stage_id}", "PUT /api/tournaments/{tid}/stages/{stage_id}",
