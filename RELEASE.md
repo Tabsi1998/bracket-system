@@ -5,6 +5,19 @@ Klicktests: [STAGING_ABNAHME.md](STAGING_ABNAHME.md). Noch keine Staging-/Go-liv
 
 ## Wenn nur der Produktivserver vorhanden ist
 
+Erster Schritt in der vorhandenen Serverkonsole, aus dem aktualisierten Checkout:
+
+```bash
+bash scripts/staging-preflight.sh
+```
+
+Der Check ist ausschließlich lesend: keine Installationen, kein Build/Start/Stop,
+keine `.env`-Inhalte und keine neuen Ports. Er meldet Ressourcen, Testport-Belegung,
+Docker-/Compose-Verfügbarkeit und bekannte Containerzustände. Die Ausgabe zuerst
+gemeinsam bewerten; `manual_review_required` ist **keine Startfreigabe**.
+Fehlen die Dateien auf dem Server, nur die Preflight-Dateien bereitstellen statt
+deshalb ungeprüft den Produktivstack zu aktualisieren.
+
 Staging kann nach bestätigter Kapazitätsreserve auf demselben Host laufen. Vorher
 RAM/CPU/Plattenplatz, belegte Ports, Compose-Ziele, Backups und Reverse-Proxy read-only
 prüfen. Containerlimits begrenzen nicht die Last eines Image-Builds. Bei knappen

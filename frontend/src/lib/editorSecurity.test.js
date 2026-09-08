@@ -1,6 +1,18 @@
 import { Editor, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { DOMSerializer } from "@tiptap/pm/model";
+import frontendPackage from "../../package.json";
+
+test("all Tiptap packages and optional menu pins use the same exact version", () => {
+  const version = frontendPackage.dependencies["@tiptap/core"];
+  expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+  for (const [name, dependencyVersion] of Object.entries(frontendPackage.dependencies)) {
+    if (name.startsWith("@tiptap/")) expect(dependencyVersion, name).toBe(version);
+  }
+  for (const name of ["@tiptap/extension-bubble-menu", "@tiptap/extension-floating-menu"]) {
+    expect(frontendPackage.resolutions[name], name).toBe(version);
+  }
+});
 
 test("JSON-origin prototype keys cannot become inherited DOM attributes", () => {
   const input = JSON.parse(

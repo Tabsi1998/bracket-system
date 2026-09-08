@@ -12,6 +12,10 @@ Verbindliche nächste Schritte: [RESTPLAN.md](RESTPLAN.md). Zuerst Sicherheitsup
 dann getrenntes Staging und [dein Praxistest](STAGING_ABNAHME.md); der größere
 Turnier-Umbau folgt als eigenes Paket. Ein fertiger Quellstand ist keine Serverabnahme.
 
+Für den nächsten Betriebsschritt reicht zunächst die rein lesende Bestandsaufnahme
+`bash scripts/staging-preflight.sh` in der vorhandenen Serverkonsole. Kein öffentliches
+SSH nötig; Details und Grenzen stehen im Restplan.
+
 - Frontend: React 19, Vite, Tailwind, Nginx, PWA-Service-Worker
 - Backend: FastAPI, MongoDB
 - Betrieb: Docker Compose
