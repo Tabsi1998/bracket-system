@@ -46,6 +46,7 @@ export default function DashboardPage() {
   const [matches, setMatches] = useState([]);
   const [staffMatches, setStaffMatches] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [notificationsExpanded, setNotificationsExpanded] = useState(false);
   const [openPrizes, setOpenPrizes] = useState(0);
   const [completeness, setCompleteness] = useState(null);
   const [penaltyCount, setPenaltyCount] = useState(0);
@@ -129,7 +130,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div className="grid lg:grid-cols-3 gap-6">
+        <div className="grid lg:grid-cols-3 gap-6 items-start">
           <div className="lg:col-span-2 border border-white/10 rounded-sm bg-[#121212] p-5">
             <h2 className="font-heading text-xl font-bold uppercase mb-4 flex items-center gap-2"><Trophy className="w-4 h-4 text-[#29B6E8]" /> Meine aktiven Matches</h2>
             <div className="space-y-3">
@@ -137,17 +138,24 @@ export default function DashboardPage() {
               {matches.map((m) => <DashboardMatchCard key={m.id} match={m} testId={`dashboard-match-${m.id}`} />)}
             </div>
           </div>
-          <div className="border border-white/10 rounded-sm bg-[#121212] p-5">
+          <div className="border border-white/10 rounded-sm bg-[#121212] p-5 min-w-0" data-testid="dashboard-notifications">
             <h2 className="font-heading text-xl font-bold uppercase mb-4 flex items-center gap-2"><Bell className="w-4 h-4 text-[#29B6E8]" /> Benachrichtigungen</h2>
-            <div className="space-y-3">
+            <div id="dashboard-notification-list" className={`space-y-3 ${notificationsExpanded ? "max-h-96 overflow-y-auto pr-2" : ""}`}>
               {notifications.length === 0 && <div className="text-sm text-white/40">Keine Benachrichtigungen.</div>}
-              {notifications.map((n) => (
+              {(notificationsExpanded ? notifications : notifications.slice(0, 3)).map((n) => (
                 <div key={n.id} className="border-l-2 border-[#29B6E8]/50 pl-3 text-sm">
                   <div className="text-white">{n.title}</div>
                   <div className="text-white/50 text-xs">{new Date(n.created_at).toLocaleString("de-DE")}</div>
                 </div>
               ))}
             </div>
+            {notifications.length > 3 && (
+              <button type="button" aria-expanded={notificationsExpanded} aria-controls="dashboard-notification-list"
+                onClick={() => setNotificationsExpanded((expanded) => !expanded)}
+                className="mt-4 min-h-11 w-full border border-[#29B6E8]/40 rounded-sm px-3 py-2 text-sm font-bold text-[#29B6E8] hover:bg-[#29B6E8]/10">
+                {notificationsExpanded ? "Weniger anzeigen" : `Alle ${notifications.length} anzeigen`}
+              </button>
+            )}
           </div>
         </div>
 

@@ -23,9 +23,22 @@ export function register(config) {
 }
 
 function registerValidSW(swUrl, config) {
-  navigator.serviceWorker
-    .register(swUrl)
+  fetch(`${import.meta.env.BASE_URL}version.json`, { cache: "no-store" })
+    .then((response) => response.ok ? response.json() : null)
+    .catch(() => null)
+    .then((manifest) => {
+      const version = manifest?.version;
+      const url = typeof version === "string" && /^[a-f0-9]{20}$/.test(version) ? `${swUrl}?v=${version}` : swUrl;
+      return navigator.serviceWorker.register(url, { updateViaCache: "none" });
+    })
     .then((registration) => {
+      if (registration.waiting) config?.onUpdate?.(registration);
+      const checkUpdate = () => {
+        if (!document.hidden && navigator.onLine) registration.update().catch(() => {});
+      };
+      window.addEventListener("online", checkUpdate);
+      document.addEventListener("visibilitychange", checkUpdate);
+      window.setInterval(checkUpdate, 5 * 60 * 1000);
       registration.onupdatefound = () => {
         const installingWorker = registration.installing;
         if (!installingWorker) return;

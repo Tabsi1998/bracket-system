@@ -1,4 +1,6 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -6,7 +8,21 @@ import { defineConfig } from "vite";
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    name: "tls-release-version",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const worker = readFileSync(path.resolve(rootDir, "public/service-worker.js"), "utf8");
+      const fingerprint = createHash("sha256").update(worker);
+      for (const name of Object.keys(bundle).sort()) {
+        const item = bundle[name];
+        fingerprint.update(name).update(item.type === "chunk" ? item.code : item.source);
+      }
+      const version = fingerprint.digest("hex").slice(0, 20);
+      this.emitFile({ type: "asset", fileName: "service-worker.js", source: worker.replace("__TLS_BUILD_ID__", version) });
+      this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ version }) });
+    },
+  }],
   resolve: {
     alias: { "@": path.resolve(rootDir, "src") },
   },
