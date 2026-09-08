@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from fastapi import Response
 
-import routes.extras_routes as extras_routes
+import routes.settings_routes as settings_routes
 from routes.setup_routes import _setup_checks
 from services.public_site_settings import build_public_legal_settings, public_email, public_text
 
@@ -94,9 +94,9 @@ class _SettingsCollection:
 
 
 def test_public_endpoint_exposes_canonical_contract_without_legacy_fields(monkeypatch):
-    monkeypatch.setattr(extras_routes, "get_db", lambda: SimpleNamespace(settings=_SettingsCollection()))
+    monkeypatch.setattr(settings_routes, "get_db", lambda: SimpleNamespace(settings=_SettingsCollection()))
 
-    payload = asyncio.run(extras_routes.public_settings(Response()))
+    payload = asyncio.run(settings_routes.public_settings(Response()))
 
     assert payload["contact_email"] == "office@lionsquad.at"
     assert payload["legal_extra"] == "Nur einmal"

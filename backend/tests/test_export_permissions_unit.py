@@ -3,28 +3,28 @@ import inspect
 from fastapi.params import Depends
 
 from auth import get_optional_user
-from routes import extras_routes
+from routes import export_routes
 
 
 STAFF_ONLY_EXPORTS = [
-    extras_routes.pdf_qr_sign_export,
-    extras_routes.pdf_tournament_participants,
-    extras_routes.pdf_tournament_checkin,
-    extras_routes.pdf_tournament_registration_qr,
-    extras_routes.pdf_tournament_matches,
-    extras_routes.pdf_tournament_station_signs,
+    export_routes.pdf_qr_sign_export,
+    export_routes.pdf_tournament_participants,
+    export_routes.pdf_tournament_checkin,
+    export_routes.pdf_tournament_registration_qr,
+    export_routes.pdf_tournament_matches,
+    export_routes.pdf_tournament_station_signs,
 ]
 
 PUBLIC_RESULT_EXPORTS = [
-    extras_routes.pdf_tournament_standings,
-    extras_routes.pdf_tournament_certificates,
-    extras_routes.pdf_tournament_certificate,
-    extras_routes.pdf_f1_lb,
-    extras_routes.pdf_f1_certificates,
-    extras_routes.pdf_f1_certificate,
-    extras_routes.pdf_f1_championship,
-    extras_routes.pdf_f1_championship_certificates,
-    extras_routes.pdf_f1_championship_certificate,
+    export_routes.pdf_tournament_standings,
+    export_routes.pdf_tournament_certificates,
+    export_routes.pdf_tournament_certificate,
+    export_routes.pdf_f1_lb,
+    export_routes.pdf_f1_certificates,
+    export_routes.pdf_f1_certificate,
+    export_routes.pdf_f1_championship,
+    export_routes.pdf_f1_championship_certificates,
+    export_routes.pdf_f1_championship_certificate,
 ]
 
 
@@ -50,9 +50,9 @@ def test_result_pdf_exports_are_optional_but_status_gated():
 
 def test_tournament_result_exports_forward_access_and_user_to_standings():
     for endpoint in (
-        extras_routes.pdf_tournament_standings,
-        extras_routes.pdf_tournament_certificates,
-        extras_routes.pdf_tournament_certificate,
+        export_routes.pdf_tournament_standings,
+        export_routes.pdf_tournament_certificates,
+        export_routes.pdf_tournament_certificate,
     ):
         signature = inspect.signature(endpoint)
         assert "access" in signature.parameters
@@ -60,7 +60,7 @@ def test_tournament_result_exports_forward_access_and_user_to_standings():
 
 
 def test_pdf_filenames_use_safe_fallbacks():
-    assert extras_routes._pdf_filename_part("gamers-heaven", "t1") == "gamers-heaven"
-    assert extras_routes._pdf_filename_part("", "t1") == "t1"
-    assert extras_routes._pdf_filename_part(None, "", fallback="turnier") == "turnier"
-    assert extras_routes._pdf_filename("matches Gamers Heaven • Sonntag.pdf") == "matches_Gamers_Heaven_Sonntag.pdf"
+    assert export_routes._pdf_filename_part("gamers-heaven", "t1") == "gamers-heaven"
+    assert export_routes._pdf_filename_part("", "t1") == "t1"
+    assert export_routes._pdf_filename_part(None, "", fallback="turnier") == "turnier"
+    assert export_routes._pdf_filename("matches Gamers Heaven • Sonntag.pdf") == "matches_Gamers_Heaven_Sonntag.pdf"
