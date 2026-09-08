@@ -177,12 +177,21 @@ info "Checking frontend SPA routes…"
 check_frontend_route "$FRONTEND_LOCAL_URL" "/community" "local"
 check_frontend_route "$FRONTEND_LOCAL_URL" "/seasons/current" "local"
 check_frontend_route "$FRONTEND_LOCAL_URL" "/galerie" "local"
+check_frontend_route "$FRONTEND_LOCAL_URL" "/verify-email" "local"
+check_frontend_route "$FRONTEND_LOCAL_URL" "/login" "local"
 
 FRONTEND_PUBLIC_URL="$(grep -E '^FRONTEND_URL=' .env 2>/dev/null | cut -d= -f2- || true)"
+python3 scripts/check-web-update.py "$FRONTEND_LOCAL_URL"
 if [ -n "${FRONTEND_PUBLIC_URL:-}" ]; then
   info "Checking public frontend URL…"
   if ! check_frontend_route "${FRONTEND_PUBLIC_URL%/}" "/community" "public" "soft"; then
     warn "Public proxy still serves stale HTML for /community. Clear the proxy cache or check Nginx Proxy Manager caching."
+  fi
+  if ! check_frontend_route "${FRONTEND_PUBLIC_URL%/}" "/verify-email" "public" "soft"; then
+    warn "Public /verify-email is unavailable or stale. Check the configured FRONTEND_URL and reverse-proxy HTML cache."
+  fi
+  if ! python3 scripts/check-web-update.py "$FRONTEND_LOCAL_URL" "${FRONTEND_PUBLIC_URL%/}"; then
+    fail "Container wurden aktualisiert, aber die öffentliche Release-/Cache-Prüfung ist fehlgeschlagen. Proxy-Cache und FRONTEND_URL prüfen; Update noch nicht abgenommen."
   fi
 fi
 

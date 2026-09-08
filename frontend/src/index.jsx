@@ -7,6 +7,14 @@ import { toast } from "sonner";
 import { applyWaitingServiceWorker, register as registerServiceWorker } from "@/serviceWorkerRegistration";
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
+window.addEventListener("vite:preloadError", () => {
+  toast.error("Eine neue Website-Version ist verfügbar oder die Verbindung wurde unterbrochen.", {
+    id: "tls-chunk-update",
+    description: "Speichere offene Eingaben, prüfe die Verbindung und lade die Seite neu.",
+    duration: Infinity,
+    action: { label: "Neu laden", onClick: () => window.location.reload() },
+  });
+});
 startWebClientLogging();
 root.render(
   <React.StrictMode>
@@ -17,12 +25,13 @@ root.render(
 registerServiceWorker({
   onUpdate: (registration) => {
     toast.info("Neue Website-Version verfügbar.", {
-      description: "Aktualisieren lädt die neue Version sofort.",
+      id: "tls-site-update",
+      description: "Speichere offene Eingaben und aktualisiere anschließend die Seite.",
       action: {
         label: "Aktualisieren",
         onClick: () => applyWaitingServiceWorker(registration),
       },
-      duration: 12000,
+      duration: Infinity,
     });
   },
 });

@@ -17,3 +17,8 @@ Proxyziel des lokalen Entwicklungsservers.
 
 Der Service Worker hält nur statische Anwendungsdateien offline bereit und
 speichert keine API-Antworten.
+
+Bei jedem Build erzeugt Vite `version.json` und einen dazu passenden Service Worker.
+HTML und Update-Dateien dürfen nicht lange gecacht werden. Deployment-Prüfung und
+Proxy-Regeln: [Update-Anleitung](../UPDATE.md). Passkey-Einrichtung:
+[Betreiberkonfiguration](../CONFIGURATION.md). Alle Anleitungen: [Dokumentation](../DOCS.md).

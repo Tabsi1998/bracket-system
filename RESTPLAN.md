@@ -1,7 +1,35 @@
 # Verbindlicher Restplan
 
-Stand: 8. September 2026. Sicherheitsbasis: `main` nach PR #152 (`0653a74`),
-anschließend das hier dokumentierte Wartungs- und Servercheck-Paket.
+Stand: 8. September 2026. Sicherheitsbasis: PR #152, Wartung PR #153 (`e06e509`),
+Login-Wiederherstellung PR #154 (`216eb6c`). Dokumentationsübersicht: [DOCS.md](DOCS.md).
+
+## Aktuelle Priorität: gemeldete Produktivprobleme
+
+| Paket | Quellstand | Abnahme |
+| --- | --- | --- |
+| U1 – MongoDB-Update | Authentifizierte Prüfung vor einer möglichen Ersteinrichtung implementiert; Fehlerfälle lassen `.env` unverändert | Wiederholtes Update auf dem Server muss durchlaufen |
+| U2 – Browser-Updates | Kein Cache für HTML/Update-Dateien, versionierter Worker, sichtbare Aktualisierung, öffentlicher Versionsvergleich implementiert | Proxy-Cache einmal korrigieren und Bestätigungslink ohne Strg+F5 testen |
+| U3 – Dashboard | Drei Hinweise als Vorschau; vollständige Liste aufklappbar und in der Höhe begrenzt | Desktop-/Handy-Ansicht bestätigen |
+| U4 – Passkeys | Einrichtung, Anmeldung, Entfernen, Signatur-/Origin-/Replay-Prüfung und Admin-MFA-Verknüpfung implementiert | Eigenen Passkey auf HTTPS einrichten, ausloggen und wieder anmelden |
+| U5 – Dokumentation | README gekürzt, Unterseitenindex und automatische Linkprüfung; obsolete Auth-Anleitung entfernt | Aktuelle CI und reale Betreiberabnahmen im Release festhalten |
+
+U1–U5 sind das aktuelle Arbeitspaket und noch keine Produktivfreigabe. Automatische
+Prüfungen und Integration müssen für diesen gemeinsamen Stand erfolgreich sein.
+Ein Bestätigungslink wurde laut Betreiber zugestellt; das Öffnen und der anschließende
+Login sind wegen des gemeldeten Seiten-/Cachefehlers noch nicht abgenommen.
+Die native App ist ausdrücklich pausiert. Die dort begonnenen SDK-Änderungen bleiben
+außerhalb dieses Website-Pakets.
+
+Lokale Nachweise für U1–U5 am 8. September 2026:
+
+- Backend: 434 Tests bestanden, 19 übersprungen, 277 Live-Tests abgewählt.
+- Frontend: 24 Unit-Tests und Produktionsbuild erfolgreich.
+- Browser: 64 Desktop-/Mobile-Tests bestanden; acht zugangspflichtige Live-Tests ausgelassen.
+- Passkey-Prüfungen enthalten echte kryptografische Signaturen und einen virtuellen
+  Browser-Authenticator; sie ersetzen nicht den Test mit deinem eigenen Gerät.
+- Python-Abhängigkeitsaudit ohne bekannte Schwachstellen, Secret-Scan erfolgreich;
+  30 Markdown-Dateien ohne fehlende lokale Linkziele.
+- Linux-/Container-CI und CodeQL müssen zusätzlich am integrierten Stand erfolgreich sein.
 
 Dieser Plan bestimmt die Reihenfolge. Ältere Roadmaps bleiben als Historie erhalten;
 ihre Checkboxen sind weder ein aktueller Release-Nachweis noch automatisch neue Aufträge.
@@ -14,7 +42,7 @@ drei unterschiedliche Zustände.** Ein fertiger Quellstand ist noch kein Go-live
 | --- | --- | --- | --- |
 | R0 – Restplan | konsolidiert | Dieser Plan, eindeutige Verweise, historische Pläne kennzeichnen | Ein gemeinsamer Arbeitsstand ohne konkurrierende To-do-Listen |
 | R1 – Sicherheitsupdates | abgeschlossen mit PR #152; Main-CI/CodeQL grün, beide Meldungen geschlossen | Tiptap-/CSS-Sicherheitsfix und Regressionstests | Erreicht; bei jedem Release neu prüfen |
-| R1a – Routine-Wartung | im anschließenden Wartungspaket umgesetzt; gemeinsamer CI-Nachweis erforderlich | Vier Update-PRs zusammenführen, Editor-Pins angleichen, Java-Setup und Paketkompatibilität prüfen | Gemeinsamer PR und Main grün; ersetzte Update-PRs geschlossen |
+| R1a – Routine-Wartung | abgeschlossen mit PR #153 | Vier Update-PRs zusammengeführt, Editor-Pins angeglichen, Java-Setup und Paketkompatibilität geprüft | Gemeinsame CI erfolgreich; ersetzte Update-PRs geschlossen |
 | R2 – Staging | vorbereitet, noch nicht eingerichtet | Ressourcen und Proxy prüfen; getrennten Testbetrieb auf vorhandenem Server einrichten | Eigene HTTPS-Subdomain, DB, Volumes, Secrets und Testnutzer; Produktion unverändert gesund |
 | R3 – Praxistest | offen | Testdaten/Abläufe vorbereiten, Fehler nachstellen und korrigieren | Du bestätigst die Pflichtfälle aus STAGING_ABNAHME.md; kritische Fehler behoben |
 | R4 – Release/Betrieb | offen | Backup/Restore nachweisen, Release festhalten, kontrolliert deployen, Rollback und Monitoring prüfen | Abnahme dokumentiert, Backup extern gesichert, Produktiv-Smoke grün |
@@ -79,9 +107,9 @@ Die zuvor offenen Routine-PRs #141 (Actions), #143 (Mobile), #149 (Python) und #
   Editor-/Menü-Versionen. CSS-Sicherheitsfix und Prototype-Regression bleiben erhalten.
 - Rein lesender Servercheck mit eigenen Regressionstests für den nächsten Betreiberschritt.
 
-Vor dem Merge müssen Backend-/Frontend-/Mobile-/Container-CI und CodeQL gemeinsam
-grün sein; danach Main prüfen und die vier ersetzten Update-PRs samt Branches schließen.
-Eine grüne Paketprüfung ist noch kein neuer APK-Build oder Gerätetest.
+Backend-/Frontend-/Mobile-/Container-CI und CodeQL waren für PR #153 erfolgreich;
+die vier ersetzten Update-PRs wurden nach Integration geschlossen. Damit ist R1a erledigt.
+Diese Paketprüfung ist kein neuer APK-Build oder Gerätetest.
 Die Expo-SDK-Migration (#117) und der größere Competition-Umbau bleiben ausdrücklich
 eigene, nachgelagerte Pakete. Neue Dependency-Meldungen vor jedem Release erneut prüfen.
 
@@ -96,8 +124,11 @@ Hosting-/Serverkonsole oder ein privater Zugang reicht. Wenn ich keinen direkten
 habe, bereite ich die geprüften Befehle vor und der Betreiber führt sie dort aus.
 Staging dient der Update-Abnahme und schaltet keine zusätzliche Website-Funktion frei.
 
-**Der nächste konkrete Schritt ist nur eine Bestandsaufnahme:** In der vorhandenen
-Serverkonsole im aktualisierten Projektverzeichnis ausführen:
+Die erste Bestandsaufnahme wurde vom Betreiber bereits durchgeführt: LXC, acht CPUs,
+8 GiB RAM, rund 27,8 GiB freier Speicher, Produktionscontainer gesund; noch kein
+Staging-Stack. Die hohe Load allein belegt in dieser Umgebung keine lokale Überlast.
+Eine aktuelle Prüfung vor einem Staging-Start bleibt erforderlich. Dafür in der
+vorhandenen Serverkonsole ausführen:
 
 ```bash
 bash scripts/staging-preflight.sh

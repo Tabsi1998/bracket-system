@@ -131,7 +131,7 @@ function attachResponseInterceptors(client) {
     async (error) => {
       const original = error.config;
       const url = original?.url || "";
-      const authRequest = url.includes("/auth/login") || url.includes("/auth/register") || url.includes("/auth/refresh");
+      const authRequest = url.includes("/auth/login") || url.includes("/auth/register") || url.includes("/auth/refresh") || url.includes("/auth/passkeys/");
       const detail = formatApiError(error.response?.data?.detail);
       const csrfError = error.response?.status === 403 && /csrf token missing or invalid/i.test(detail);
       if (error.response?.status === 401 && original && !original._retry && !authRequest) {

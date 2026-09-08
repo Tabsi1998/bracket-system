@@ -9,6 +9,58 @@ cd /root/THE-LION_SQUAD-eSPORT-Webseite
 
 Das Script zieht den neuesten Code, baut Frontend/Backend neu, startet die Container und prueft Backend, Frontend und wichtige SPA-Routen.
 
+## Abbruch: `Command createUser requires authentication`
+
+Der bisherige Vorbereitungscheck fragte MongoDB ohne Anmeldung nach dem Admin-Benutzer.
+Eine bereits geschützte Datenbank verweigerte das; das Skript versuchte daraufhin
+fälschlich erneut die Ersteinrichtung. Dieser Fehler tritt vor Build und Neustart auf.
+Der Checkout ist dann schon aktualisiert, die laufenden Container aber noch nicht.
+
+Die korrigierte Vorbereitung meldet sich zuerst mit den bestehenden `.env`-Werten an.
+Nur ein nachweislich ungeschütztes, benutzerloses System erhält seinen ersten Benutzer.
+Ein falsches Passwort oder ein nicht erreichbarer Server bricht vor Änderungen an
+der `.env` ab. Nach Integration dieses Fixes erneut `./update.sh u` ausführen.
+Bei weiterem Anmeldefehler die bisherigen Zugangsdaten lokal prüfen; weder MongoDB-
+Volumes löschen noch Passwörter oder den Verschlüsselungsschlüssel neu erzeugen.
+
+## Updates, Browser und Proxy-Cache
+
+- HTML, `service-worker.js` und `version.json` werden mit `Cache-Control: no-store`
+  ausgeliefert. Der Service Worker bekommt bei jedem veränderten Frontend-Build eine
+  Versionskennung und prüft Updates auch nach Rückkehr zum Browser-Tab.
+- Die Aktualisierungsmeldung bleibt sichtbar. Erst Eingaben speichern, dann
+  **Aktualisieren** wählen. Bei fehlenden nachgeladenen Dateien bietet die Seite
+  ebenfalls einen sichtbaren Neuladeweg an.
+- API-Antworten und Seiten mit Bestätigungs-/Reset-Tokens werden nicht vom Service
+  Worker gespeichert. Offline erscheint ein Verbindungshinweis.
+- Hash-Dateien unter `/assets/` bleiben lang cachebar. Der äußere Proxy muss die
+  Cache-Header respektieren. Keine „Cache Everything“-Regel für HTML, `/api/`,
+  `/service-worker.js` oder `/version.json` verwenden. Einen bereits vorhandenen
+  Proxy-Cache bei diesem Übergang einmal für diese Routen leeren.
+
+Auf `lionsquad.at` wurde am 8. September 2026 der alte Worker öffentlich mit
+`CF-Cache-Status: HIT`, `public, immutable` und einem Jahr Gültigkeit bestätigt.
+In Cloudflare unter **Caching → Configuration → Purge Cache → Custom Purge** nach
+dem Deployment mindestens `https://lionsquad.at/service-worker.js` leeren; anschließend
+den Versionscheck erneut ausführen. Die Registrierung verwendet zusätzlich eine
+Buildversion im Worker-Link. Bei einem bereits offenen alten Browser-Tab einmal
+die Aktualisierung bestätigen bzw. neu laden. Wiederkehrendes Strg+F5 ist kein
+normaler Bestandteil des künftigen Update-Ablaufs.
+
+Rein lesend prüfen, optional lokale und öffentliche Version vergleichen:
+
+```bash
+python3 scripts/check-web-update.py http://localhost:3000 https://lionsquad.at
+```
+
+Port bei Bedarf an `FRONTEND_PORT` anpassen. Der Check verlangt passende Buildversionen,
+Cache-Header und erreichbare Dateien für Start, Login, Bestätigung und Dashboard.
+Er läuft auch im Update und in der Container-CI. Ein öffentliches Prüfproblem nach
+dem Neustart meldet das Update ausdrücklich als noch nicht abgenommen.
+
+Quellen: [Vite – fehlende Dateien nach Updates](https://vite.dev/guide/build#load-error-handling),
+[Service-Worker-Updatecache](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/updateViaCache).
+
 ## Danach pruefen
 
 ### Bestehendes Konto: „E-Mail-Adresse noch nicht bestätigt“
@@ -23,6 +75,8 @@ Das Konto muss nicht neu angelegt und das Passwort nicht geändert werden.
    den Bestätigungslink einmal anfordern. Einige Minuten warten und Spam prüfen.
 2. Link öffnen; danach mit bisherigem Passwort und MFA-/Wiederherstellungscode
    anmelden. MFA stammt aus der Authenticator-App, nicht aus einer Login-E-Mail.
+   Die MFA-Zwischenkennung bleibt nur im Arbeitsspeicher. Ein vollständiges Neuladen
+   während dieses Schritts startet die Anmeldung neu; sie wird nicht im Browserspeicher abgelegt.
 3. Kommt keine Mail: Der Betreiber führt im Server-Checkout folgenden
    **rein lesenden** Bericht aus (Adresse durch die betroffene Adresse ersetzen):
 

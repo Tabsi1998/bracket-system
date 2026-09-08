@@ -16,6 +16,7 @@ import { AchievementUnlockOverlay } from "@/components/tls/AchievementUnlockOver
 import { GermanDateField } from "@/components/tls/GermanDateField";
 import { GoogleAuthButton } from "@/components/tls/GoogleAuthButton";
 import { MfaSetupPanel } from "@/components/tls/MfaSetupPanel";
+import { PasskeysPanel } from "@/components/tls/PasskeysPanel";
 import { usePublicSiteSettings } from "@/hooks/usePublicSiteSettings";
 
 const TABS = [
@@ -516,6 +517,7 @@ export default function ProfilePage() {
                 </div>
               )}
               <MfaSetupPanel user={user} onChanged={refresh} />
+              <PasskeysPanel />
             </Section>
           )}
 
