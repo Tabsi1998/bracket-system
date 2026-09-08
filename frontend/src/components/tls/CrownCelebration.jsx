@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CrownIcon, CROWN_LABELS, refreshCrowns } from "./LevelAvatarFrame";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 
 const GLOWS = {
   gold: "rgba(255,215,0,0.9)",
@@ -44,19 +45,24 @@ export function CrownCelebration() {
     return () => clearTimeout(timer);
   }, [event]);
 
+  const cardRef = useModalBehavior(!!event, () => setEvent(null));
+
+  const variant = event?.variant || "gold";
   if (!event) return null;
-  const variant = event.variant || "gold";
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- Escape und die Schaltfläche schließen das Overlay; der Klick daneben ist nur eine Maus-Abkürzung.
     <div
       className="tls-crown-celebration"
       style={{ "--crown-glow": GLOWS[variant] || GLOWS.gold }}
       data-testid="crown-celebration-overlay"
       role="dialog"
+      aria-modal="true"
       aria-label="Kronen-Feier"
       onClick={() => setEvent(null)}
     >
       <ConfettiRain />
-      <div className="tls-crown-celebration-card" onClick={(e) => e.stopPropagation()}>
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- fängt nur den Klick ab, damit er das Overlay nicht schließt */}
+      <div ref={cardRef} tabIndex={-1} className="tls-crown-celebration-card focus:outline-none" onClick={(e) => e.stopPropagation()}>
         <span className="tls-crown-celebration-rays" aria-hidden="true" />
         <div className="tls-crown-celebration-crown">
           <CrownIcon variant={variant} />

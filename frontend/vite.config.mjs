@@ -61,6 +61,7 @@ export default defineConfig({
     globals: true,
     clearMocks: true,
     restoreMocks: true,
+    setupFiles: ["./src/setupTests.js"],
     include: ["src/**/*.{test,spec}.{js,jsx,ts,tsx}"],
     coverage: { reporter: ["text", "lcov"] },
   },

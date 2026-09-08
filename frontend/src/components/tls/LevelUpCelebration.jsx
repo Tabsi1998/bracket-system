@@ -3,6 +3,7 @@ import { api, resolveMediaUrl } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
 import { LevelAvatarFrame, levelFrameConfig } from "@/components/tls/LevelAvatarFrame";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 
 const COLORS = ["#29B6E8", "#7FDBFF", "#FFD700", "#00FF88", "#A855F7", "#FFFFFF", "#FF7A00"];
 
@@ -62,19 +63,24 @@ export function LevelUpCelebration() {
     return () => clearTimeout(timer);
   }, [event]);
 
+  const cardRef = useModalBehavior(!!event, () => setEvent(null));
+
   if (!event) return null;
   const initials = (user?.display_name || user?.username || "?").slice(0, 2).toUpperCase();
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- Escape und die Schaltfläche schließen das Overlay; der Klick daneben ist nur eine Maus-Abkürzung.
     <div
       className="tls-crown-celebration"
       style={{ "--crown-glow": "rgba(41,182,232,0.9)" }}
       data-testid="levelup-celebration-overlay"
       role="dialog"
+      aria-modal="true"
       aria-label="Level-Aufstieg"
       onClick={() => setEvent(null)}
     >
       <ConfettiRain />
-      <div className="tls-crown-celebration-card" onClick={(e) => e.stopPropagation()}>
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- fängt nur den Klick ab, damit er das Overlay nicht schließt */}
+      <div ref={cardRef} tabIndex={-1} className="tls-crown-celebration-card focus:outline-none" onClick={(e) => e.stopPropagation()}>
         <span className="tls-crown-celebration-rays" aria-hidden="true" />
         <div className="tls-levelup-frame" data-testid="levelup-frame-preview">
           <LevelAvatarFrame level={event.level} showBadge={false} className="w-36 h-36 sm:w-44 sm:h-44">

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 
 const ConfirmContext = createContext(null);
 
@@ -46,13 +47,15 @@ export function ConfirmDialogProvider({ children }) {
 
   const value = useMemo(() => ({ confirm, prompt }), [confirm, prompt]);
   const promptInvalid = dialog?.kind === "prompt" && dialog.required && !draft.trim();
+  const dialogRef = useModalBehavior(!!dialog, () => close(false));
 
   return (
     <ConfirmContext.Provider value={value}>
       {children}
       {dialog && (
         <div className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-sm p-4 flex items-center justify-center" role="presentation" onClick={() => close(false)}>
-          <div className="w-full max-w-md bg-[#121212] border border-white/10 rounded-sm shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="confirm-title" data-testid="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- fängt nur den Klick ab, damit er den Dialog nicht schließt; Escape und Abbrechen bleiben der Tastaturweg */}
+          <div ref={dialogRef} tabIndex={-1} className="w-full max-w-md bg-[#121212] border border-white/10 rounded-sm shadow-2xl focus:outline-none" role="dialog" aria-modal="true" aria-labelledby="confirm-title" data-testid="confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3 p-5 border-b border-white/10">
               <div className={`w-10 h-10 rounded-sm border flex items-center justify-center shrink-0 ${dialog.tone === "danger" ? "border-[#FF3B30]/45 text-[#FF3B30] bg-[#FF3B30]/10" : "border-[#29B6E8]/45 text-[#29B6E8] bg-[#29B6E8]/10"}`}>
                 <AlertTriangle className="w-5 h-5" />
@@ -67,7 +70,6 @@ export function ConfirmDialogProvider({ children }) {
                       onChange={(e) => setDraft(e.target.value)}
                       placeholder={dialog.placeholder}
                       className="mt-4 input min-h-28 resize-y"
-                      autoFocus
                     />
                   ) : (
                     <input
@@ -75,7 +77,6 @@ export function ConfirmDialogProvider({ children }) {
                       onChange={(e) => setDraft(e.target.value)}
                       placeholder={dialog.placeholder}
                       className="mt-4 input"
-                      autoFocus
                     />
                   )
                 )}
