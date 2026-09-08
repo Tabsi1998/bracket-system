@@ -12,9 +12,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import HTTPException, Response
 from pymongo.errors import DuplicateKeyError
-from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers import bytes_to_base64url
 
-from auth import hash_token
 from models import now_utc
 from routes import passkey_routes as routes
 

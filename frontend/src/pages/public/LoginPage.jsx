@@ -16,7 +16,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function LoginPage() {
   useDocumentTitle("Login", "Login für Mitglieder und Community-User von THE LION SQUAD eSports.", { robots: "noindex, follow" });
 
-  const { login, completeMfa, setUser } = useAuth();
+  const { login, completeMfa, setUser, mfaTicket, setMfaTicket } = useAuth();
   const settings = usePublicSiteSettings();
   const [params] = useSearchParams();
   const next = params.get("next") || "/dashboard";
@@ -24,7 +24,6 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [mfaCode, setMfaCode] = useState("");
-  const [mfaTicket, setMfaTicket] = useState(() => sessionStorage.getItem("tls.mfa.ticket") || "");
   const [showPw, setShowPw] = useState(false);
   const { submitting: loading, submitOnce } = useSubmissionGuard();
   const [err, setErr] = useState(null);
@@ -43,7 +42,6 @@ export default function LoginPage() {
     const data = attempt.value;
     if (data.mfa_required) {
       setMfaTicket(data.mfa_ticket);
-      sessionStorage.setItem("tls.mfa.ticket", data.mfa_ticket);
     } else {
       setUser(data);
       toast.success("Willkommen zurück!");
@@ -81,7 +79,6 @@ export default function LoginPage() {
       if (!attempt.started) return;
       const result = attempt.value;
       if (result?.ok) {
-        sessionStorage.removeItem("tls.mfa.ticket");
         toast.success("Admin-Anmeldung bestätigt.");
         nav(next);
       } else {
@@ -103,7 +100,6 @@ export default function LoginPage() {
     if (res.ok) {
       if (res.mfaRequired) {
         setMfaTicket(res.ticket);
-        sessionStorage.setItem("tls.mfa.ticket", res.ticket);
         setErr(null);
         return;
       }
@@ -138,7 +134,7 @@ export default function LoginPage() {
             <button disabled={loading} type="submit" className="w-full py-3 bg-[#29B6E8] text-black font-bold uppercase tracking-wider rounded-sm disabled:opacity-50" data-testid="login-mfa-submit">
               {loading ? "Prüfe …" : "Anmeldung bestätigen"}
             </button>
-            <button type="button" disabled={loading} onClick={() => { setMfaTicket(""); setMfaCode(""); setErr(null); sessionStorage.removeItem("tls.mfa.ticket"); }} className="w-full text-xs text-white/45 hover:text-white">Zurück zum Login</button>
+            <button type="button" disabled={loading} onClick={() => { setMfaTicket(""); setMfaCode(""); setErr(null); }} className="w-full text-xs text-white/45 hover:text-white">Zurück zum Login</button>
           </form>
         ) : settings.password_login_enabled !== false ? <form onSubmit={submit} className="mt-8 space-y-4" noValidate aria-describedby={err ? "login-error" : undefined}>
           <AuthTextField

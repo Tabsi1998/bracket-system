@@ -40,7 +40,7 @@ export function GoogleAuthButton({
   onSuccess,
 }) {
   const settings = usePublicSiteSettings();
-  const { googleAuthenticate, googleLink, googleProcessing } = useAuth();
+  const { googleAuthenticate, googleLink, googleProcessing, setMfaTicket } = useAuth();
   const navigate = useNavigate();
   const buttonRef = useRef(null);
   const [loadError, setLoadError] = useState("");
@@ -73,7 +73,7 @@ export function GoogleAuthButton({
               return;
             }
             if (result.mfaRequired) {
-              sessionStorage.setItem("tls.mfa.ticket", result.ticket);
+              setMfaTicket(result.ticket);
               navigate("/login?mfa=1");
               toast.info("Bitte bestätige die Admin-Anmeldung mit deinem zweiten Faktor.");
               return;
@@ -101,7 +101,7 @@ export function GoogleAuthButton({
       })
       .catch((error) => active && setLoadError(error.message));
     return () => { active = false; };
-  }, [acceptPrivacy, acceptTerms, consentMissing, enabled, googleAuthenticate, googleLink, intent, isLinking, isRegistration, navigate, newsletterConsent, onSuccess, returnPath, settings.google_client_id]);
+  }, [acceptPrivacy, acceptTerms, consentMissing, enabled, googleAuthenticate, googleLink, intent, isLinking, isRegistration, navigate, newsletterConsent, onSuccess, returnPath, settings.google_client_id, setMfaTicket]);
 
   if (!enabled) return null;
   return (

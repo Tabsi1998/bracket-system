@@ -10,6 +10,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined);
   const [error, setError] = useState(null);
   const [googleProcessing, setGoogleProcessing] = useState(false);
+  const [mfaTicket, setMfaTicket] = useState("");
 
   const fetchMe = useCallback(async () => {
     try {
@@ -25,6 +26,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    sessionStorage.removeItem("tls.mfa.ticket");
     fetchMe();
   }, [fetchMe]);
 
@@ -108,6 +110,7 @@ export function AuthProvider({ children }) {
     setError(null);
     try {
       const { data } = await api.post("/auth/mfa/complete", { ticket, code, client: "web" });
+      setMfaTicket("");
       setUser(data);
       return { ok: true, data };
     } catch (e) {
@@ -134,6 +137,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try {
       await api.post("/auth/logout");
+      setMfaTicket("");
       setUser(null);
       return true;
     } catch (e) {
@@ -151,7 +155,7 @@ export function AuthProvider({ children }) {
   const userType = user?.user_type || (user ? "community_user" : "guest");
 
   return (
-    <AuthContext.Provider value={{ user, setUser, login, completeMfa, register, logout, error, isAdmin, isModerator, isSuperAdmin, isClubMember, userType, refresh: fetchMe, googleAuthenticate, googleLink, googleProcessing }}>
+    <AuthContext.Provider value={{ user, setUser, login, completeMfa, mfaTicket, setMfaTicket, register, logout, error, isAdmin, isModerator, isSuperAdmin, isClubMember, userType, refresh: fetchMe, googleAuthenticate, googleLink, googleProcessing }}>
       {children}
     </AuthContext.Provider>
   );

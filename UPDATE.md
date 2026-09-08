@@ -75,6 +75,8 @@ Das Konto muss nicht neu angelegt und das Passwort nicht geändert werden.
    den Bestätigungslink einmal anfordern. Einige Minuten warten und Spam prüfen.
 2. Link öffnen; danach mit bisherigem Passwort und MFA-/Wiederherstellungscode
    anmelden. MFA stammt aus der Authenticator-App, nicht aus einer Login-E-Mail.
+   Die MFA-Zwischenkennung bleibt nur im Arbeitsspeicher. Ein vollständiges Neuladen
+   während dieses Schritts startet die Anmeldung neu; sie wird nicht im Browserspeicher abgelegt.
 3. Kommt keine Mail: Der Betreiber führt im Server-Checkout folgenden
    **rein lesenden** Bericht aus (Adresse durch die betroffene Adresse ersetzen):
 
