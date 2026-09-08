@@ -22,12 +22,21 @@ require_cmd openssl
 
 # Resolve both targets from the selected project before creating any backup files.
 source scripts/backup-target.sh
+source scripts/backup-offsite-policy.sh
 resolve_backup_target || fail "Cannot safely resolve this Compose project's backup targets."
 BACKUP_DIR="${BACKUP_DIR:-/opt/tls-arena/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 BACKUP_ENCRYPTION_PASSWORD_FILE="${BACKUP_ENCRYPTION_PASSWORD_FILE:-/etc/tls-arena/backup-password}"
 BACKUP_REMOTE="${BACKUP_REMOTE:-}"
+BACKUP_REMOTE_OPTIONAL="${BACKUP_REMOTE_OPTIONAL:-false}"
+RESOLVED_APP_ENV="$(resolve_app_env .env)"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+
+# Checked before any archive is written so a misconfigured off-site target fails
+# fast instead of after a long dump.
+if ! OFFSITE_BLOCK_REASON="$(offsite_backup_allowed "$BACKUP_REMOTE" "$RESOLVED_APP_ENV" "$BACKUP_REMOTE_OPTIONAL")"; then
+  fail "$OFFSITE_BLOCK_REASON"
+fi
 
 MONGO_FILE="tls_${DB_NAME}_${TIMESTAMP}.archive.gz.enc"
 UPLOADS_FILE="tls_uploads_${TIMESTAMP}.tar.gz.enc"
@@ -79,6 +88,7 @@ if [ -n "$BACKUP_REMOTE" ]; then
   ok "Off-site copy complete."
 else
   warn "BACKUP_REMOTE is empty: encrypted backup exists locally only. Configure an rclone remote for off-site resilience."
+  warn "Accepted because APP_ENV='${RESOLVED_APP_ENV:-unset}' and BACKUP_REMOTE_OPTIONAL='${BACKUP_REMOTE_OPTIONAL}'."
 fi
 
 info "Applying retention (${RETENTION_DAYS} days)"

@@ -12,7 +12,7 @@ import { SeoPreviewPanel } from "@/components/tls/SeoPreviewPanel";
 import { useConfirm } from "@/components/tls/ConfirmDialog";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
 import { toast } from "sonner";
-import { FileText, Mail, Save, Plus, Trash2, X, Eye, EyeOff } from "lucide-react";
+import { FileText, Mail, Save, Plus, X, Eye, EyeOff } from "lucide-react";
 
 export default function AdminCmsPage() {
   const [tab, setTab] = useState("pages");

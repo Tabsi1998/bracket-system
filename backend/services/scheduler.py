@@ -12,7 +12,7 @@ Runs recurring jobs in the FastAPI process:
   - mobile_push_receipts every 5 minutes
 
 Designed to be safe-by-default: every job catches its own exceptions so the
-scheduler never crashes the app.
+scheduler never crashes the app, and every tick runs on one API replica only.
 """
 import logging
 from contextlib import suppress
@@ -29,6 +29,39 @@ _scheduler: AsyncIOScheduler | None = None
 def _log_task_failure(task: str, exc: Exception) -> None:
     """Log operational context without persisting exception payloads."""
     logger.error("[scheduler] %s failed type=%s", task, type(exc).__name__)
+
+
+def scheduler_lock_resource(job_id: str) -> str:
+    return f"scheduler:{job_id}"
+
+
+def _single_replica(job_id: str, runner, lease_seconds: float = 60.0):
+    """Let one API replica own each tick of a job.
+
+    ``max_instances`` only guards a single process. A second uvicorn worker or
+    a scaled-out container would otherwise send mails, reminders and status
+    transitions twice. A busy lease simply means another replica already took
+    this tick; the lease expires on its own if that replica dies.
+    """
+    async def job():
+        try:
+            from database import get_db
+            from services.mutation_lock import MutationLockBusy, mutation_lock
+            try:
+                async with mutation_lock(
+                    get_db(),
+                    scheduler_lock_resource(job_id),
+                    wait_seconds=0.0,
+                    lease_seconds=lease_seconds,
+                ):
+                    await runner()
+            except MutationLockBusy:
+                logger.debug("[scheduler] %s skipped, lease held by another replica", job_id)
+        except Exception as exc:
+            _log_task_failure(f"{job_id} lease", exc)
+
+    job.__name__ = f"{job_id}_single_replica"
+    return job
 
 
 async def _safe_mail_queue():
@@ -254,27 +287,27 @@ def start_scheduler() -> AsyncIOScheduler:
     if _scheduler:
         return _scheduler
     sched = AsyncIOScheduler(timezone="UTC")
-    sched.add_job(_safe_mail_queue, IntervalTrigger(seconds=30), id="mail_queue",
+    sched.add_job(_single_replica("mail_queue", _safe_mail_queue), IntervalTrigger(seconds=30), id="mail_queue",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_match_reminders, IntervalTrigger(minutes=5), id="match_reminders",
+    sched.add_job(_single_replica("match_reminders", _safe_match_reminders), IntervalTrigger(minutes=5), id="match_reminders",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_tournament_reminders, IntervalTrigger(seconds=60), id="tournament_reminders",
+    sched.add_job(_single_replica("tournament_reminders", _safe_tournament_reminders), IntervalTrigger(seconds=60), id="tournament_reminders",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_scheduled_news, IntervalTrigger(seconds=60), id="scheduled_news",
+    sched.add_job(_single_replica("scheduled_news", _safe_scheduled_news), IntervalTrigger(seconds=60), id="scheduled_news",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_prize_expiry, IntervalTrigger(minutes=60), id="prize_expiry",
+    sched.add_job(_single_replica("prize_expiry", _safe_prize_expiry), IntervalTrigger(minutes=60), id="prize_expiry",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_f1_prize_reminders, IntervalTrigger(minutes=5), id="f1_prize_reminders",
+    sched.add_job(_single_replica("f1_prize_reminders", _safe_f1_prize_reminders), IntervalTrigger(minutes=5), id="f1_prize_reminders",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_birthday_greetings, IntervalTrigger(hours=6), id="birthday_greetings",
+    sched.add_job(_single_replica("birthday_greetings", _safe_birthday_greetings), IntervalTrigger(hours=6), id="birthday_greetings",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_twitch_poll, IntervalTrigger(seconds=90), id="twitch_poll",
+    sched.add_job(_single_replica("twitch_poll", _safe_twitch_poll), IntervalTrigger(seconds=90), id="twitch_poll",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_game_server_sync, IntervalTrigger(seconds=60), id="game_server_sync",
+    sched.add_job(_single_replica("game_server_sync", _safe_game_server_sync), IntervalTrigger(seconds=60), id="game_server_sync",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_mobile_push_receipts, IntervalTrigger(minutes=5), id="mobile_push_receipts",
+    sched.add_job(_single_replica("mobile_push_receipts", _safe_mobile_push_receipts), IntervalTrigger(minutes=5), id="mobile_push_receipts",
                   max_instances=1, coalesce=True)
-    sched.add_job(_safe_status_transitions, IntervalTrigger(seconds=60), id="status_transitions",
+    sched.add_job(_single_replica("status_transitions", _safe_status_transitions), IntervalTrigger(seconds=60), id="status_transitions",
                   max_instances=1, coalesce=True)
     sched.start()
     _scheduler = sched

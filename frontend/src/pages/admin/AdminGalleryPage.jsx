@@ -288,7 +288,7 @@ function AlbumModal({ album, events, onClose, onSaved }) {
   );
 }
 
-function AlbumPhotos({ album, events, onBack }) {
+function AlbumPhotos({ album, onBack }) {
   const [photos, setPhotos] = useState([]);
   const [sections, setSections] = useState([]);
   const [targetSectionId, setTargetSectionId] = useState("");

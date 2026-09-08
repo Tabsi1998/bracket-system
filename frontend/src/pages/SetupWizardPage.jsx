@@ -17,7 +17,7 @@ const STEPS = [
 
 export default function SetupWizardPage() {
   const nav = useNavigate();
-  const { user, isAdmin } = useAuth();
+  const { isAdmin } = useAuth();
   const [step, setStep] = useState(0);
   const [status, setStatus] = useState(null);
   const [data, setData] = useState({

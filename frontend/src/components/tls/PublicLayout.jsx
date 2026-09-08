@@ -272,7 +272,7 @@ function SiteBannerSlot({ banners, pathname, slot }) {
   );
 }
 
-function SiteBanner({ banner, pathname, slot }) {
+function SiteBanner({ banner }) {
   if (!banner?.enabled || !banner?.text) return null;
   const position = banner.position || "below_nav";
   const tone = banner.tone || "info";

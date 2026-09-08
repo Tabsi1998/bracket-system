@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/tls/AdminLayout";
 import { useConfirm } from "@/components/tls/ConfirmDialog";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
 import { toast } from "sonner";
-import { Plus, Trash2, Crown, Save, X, EyeOff, Eye, GripVertical } from "lucide-react";
+import { Plus, Crown, Save, X, EyeOff, Eye, GripVertical } from "lucide-react";
 
 export default function AdminBoardPage() {
   const [positions, setPositions] = useState([]);

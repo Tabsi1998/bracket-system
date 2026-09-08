@@ -13,7 +13,7 @@ const medalColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
 
 export default function F1TVPage() {
   const { id } = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [challenge, setChallenge] = useState(null);
   const [activeTrackIdx, setActiveTrackIdx] = useState(0);
   const [board, setBoard] = useState(null);

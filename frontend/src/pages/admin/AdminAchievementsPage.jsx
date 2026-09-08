@@ -12,7 +12,7 @@ import { useConfirm } from "@/components/tls/ConfirmDialog";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
 import { toast } from "sonner";
 import {
-  Plus, Trash2, Save, X, Pencil, Trophy, Award, AlertOctagon,
+  Plus, X, Trophy, Award, AlertOctagon,
   Search, UserPlus, ShieldOff, Eye, EyeOff, Crown,
 } from "lucide-react";
 

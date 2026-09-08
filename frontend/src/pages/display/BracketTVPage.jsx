@@ -532,16 +532,6 @@ function legacyParticipantInfo(registrationId, regMap) {
   };
 }
 
-function participantLabel(slot, regMap) {
-  const reg = regMap.get(slot.registration_id);
-  return reg?.display_name || reg?.user?.display_name || reg?.ingame_name || slot.source?.raw || "Offen";
-}
-
-function legacyParticipantLabel(registrationId, regMap) {
-  const reg = regMap.get(registrationId);
-  return reg?.display_name || reg?.user?.display_name || reg?.ingame_name || (registrationId ? "—" : "Offen");
-}
-
 function matchLabel(match) {
   if (Number.isInteger(match.match_index)) return `Spiel ${match.match_index + 1}`;
   if (match.order != null) return `Spiel ${Number(match.order) + 1}`;
