@@ -1736,7 +1736,8 @@ async def _anonymize_user_data(db, user_id: str, actor_id: str, action: str) -> 
     })
     for collection in (db.refresh_tokens, db.auth_sessions, db.email_verification_tokens,
                        db.password_reset_tokens, db.mfa_login_challenges, db.mobile_push_tokens,
-                       db.mobile_client_logs, db.notifications, db.user_socials):
+                       db.mobile_client_logs, db.notifications, db.user_socials,
+                       db.passkeys, db.passkey_challenges):
         await collection.delete_many({"user_id": user_id})
     await db.friendships.delete_many({"$or": [{"requester_id": user_id}, {"recipient_id": user_id}]})
     await db.user_blocks.delete_many({"$or": [{"blocker_id": user_id}, {"blocked_id": user_id}]})

@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from database import get_db, init_indexes, close_client
 from badges import seed_badges
 from routes.auth_routes import router as auth_router
+from routes.passkey_routes import router as passkey_router
 from routes.user_routes import router as user_router
 from routes.team_routes import router as team_router
 from routes.team_level_routes import router as team_level_router
@@ -192,6 +193,7 @@ else:
 
 # Include all routers
 app.include_router(auth_router)
+app.include_router(passkey_router)
 app.include_router(user_router)
 app.include_router(team_level_router)
 app.include_router(team_router)
@@ -315,6 +317,8 @@ CSRF_EXEMPT_PATHS = {
     "/api/auth/mobile/logout",
     "/api/auth/forgot-password",
     "/api/auth/reset-password",
+    "/api/auth/passkeys/login/options",
+    "/api/auth/passkeys/login/verify",
 }
 
 

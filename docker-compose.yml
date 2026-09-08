@@ -34,6 +34,7 @@ services:
       APP_ENV: "${APP_ENV:-production}"
       CORS_ORIGINS: "${CORS_ORIGINS:?Set CORS_ORIGINS in .env before deploying}"
       FRONTEND_URL: "${FRONTEND_URL:?Set FRONTEND_URL in .env before deploying}"
+      PASSKEY_ENABLED: "${PASSKEY_ENABLED:-true}"
       JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in .env before deploying}"
       SETTINGS_ENCRYPTION_KEY: "${SETTINGS_ENCRYPTION_KEY:?Set SETTINGS_ENCRYPTION_KEY in .env before deploying}"
       PRIVACY_POLICY_VERSION: "${PRIVACY_POLICY_VERSION:-2026-08-26}"
