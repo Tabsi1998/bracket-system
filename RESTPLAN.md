@@ -1,20 +1,31 @@
 # Verbindlicher Restplan
 
 Stand: 8. September 2026. Sicherheitsbasis: PR #152, Wartung PR #153 (`e06e509`),
-Login-Wiederherstellung PR #154 (`216eb6c`). Dokumentationsübersicht: [DOCS.md](DOCS.md).
+Login-Wiederherstellung PR #154 (`216eb6c`), Website-Stabilisierung PR #155 (`df4711e`).
+Dokumentationsübersicht: [DOCS.md](DOCS.md).
+
+## Beauftragte Erweiterung: Gameserver
+
+Spielauswahl mit Icon-Vorschau und abschaltbarem Bild; optionaler Modded-Bereich
+mit einzeln schaltbaren HTTPS-Links für Loader, Modpakete, Konfigurationen und
+Anleitungen. Umsetzung und Regressionstests im Quellstand; echte Inhalte pflegt
+der Betreiber gemäß [ADMIN_GUIDE.md](ADMIN_GUIDE.md#gameserver-spielelogos-und-modded-einrichtung).
+Kein automatischer Download/Mod-Installationsdienst und kein Eingriff in laufende Gameserver.
 
 ## Aktuelle Priorität: gemeldete Produktivprobleme
 
 | Paket | Quellstand | Abnahme |
 | --- | --- | --- |
-| U1 – MongoDB-Update | Authentifizierte Prüfung vor einer möglichen Ersteinrichtung implementiert; Fehlerfälle lassen `.env` unverändert | Wiederholtes Update auf dem Server muss durchlaufen |
+| U1 – MongoDB-Update | Authentifizierte Prüfung implementiert; Fehlerfälle lassen `.env` unverändert | Betreiber meldet erfolgreichen Build/Containerstart und lokale Healthchecks |
 | U2 – Browser-Updates | Kein Cache für HTML/Update-Dateien, versionierter Worker, sichtbare Aktualisierung, öffentlicher Versionsvergleich implementiert | Proxy-Cache einmal korrigieren und Bestätigungslink ohne Strg+F5 testen |
 | U3 – Dashboard | Drei Hinweise als Vorschau; vollständige Liste aufklappbar und in der Höhe begrenzt | Desktop-/Handy-Ansicht bestätigen |
 | U4 – Passkeys | Einrichtung, Anmeldung, Entfernen, Signatur-/Origin-/Replay-Prüfung und Admin-MFA-Verknüpfung implementiert | Eigenen Passkey auf HTTPS einrichten, ausloggen und wieder anmelden |
 | U5 – Dokumentation | README gekürzt, Unterseitenindex und automatische Linkprüfung; obsolete Auth-Anleitung entfernt | Aktuelle CI und reale Betreiberabnahmen im Release festhalten |
 
-U1–U5 sind das aktuelle Arbeitspaket und noch keine Produktivfreigabe. Automatische
-Prüfungen und Integration müssen für diesen gemeinsamen Stand erfolgreich sein.
+U1–U5 wurden mit PR #155 integriert; Main-CI und CodeQL erfolgreich. Der Betreiber
+hat das Update ausgeführt. Lokale und öffentliche Release-Prüfung waren anschließend
+für Version `56d3241fb190ac592630` erfolgreich; beide Update-Dateien lieferten
+`no-store` und Cloudflare `BYPASS`. Das ersetzt nicht die persönliche Funktionsabnahme.
 Ein Bestätigungslink wurde laut Betreiber zugestellt; das Öffnen und der anschließende
 Login sind wegen des gemeldeten Seiten-/Cachefehlers noch nicht abgenommen.
 Die native App ist ausdrücklich pausiert. Die dort begonnenen SDK-Änderungen bleiben
@@ -29,7 +40,8 @@ Lokale Nachweise für U1–U5 am 8. September 2026:
   Browser-Authenticator; sie ersetzen nicht den Test mit deinem eigenen Gerät.
 - Python-Abhängigkeitsaudit ohne bekannte Schwachstellen, Secret-Scan erfolgreich;
   30 Markdown-Dateien ohne fehlende lokale Linkziele.
-- Linux-/Container-CI und CodeQL müssen zusätzlich am integrierten Stand erfolgreich sein.
+- Linux-/Container-CI und CodeQL für PR #155 und Main erfolgreich; der finale
+  Browserlauf enthält 68 bestandene Tests einschließlich der MFA-Speicherhärtung.
 
 Dieser Plan bestimmt die Reihenfolge. Ältere Roadmaps bleiben als Historie erhalten;
 ihre Checkboxen sind weder ein aktueller Release-Nachweis noch automatisch neue Aufträge.
