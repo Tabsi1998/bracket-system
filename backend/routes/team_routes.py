@@ -9,12 +9,9 @@ from auth import get_current_user, get_optional_user, require_admin
 from models import TeamCreate, TeamUpdate, now_utc, new_id
 from services.notification_preferences import send_user_template
 from services.user_notifications import build_public_url, create_user_notification
+from services.query_filters import safe_regex
 
 router = APIRouter(prefix="/api/teams", tags=["teams"])
-
-
-def _safe_regex(value: str | None, max_len: int = 80) -> str:
-    return re.escape((value or "").strip()[:max_len])
 
 
 def _page_items(items: list[dict], limit: int, offset: int, paged: bool):
@@ -284,7 +281,7 @@ async def list_teams(q: str | None = None, limit: int = 100, offset: int = 0, pa
     db = get_db()
     query = {}
     if q:
-        pattern = _safe_regex(q)
+        pattern = safe_regex(q)
         query["$or"] = [
             {"name": {"$regex": pattern, "$options": "i"}},
             {"tag": {"$regex": pattern, "$options": "i"}},
@@ -394,7 +391,7 @@ async def invite_candidates(team_id: str, q: str | None = None, me: dict = Depen
         "id": {"$nin": team.get("member_ids") or []},
     }
     if q:
-        pattern = _safe_regex(q)
+        pattern = safe_regex(q)
         query["$or"] = [
             {"username": {"$regex": pattern, "$options": "i"}},
             {"display_name": {"$regex": pattern, "$options": "i"}},
@@ -427,7 +424,7 @@ async def mention_candidates(team_id: str, q: str | None = None, me: dict = Depe
         "is_banned": {"$ne": True},
     }
     if q:
-        pattern = _safe_regex(q, 40)
+        pattern = safe_regex(q, 40)
         query["$or"] = [
             {"username": {"$regex": pattern, "$options": "i"}},
             {"display_name": {"$regex": pattern, "$options": "i"}},

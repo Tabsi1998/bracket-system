@@ -1,6 +1,6 @@
 import asyncio
 
-from routes import extras_routes
+from routes import dsgvo_routes
 
 
 class FakeCursor:
@@ -70,9 +70,9 @@ class FakeDb:
 
 
 def test_dsgvo_export_includes_canonical_legacy_and_stage_match_references(monkeypatch):
-    monkeypatch.setattr(extras_routes, "get_db", FakeDb)
+    monkeypatch.setattr(dsgvo_routes, "get_db", FakeDb)
 
-    payload = asyncio.run(extras_routes.export_my_data({"id": "u1"}))
+    payload = asyncio.run(dsgvo_routes.export_my_data({"id": "u1"}))
 
     assert payload["user"]["id"] == "u1"
     assert [registration["id"] for registration in payload["tournament_registrations"]] == ["r1"]

@@ -19,6 +19,7 @@ from services.notification_preferences import (
     preference_key,
     public_preferences_payload,
 )
+from services.query_filters import safe_regex
 from models import (
     AdminUserCreate, UserUpdate, RoleUpdate, UserSocialCreate, UserSocialUpdate,
     now_utc, new_id,
@@ -35,10 +36,6 @@ PRIVATE_AUTH_FIELDS = {
     "mfa_pending_created_at": 0,
     "mfa_recovery_code_hashes": 0,
 }
-
-
-def _safe_regex(value: str | None, max_len: int = 80) -> str:
-    return re.escape((value or "").strip()[:max_len])
 
 
 def _clean(u: dict) -> dict:
@@ -266,7 +263,7 @@ async def list_users(q: str | None = None, role: str | None = None,
     db = get_db()
     query = {}
     if q:
-        pattern = _safe_regex(q)
+        pattern = safe_regex(q)
         query["$or"] = [
             {"username": {"$regex": pattern, "$options": "i"}},
             {"email": {"$regex": pattern, "$options": "i"}},
@@ -910,6 +907,6 @@ async def delete_user(user_id: str, me: dict = Depends(require_super())):
         raise HTTPException(status_code=404, detail="Nutzer nicht gefunden")
     if user.get("role") == "superadmin":
         raise HTTPException(403, "Andere Superadmins dürfen nicht anonymisiert werden.")
-    from routes.extras_routes import _anonymize_user_data
+    from routes.dsgvo_routes import _anonymize_user_data
     await _anonymize_user_data(db, user_id, me["id"], "user.admin_anonymize")
     return {"ok": True, "anonymized": True}

@@ -1,6 +1,6 @@
 import asyncio
 
-from routes import extras_routes
+from routes import widget_routes
 
 
 class FakeCursor:
@@ -73,10 +73,10 @@ def test_widget_bracket_exposes_stage_data_and_keeps_legacy_fields(monkeypatch):
     async def visible_tournament(_slug_or_id):
         return tournament
 
-    monkeypatch.setattr(extras_routes, "get_db", FakeDb)
-    monkeypatch.setattr(extras_routes, "_public_tournament_or_404", visible_tournament)
+    monkeypatch.setattr(widget_routes, "get_db", FakeDb)
+    monkeypatch.setattr(widget_routes, "_public_tournament_or_404", visible_tournament)
 
-    payload = asyncio.run(extras_routes.widget_bracket("ffa-cup"))
+    payload = asyncio.run(widget_routes.widget_bracket("ffa-cup"))
 
     assert payload["matches"] == []
     assert [match["id"] for match in payload["matches_v2"]] == ["ffa-1"]

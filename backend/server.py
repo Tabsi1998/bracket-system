@@ -57,9 +57,12 @@ from routes.prize_routes import router as prize_router
 from routes.setup_routes import router as setup_router, sitemap_router
 from routes.contact_board_routes import contact_router, board_router
 from routes.search_routes import router as search_router
-from routes.extras_routes import (
-    settings_router, season_router, widget_router, dsgvo_router, pdf_router, audit_router,
-)
+from routes.settings_routes import settings_router
+from routes.season_routes import season_router
+from routes.widget_routes import widget_router
+from routes.dsgvo_routes import dsgvo_router
+from routes.export_routes import pdf_router
+from routes.audit_routes import audit_router
 from services.change_events import (
     change_event_stream,
     publish_api_change,

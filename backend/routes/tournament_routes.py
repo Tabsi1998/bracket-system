@@ -76,6 +76,7 @@ from bracket_extensions import (
     generate_swiss_round, generate_groups,
 )
 from services.user_notifications import create_user_notification
+from services.query_filters import safe_regex
 
 router = APIRouter(prefix="/api/tournaments", tags=["tournaments"])
 logger = logging.getLogger("tls.tournament")
@@ -90,10 +91,6 @@ LOCKABLE_TOURNAMENT_STATUSES = {"completed", "results_published", "archived", "c
 MATCH_PLAN_FIELDS = ("scheduled_at", "duration_minutes", "station_id", "admin_note", "map", "best_of")
 MATCH_PLAN_ACTIVE_STATUSES = {"preview", "pending", "ready", "scheduled", "in_progress", "waiting_result"}
 MATCH_PLAN_DONE_STATUSES = {"completed", "forfeit", "cancelled", "archived", "bye"}
-
-
-def _safe_regex(value: str | None, max_len: int = 80) -> str:
-    return re.escape((value or "").strip()[:max_len])
 
 
 def _page_items(items: list[dict], limit: int, offset: int, paged: bool):
@@ -1941,7 +1938,7 @@ async def list_assignable_tournament_users(tid: str, q: str | None = None, limit
     await require_tournament_staff_permission(me, tid, PARTICIPANT_STAFF_ROLES)
     query = {"is_banned": {"$ne": True}}
     if q:
-        pattern = _safe_regex(q)
+        pattern = safe_regex(q)
         query["$or"] = [
             {"username": {"$regex": pattern, "$options": "i"}},
             {"display_name": {"$regex": pattern, "$options": "i"}},

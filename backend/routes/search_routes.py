@@ -1,5 +1,4 @@
 """Public global search for quick navigation."""
-import re
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 
@@ -8,13 +7,10 @@ from database import get_db
 from models import now_utc
 from services.public_phase import derive_public_phase
 from services.visibility import user_can_see
+from services.query_filters import safe_regex
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 STAFF_ROLES = {"moderator", "tournament_admin", "club_admin", "superadmin"}
-
-
-def _safe_regex(value: str | None, max_len: int = 80) -> str:
-    return re.escape((value or "").strip()[:max_len])
 
 
 def _parse_dt(value):
@@ -201,7 +197,7 @@ async def global_search(
     if len(needle) < 2:
         return {"q": needle, "items": []}
     db = get_db()
-    pattern = _safe_regex(needle)
+    pattern = safe_regex(needle)
     groups = [
         await _search_tournaments(db, pattern, user, limit),
         await _search_events(db, pattern, user, limit),
