@@ -38,6 +38,7 @@ from services.rate_limit import enforce_rate_limit
 from services.station_labels import attach_station_info
 from services.user_notifications import create_user_notification
 from services.v2_result_submission import submit_v2_result
+from services.competition_usage import engine_for_match, record_write
 
 router = APIRouter(prefix="/api/matches", tags=["matches"])
 STAFF_ROLES = {"moderator", "tournament_admin", "club_admin", "superadmin"}
@@ -196,6 +197,14 @@ def _score_report_resolution(match: dict, reports: list[dict]) -> dict | None:
 
 
 async def _audit_match_action(db, action: str, match: dict, actor_id: str | None, data: dict | None = None) -> None:
+    # Jede auditierte Match-Aenderung ist zugleich ein Schreibvorgang einer der
+    # beiden Engines. Die Messung hängt deshalb hier und nicht an jedem
+    # einzelnen Aufrufer.
+    await record_write(
+        engine_for_match(match),
+        action,
+        tournament_id=match.get("tournament_id"),
+    )
     await db.audit_logs.insert_one({
         "id": new_id(),
         "action": action,
