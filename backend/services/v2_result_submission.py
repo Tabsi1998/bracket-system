@@ -9,6 +9,7 @@ from models import now_utc
 from services.match_notifications import notify_match_result_confirmed
 from services.match_v2_results import build_v2_result_application, is_v2_result_replay, normalize_v2_results
 from services.station_runtime import release_station_for_match
+from services.competition_usage import GRAPH, record_write
 
 
 logger = logging.getLogger("tls.match_results")
@@ -48,6 +49,8 @@ async def _upsert_result_audit(
     force: bool,
     created_at: str,
 ) -> None:
+    # Gegenstueck zur Messung im klassischen Pfad: hier laeuft die Graph-Engine.
+    await record_write(GRAPH, audit_action, tournament_id=match.get("tournament_id"))
     await db.audit_logs.update_one(
         {"id": f"audit-{report_id}"},
         {"$setOnInsert": {

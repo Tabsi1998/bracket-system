@@ -130,6 +130,11 @@ async def init_indexes():
     # operations when multiple API workers receive the same action at once.
     await db.mutation_locks.create_index("resource", unique=True)
     await db.mutation_locks.create_index("expires_at", expireAfterSeconds=0)
+    # Which competition write path actually runs.  Needed to decide - with
+    # numbers instead of assumptions - when the classic store may be retired.
+    await db.competition_write_usage.create_index([("created_at", -1)])
+    await db.competition_write_usage.create_index([("engine", 1), ("capability", 1), ("created_at", -1)])
+    await db.competition_write_usage.create_index("created_at", expireAfterSeconds=180 * 24 * 3600)
     # Auth helpers
     await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
     await db.email_verification_tokens.create_index("token_hash", unique=True)

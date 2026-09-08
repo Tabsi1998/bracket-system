@@ -77,6 +77,7 @@ from bracket_extensions import (
 )
 from services.user_notifications import create_user_notification
 from services.query_filters import safe_regex
+from services.competition_usage import record_write
 
 router = APIRouter(prefix="/api/tournaments", tags=["tournaments"])
 logger = logging.getLogger("tls.tournament")
@@ -881,6 +882,14 @@ async def _enrich_game_identity(db, game: dict | None) -> dict | None:
 
 async def _audit_tournament_action(db, action: str, actor_id: str | None,
                                    target_id: str, data: dict | None = None) -> None:
+    # Strukturarbeit ist der zweite Schreibweg neben den Ergebnissen; welche
+    # Engine dabei bedient wurde, steht in den mitgegebenen Daten.
+    await record_write(
+        (data or {}).get("engine") or "unknown",
+        action,
+        tournament_id=target_id,
+        format_key=(data or {}).get("format"),
+    )
     await db.audit_logs.insert_one({
         "id": new_id(),
         "action": action,
