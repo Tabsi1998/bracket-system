@@ -1,6 +1,7 @@
 # Verbindlicher Restplan
 
-Stand: 7. September 2026. Ausgangspunkt: `main` nach PR #151 (`bab4dc5`).
+Stand: 8. September 2026. Sicherheitsbasis: `main` nach PR #152 (`0653a74`),
+anschließend das hier dokumentierte Wartungs- und Servercheck-Paket.
 
 Dieser Plan bestimmt die Reihenfolge. Ältere Roadmaps bleiben als Historie erhalten;
 ihre Checkboxen sind weder ein aktueller Release-Nachweis noch automatisch neue Aufträge.
@@ -12,7 +13,8 @@ drei unterschiedliche Zustände.** Ein fertiger Quellstand ist noch kein Go-live
 | Paket | Stand | Was ich umsetze | Wann abgeschlossen |
 | --- | --- | --- | --- |
 | R0 – Restplan | konsolidiert | Dieser Plan, eindeutige Verweise, historische Pläne kennzeichnen | Ein gemeinsamer Arbeitsstand ohne konkurrierende To-do-Listen |
-| R1 – Sicherheitsupdates | umgesetzt und lokal geprüft; Integration über PR #152 | Tiptap-Familie 3.30.4, CSS-Parser 6.1.4, Editor-Sicherheitsregression; Build, Tests und Audit | PR und Main grün; die beiden GitHub-Meldungen geschlossen |
+| R1 – Sicherheitsupdates | abgeschlossen mit PR #152; Main-CI/CodeQL grün, beide Meldungen geschlossen | Tiptap-/CSS-Sicherheitsfix und Regressionstests | Erreicht; bei jedem Release neu prüfen |
+| R1a – Routine-Wartung | im anschließenden Wartungspaket umgesetzt; gemeinsamer CI-Nachweis erforderlich | Vier Update-PRs zusammenführen, Editor-Pins angleichen, Java-Setup und Paketkompatibilität prüfen | Gemeinsamer PR und Main grün; ersetzte Update-PRs geschlossen |
 | R2 – Staging | vorbereitet, noch nicht eingerichtet | Ressourcen und Proxy prüfen; getrennten Testbetrieb auf vorhandenem Server einrichten | Eigene HTTPS-Subdomain, DB, Volumes, Secrets und Testnutzer; Produktion unverändert gesund |
 | R3 – Praxistest | offen | Testdaten/Abläufe vorbereiten, Fehler nachstellen und korrigieren | Du bestätigst die Pflichtfälle aus STAGING_ABNAHME.md; kritische Fehler behoben |
 | R4 – Release/Betrieb | offen | Backup/Restore nachweisen, Release festhalten, kontrolliert deployen, Rollback und Monitoring prüfen | Abnahme dokumentiert, Backup extern gesichert, Produktiv-Smoke grün |
@@ -22,7 +24,7 @@ R2 startet erst nach R1. R3 verwendet ausschließlich Staging-Testdaten. R4 ben�
 deine fachliche Freigabe und ein vereinbartes Wartungsfenster. R5 verändert bis dahin
 keine Bestandswettbewerbe und ist keine Voraussetzung für den Test der heutigen Plattform.
 
-### Nachweise dieses Pakets
+### Nachweise der Sicherheitsbasis PR #152
 
 - Vollständige lokale Nicht-Live-Backend-Suite: 368 bestanden, 19 übersprungen,
   277 Live-Tests abgewählt; darunter 17 neue Backup-Zieltests.
@@ -59,11 +61,29 @@ alle Integrationen eingerichtet sind oder die Benutzerabnahme erfolgt ist.
 - Erst nach erfolgreicher Integration die durch diesen Stand ersetzten
   Sicherheits-PRs #144/#148 schließen, sofern GitHub das nicht selbst erledigt.
 
-Die zum Planstand offenen Routine-PRs #141 (Actions), #143 (Mobile), #149 (Python)
-und #150 (Frontend-Gruppe) bleiben einzeln zu prüfen. Sie sind nicht automatisch
-Sicherheitsblocker. Vor jedem Release erneut auf neue Meldungen prüfen; keine
-pauschale Freigabe ungeprüfter Gruppenupdates. Die Expo-SDK-Migration (#117) bleibt
-ein eigenes Kompatibilitätspaket, nicht Teil dieses Patch-Updates.
+Die Sicherheits-PRs #144/#148 wurden nach Integration als ersetzt geschlossen und
+ihre Branches entfernt. Sie sind keine offene Arbeit mehr.
+
+### Anschließendes Wartungspaket R1a
+
+Die zuvor offenen Routine-PRs #141 (Actions), #143 (Mobile), #149 (Python) und #150
+(Frontend-Gruppe) sind in einem gemeinsamen Arbeitsstand zusammengeführt:
+
+- `actions/setup-java` v6; Temurin 21 wird nun auch in der normalen Mobile-CI geprüft,
+  ohne einen APK-Release oder eine Veröffentlichung auszulösen.
+- Mobile-Navigation/Axios gemäß #143, ohne Expo-/React-Native-SDK-Wechsel.
+- Neun Python-Updates gemäß #149, unter anderem Google Auth, Pydantic, PyMongo,
+  HEIF/RAW-Verarbeitung, Resend und Uvicorn.
+- Frontend-Gruppe gemäß #150; Tiptap einschließlich beider optionaler Menüpakete
+  konsistent auf 3.31.3. Ein zusätzlicher Test verhindert unterschiedlich gesetzte
+  Editor-/Menü-Versionen. CSS-Sicherheitsfix und Prototype-Regression bleiben erhalten.
+- Rein lesender Servercheck mit eigenen Regressionstests für den nächsten Betreiberschritt.
+
+Vor dem Merge müssen Backend-/Frontend-/Mobile-/Container-CI und CodeQL gemeinsam
+grün sein; danach Main prüfen und die vier ersetzten Update-PRs samt Branches schließen.
+Eine grüne Paketprüfung ist noch kein neuer APK-Build oder Gerätetest.
+Die Expo-SDK-Migration (#117) und der größere Competition-Umbau bleiben ausdrücklich
+eigene, nachgelagerte Pakete. Neue Dependency-Meldungen vor jedem Release erneut prüfen.
 
 ## R2 – nur ein Server vorhanden
 
@@ -75,6 +95,24 @@ ist nicht erforderlich und soll dafür nicht freigeschaltet werden.** Eine vorha
 Hosting-/Serverkonsole oder ein privater Zugang reicht. Wenn ich keinen direkten Zugriff
 habe, bereite ich die geprüften Befehle vor und der Betreiber führt sie dort aus.
 Staging dient der Update-Abnahme und schaltet keine zusätzliche Website-Funktion frei.
+
+**Der nächste konkrete Schritt ist nur eine Bestandsaufnahme:** In der vorhandenen
+Serverkonsole im aktualisierten Projektverzeichnis ausführen:
+
+```bash
+bash scripts/staging-preflight.sh
+```
+
+Die Ausgabe an mich zurückgeben. Der Check benötigt weder öffentliches SSH noch neue
+Ports, liest keine `.env`, installiert nichts und verändert keine Container/Daten.
+Er zeigt verfügbare Ressourcen, Belegung der vorgesehenen Testports, Docker/Compose-
+Verfügbarkeit und den Status der bekannten Plattformcontainer. Unbekannte Werte sind
+keine Freigabe. Ein abweichender/entfernter Docker-Kontext wird nicht als lokaler Host
+geprüft. Der Bericht enthält bewusst keine automatische Startentscheidung.
+
+Falls der Befehl auf dem Server noch nicht vorhanden ist: keine laufende Installation
+blind aktualisieren oder neu starten. Ich stelle dann nur die beiden Preflight-Dateien
+für den vorhandenen Konsolenzugang bereit. Ein Windows-Aufruf prüft nicht den Server.
 
 Bei ausreichender Reserve kann derselbe Host einen zweiten Stack betreiben:
 

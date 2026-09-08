@@ -5,6 +5,7 @@ Reihenfolge und Zuständigkeiten: [RESTPLAN.md](RESTPLAN.md).
 
 ## Technische Vorbereitung durch mich
 
+- [ ] Ausgabe von `bash scripts/staging-preflight.sh` aus der vorhandenen Serverkonsole ausgewertet.
 - [ ] Serverkapazität, Installationspfad, vorhandener Konsolen-/Privatzugang und Staging-Domain bestätigt.
 - [ ] Separates Checkout/Compose-Projekt; eigene DB, Uploads, Netzwerk und Secrets geprüft.
 - [ ] Staging-Ressourcen begrenzt; laufende Produktion vor/nach Start gesund.
