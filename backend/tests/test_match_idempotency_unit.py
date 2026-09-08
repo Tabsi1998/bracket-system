@@ -10,7 +10,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from models import MatchDispute, MatchScheduleProposalCreate, MatchScoreReport, MatchUpdate, MatchV2Update
 import routes.match_routes as match_routes
-import routes.match_v2_routes as match_v2_routes
+import routes.match_routes as match_routes
 
 
 class _MutableMatchCollection:
@@ -220,12 +220,12 @@ def test_v2_match_update_exact_replay_skips_write(monkeypatch):
     matches = _MutableMatchCollection(match)
     db = SimpleNamespace(matches_v2=matches)
 
-    monkeypatch.setattr(match_v2_routes, "get_db", lambda: db)
-    monkeypatch.setattr(match_v2_routes, "_ensure_match_tournament_unlocked", AsyncMock())
-    monkeypatch.setattr(match_v2_routes, "require_tournament_staff_permission", AsyncMock())
-    monkeypatch.setattr(match_v2_routes, "ensure_station_slot_available", AsyncMock())
+    monkeypatch.setattr(match_routes, "get_db", lambda: db)
+    monkeypatch.setattr(match_routes, "_ensure_match_tournament_unlocked", AsyncMock())
+    monkeypatch.setattr(match_routes, "require_tournament_staff_permission", AsyncMock())
+    monkeypatch.setattr(match_routes, "ensure_station_slot_available", AsyncMock())
 
-    result = asyncio.run(match_v2_routes.update_match_v2(
+    result = asyncio.run(match_routes.update_match(
         "match-v2",
         MatchV2Update(admin_note="bestehend"),
         {"id": "admin-1", "role": "tournament_admin"},

@@ -76,6 +76,10 @@ async def _game_lookup(db, game_ids: list[str]) -> dict[str, dict]:
 
 
 def _public_doc(server: dict, game: dict | None = None, include_admin_fields: bool = False) -> dict:
+    # Die amp_*-Namen stammen aus einer nie fertiggestellten AMP-Anbindung und
+    # werden von keinem Modell mehr geschrieben. Der Ausschluss bleibt trotzdem
+    # stehen: sollte ein Altdokument sie noch tragen, sind es Zugangsdaten und
+    # duerfen nicht oeffentlich werden. Block 2 fuehrt AMP sauber im Modell ein.
     hidden = {
         "_id", "access_secret",
         "amp_password", "amp_session_id", "amp_url", "amp_username", "amp_instance_name", "amp_module",

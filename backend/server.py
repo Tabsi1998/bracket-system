@@ -29,7 +29,6 @@ from routes.access_link_routes import router as access_link_router
 from routes.event_routes import router as event_router
 from routes.tournament_routes import router as tournament_router
 from routes.match_routes import router as match_router
-from routes.match_v2_routes import router as match_v2_router
 from routes.f1_routes import router as f1_router
 from routes.station_routes import router as station_router
 from routes.news_routes import router as news_router
@@ -209,7 +208,6 @@ app.include_router(access_link_router)
 app.include_router(event_router)
 app.include_router(tournament_router)
 app.include_router(match_router)
-app.include_router(match_v2_router)
 app.include_router(f1_router)
 app.include_router(station_router)
 app.include_router(news_router)

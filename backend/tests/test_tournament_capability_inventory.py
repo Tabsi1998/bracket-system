@@ -17,7 +17,6 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from routes.match_routes import router as match_router
-from routes.match_v2_routes import router as match_v2_router
 from routes.tournament_routes import router as tournament_router
 from services.competition_capabilities import (
     CAPABILITIES,
@@ -48,7 +47,7 @@ def live_endpoints(*routers) -> set[str]:
 
 def test_every_declared_endpoint_exists():
     """Nothing in the inventory may vanish unnoticed - this is the core promise."""
-    missing = sorted(declared_endpoints() - live_endpoints(*COMPETITION_ROUTERS, match_v2_router))
+    missing = sorted(declared_endpoints() - live_endpoints(*COMPETITION_ROUTERS))
     assert missing == [], (
         "Diese Fähigkeiten sind im Inventar beschrieben, aber im Code nicht mehr vorhanden. "
         "Entweder wurde eine Funktion entfernt, oder das Inventar muss angepasst werden."
@@ -101,24 +100,24 @@ def test_each_gap_is_classic_only_today(key):
     )
 
 
-# ---------------------------------------------------------------- Der tote Zwilling
+# ---------------------------------------------------------------- Der entfernte Zwilling
 
-def test_match_v2_router_is_a_duplicate_without_own_capabilities():
-    """Documents that /api/matches-v2/* mirrors /api/matches/* and owns nothing.
-
-    Block 1 removes this router. Once it is gone the test has to be removed with
-    it - which is exactly the reminder we want at that moment.
+def test_the_duplicated_match_router_stays_gone():
+    """In Block 1 entfernt: ein 618-Zeilen-Zwilling von match_routes, der unter
+    /api/matches-v2/* dieselben Pfade anbot und von keinem Client aufgerufen
+    wurde. Ein zweiter Match-Router waere genau der Zustand, den die
+    Vereinheitlichung beseitigen soll - deshalb bleibt die Abwesenheit geprueft.
     """
-    v2_paths = {path.split(" ", 1)[1] for path in live_endpoints(match_v2_router)}
-    classic_paths = {path.split(" ", 1)[1] for path in live_endpoints(match_router)}
+    routes_dir = pathlib.Path(__file__).resolve().parents[1] / "routes"
+    assert not (routes_dir / "match_v2_routes.py").exists(), (
+        "Der doppelte Match-Router ist zurueck. Ergebnis-Endpunkte gehoeren in match_routes."
+    )
 
-    mirrored = {path.replace("/api/matches-v2", "/api/matches") for path in v2_paths}
-    assert mirrored <= classic_paths, "Der v2-Router hat eigene Pfade bekommen - vor dem Entfernen prüfen."
-
-    declared = declared_endpoints()
-    assert not any(path.startswith("/api/matches-v2") for path in
-                   {endpoint.split(" ", 1)[1] for endpoint in declared}), (
-        "Keine Fähigkeit darf auf den v2-Router zeigen, sonst kann Block 1 ihn nicht entfernen."
+    paths = {path.split(" ", 1)[1] for path in live_endpoints(*COMPETITION_ROUTERS)}
+    duplicated = sorted(path for path in paths if path.startswith("/api/matches-v2/"))
+    assert duplicated == [], (
+        f"Diese Pfade duplizieren den Match-Router erneut: {duplicated}. "
+        "Der Leseendpunkt unter /api/tournaments ist davon nicht betroffen."
     )
 
 
