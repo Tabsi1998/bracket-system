@@ -105,6 +105,14 @@ services:
       - /var/cache/nginx:size=64m
       - /var/run:size=8m
       - /tmp:size=32m
+    cap_drop:
+      - ALL
+    # nginx startet als root, bindet Port 80 und setzt die Worker auf den nginx-User.
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETGID
+      - SETUID
     security_opt:
       - no-new-privileges:true
     mem_limit: 512m

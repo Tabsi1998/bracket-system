@@ -3,6 +3,7 @@ import os
 import pathlib
 import logging
 import json
+import re
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -203,7 +204,7 @@ async def mobile_client_logs(
         query["platform"] = platform.strip().lower()
     if user_id:
         query["user_id"] = user_id.strip()
-    search = q.strip()
+    search = re.escape(q.strip()[:80])
     if search:
         query["$or"] = [
             {"message": {"$regex": search, "$options": "i"}},

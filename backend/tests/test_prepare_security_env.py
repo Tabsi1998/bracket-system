@@ -47,9 +47,12 @@ exit 99
         python_shim = tmp_path / "bin/python3"
         python_shim.write_text(f'#!/usr/bin/env bash\nexec {shlex.quote(Path(sys.executable).as_posix())} "$@"\n', encoding="utf8", newline="\n")
         python_shim.chmod(0o755)
-    result = subprocess.run([BASH, "-c", 'export PATH="$PWD/bin:$PATH"; bash scripts/prepare-security-env.sh'],
+    # stdin must be detached: a lingering grandchild otherwise keeps the captured
+    # pipes open on Windows, so communicate() waits past the timeout even though
+    # the script itself already exited.
+    result = subprocess.run([BASH, "-c", 'export PATH="$PWD/bin:$PATH"; bash scripts/prepare-security-env.sh </dev/null'],
                             cwd=tmp_path, env={**os.environ, "SCENARIO": scenario},
-                            text=True, capture_output=True, timeout=30)
+                            text=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
     assert (result.returncode == 0) is success, result.stderr
     assert (tmp_path / "created").exists() is created
     assert "test-password" not in result.stdout + result.stderr
