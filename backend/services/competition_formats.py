@@ -106,7 +106,10 @@ _FORMAT_CAPABILITIES = {
         stage_generator_available=False,
         auto_match_limit="none",
         canonical_write_ready=False,
-        migration_note="Swiss currently uses separate round-generation routes and needs a versioned pairing strategy.",
+        migration_note=(
+            "Block 3: round generation serves both stores. No declarative schema on purpose - "
+            "each round depends on the previous one, so the structure grows round by round."
+        ),
     ),
     "groups": TournamentFormatCapability(
         key="groups",
@@ -117,11 +120,14 @@ _FORMAT_CAPABILITIES = {
         pairing_mode="scheduled_rounds",
         current_write_model="classic",
         initial_preview_engine="none",
-        rebuild_engine="none",
-        stage_generator_available=False,
+        rebuild_engine="stage",
+        stage_generator_available=True,
         auto_match_limit="none",
         canonical_write_ready=False,
-        migration_note="Groups currently use separate generation and standings routes.",
+        migration_note=(
+            "Block 3: the group stage now has a schema generator, so existing group "
+            "tournaments keep the classic store until they are migrated."
+        ),
     ),
     "ffa": TournamentFormatCapability(
         key="ffa",

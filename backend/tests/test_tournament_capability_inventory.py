@@ -77,7 +77,14 @@ def test_every_capability_has_a_german_label_and_engines():
 
 # ---------------------------------------------------------------- Bekannte Lücken
 
-EXPECTED_GAPS = {
+EXPECTED_GAPS: set[str] = set()
+
+# Mit Block 3 geschlossen. Die Namen bleiben stehen, weil eine leere Menge nicht
+# zeigt, was erreicht wurde - und weil ein Rueckfall hier auffallen soll.
+CLOSED_GAPS = {
+    "result.report",
+    "result.dispute",
+    "result.forfeit",
     "structure.swiss",
     "structure.groups",
 }
@@ -95,6 +102,16 @@ def test_each_gap_is_classic_only_today(key):
         f"{key} gilt als Lücke, ist aber nicht mehr nur klassisch verfuegbar. "
         "Wenn die Lücke geschlossen wurde: Engines hier und EXPECTED_GAPS anpassen."
     )
+
+
+@pytest.mark.parametrize("key", sorted(CLOSED_GAPS))
+def test_a_closed_gap_stays_available_in_both_engines(key):
+    capability = CAPABILITIES_BY_KEY[key]
+    assert set(capability.engines) == {CLASSIC, GRAPH}, (
+        f"{key} war einmal in beiden Engines verfuegbar und ist es nicht mehr. "
+        "Das waere ein Rueckschritt in der Vereinheitlichung."
+    )
+    assert not capability.is_gap, f"{key} ist wieder als Luecke markiert."
 
 
 # ---------------------------------------------------------------- Der entfernte Zwilling

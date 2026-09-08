@@ -349,6 +349,111 @@ def _auto_ffa_custom_schema(slot_count: int, match_size: int, qualifiers_per_mat
     return "\n".join(lines)
 
 
+def distribute_into_groups(slot_count: int, group_count: int) -> list[list[int]]:
+    """Spread the seeds across the groups in snake order.
+
+    Straight distribution would put seeds 1 and 2 in the same group; the snake
+    keeps the strongest apart, which is the point of seeding in the first place.
+    """
+    size = max(2, int(slot_count or 2))
+    count = max(1, min(int(group_count or 1), size // 2 or 1))
+    groups: list[list[int]] = [[] for _ in range(count)]
+    for index in range(size):
+        row, position = divmod(index, count)
+        target = position if row % 2 == 0 else count - 1 - position
+        groups[target].append(index + 1)
+    return [group for group in groups if group]
+
+
+def _round_robin_rounds(seeds: list[int]) -> list[list[tuple[int, int]]]:
+    """Everyone against everyone, spread over matchdays by the circle method.
+
+    Listing the pairings as one flat block would put every match of a group on
+    the same day. The circle method gives each participant exactly one match per
+    matchday, which is what a group stage has to be schedulable as.
+    """
+    players: list[int | None] = list(seeds)
+    if len(players) % 2 == 1:
+        players.append(None)
+    size = len(players)
+    rounds: list[list[tuple[int, int]]] = []
+    for _ in range(max(0, size - 1)):
+        pairs = [
+            (players[index], players[size - 1 - index])
+            for index in range(size // 2)
+            if players[index] is not None and players[size - 1 - index] is not None
+        ]
+        if pairs:
+            rounds.append(pairs)
+        players = [players[0]] + [players[-1]] + players[1:-1]
+    return rounds
+
+
+def group_label(number: int) -> str:
+    return chr(ord("A") + number - 1) if number <= 26 else str(number)
+
+
+def group_section(number: int) -> str:
+    """Section name for one group.
+
+    Deliberately the same ``group_<key>`` shape the classic engine writes into
+    ``bracket``, so the group standings find their matches without having to
+    know which engine produced them.
+    """
+    return f"group_{group_label(number)}"
+
+
+def _auto_groups_schema(slot_count: int, group_count: int) -> str:
+    """Build a group stage: each group its own section, round robin inside.
+
+    Group play is fully known in advance - who meets whom does not depend on
+    any result - so it fits the declarative schema without a dynamic generator.
+    """
+    groups = distribute_into_groups(slot_count, group_count)
+    lines: list[str] = []
+    key_index = 0
+    for number, seeds in enumerate(groups, start=1):
+        label = group_label(number)
+        lines.append(f"[{group_section(number)}]")
+        for matchday, pairs in enumerate(_round_robin_rounds(seeds), start=1):
+            lines.append(f"# Gruppe {label} - Runde {matchday}")
+            for left, right in pairs:
+                key = _match_key(key_index)
+                key_index += 1
+                lines.append(f"{key}=[{left},{right}]")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def groups_from_generated_matches(matches: list[dict]) -> list[dict]:
+    """Read back which participant ended up in which group.
+
+    The seeding happens inside the match builder, so rather than repeating that
+    logic the group roster is derived from the matches it produced - that way
+    the roster can never disagree with the fixtures.
+    """
+    rosters: dict[str, list[str]] = {}
+    for match in sorted(matches, key=lambda item: (item.get("round") or 0, item.get("order") or 0)):
+        section = str(match.get("section") or "")
+        if not section.startswith("group_"):
+            continue
+        roster = rosters.setdefault(section, [])
+        for slot in match.get("slots") or []:
+            registration_id = slot.get("registration_id")
+            if registration_id and registration_id not in roster:
+                roster.append(registration_id)
+    return [
+        {
+            "id": _new_id(),
+            "name": f"Gruppe {section[len('group_'):]}",
+            "group_key": section[len("group_"):],
+            "section": section,
+            "participant_ids": roster,
+        }
+        for section, roster in sorted(rosters.items())
+    ]
+
+
 def _auto_ffa_single_match_schema(slot_count: int) -> str:
     size = max(2, int(slot_count or 2))
     sources = ",".join(str(seed) for seed in range(1, size + 1))
@@ -418,6 +523,9 @@ def _resolve_schema(tournament: dict, stage: dict, registrations: list[dict], pr
             int(settings.get("match_size") or 4),
             int(settings.get("qualifiers_per_match") or 2),
         )
+    if (stage.get("stage_type") or "") == "round_robin_groups":
+        size = int(tournament.get("max_participants") or 2) if preview else max(2, len(registrations))
+        return _auto_groups_schema(size, int(settings.get("group_count") or 2))
     if (stage.get("stage_type") or "") == "simple":
         size = int(tournament.get("max_participants") or 2) if preview else max(2, len(registrations))
         return _auto_ffa_single_match_schema(size)

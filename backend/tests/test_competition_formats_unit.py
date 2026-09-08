@@ -42,7 +42,7 @@ def test_catalog_only_targets_known_stage_and_match_types():
         ("double_elim", "classic", "legacy", "stage", "double_elimination", "duel"),
         ("round_robin", "classic", "legacy", "legacy", "round_robin_groups", "duel"),
         ("swiss", "classic", "none", "none", "swiss", "duel"),
-        ("groups", "classic", "none", "none", "round_robin_groups", "duel"),
+        ("groups", "classic", "none", "stage", "round_robin_groups", "duel"),
         ("ffa", "graph", "stage", "stage", "simple", "ffa"),
         ("battle_royale", "graph", "stage", "stage", "simple", "ffa"),
         ("league", "classic", "legacy", "legacy", "league", "duel"),
