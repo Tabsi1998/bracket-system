@@ -32,6 +32,54 @@ def parse_host_port(address: str | None, default_port: int | None = None) -> tup
     return raw, default_port
 
 
+# Bei den meisten Spielen antwortet die Statusabfrage auf einem anderen Port als
+# das Spiel selbst. Wer nur die Spieleradresse eintraegt, fragt deshalb ins Leere
+# - genau der Grund, warum ARK, Rust und Palworld bisher nichts anzeigten. Diese
+# Vorgaben greifen nur, wenn kein Query-Port gepflegt ist.
+QUERY_PORT_HINTS: dict[str, int] = {
+    "ark": 27015,
+    "ark survival ascended": 27015,
+    "ark survival evolved": 27015,
+    "rust": 28016,
+    "valheim": 2457,
+    "conan exiles": 27015,
+    "dayz": 27016,
+    "squad": 27165,
+    "arma 3": 2303,
+    "project zomboid": 16261,
+    "7 days to die": 26900,
+    "unturned": 27016,
+}
+
+# Spielport -> ueblicher Query-Port, wenn der Spielname nichts hergibt.
+QUERY_PORT_BY_GAME_PORT: dict[int, int] = {
+    7777: 27015,   # ARK und andere Unreal-Titel
+    28015: 28016,  # Rust
+    2456: 2457,    # Valheim
+}
+
+
+def suggested_query_port(server: dict) -> int | None:
+    """Best guess for the status port when the operator only entered the game address.
+
+    Deliberately only a fallback: an explicitly maintained query port always
+    wins, because the operator knows their setup better than a table does.
+    """
+    explicit = server.get("query_port")
+    if explicit:
+        return int(explicit)
+
+    haystack = " ".join(str(server.get(field) or "") for field in ("game_name", "name", "game_id")).lower()
+    for needle, port in QUERY_PORT_HINTS.items():
+        if needle in haystack:
+            return port
+
+    _host, address_port = parse_host_port(server.get("address"))
+    if address_port and address_port in QUERY_PORT_BY_GAME_PORT:
+        return QUERY_PORT_BY_GAME_PORT[address_port]
+    return None
+
+
 def _host_port_candidate_details(server: dict, default_port: int | None = None) -> list[dict]:
     query_default = server.get("query_port") or default_port
     candidates: list[dict] = []
@@ -209,19 +257,18 @@ def _read_c_string(data: bytes, offset: int) -> tuple[str, int]:
     return data[offset:end].decode("utf-8", errors="replace"), end + 1
 
 
-def _a2s_query_sync(host: str, port: int, timeout: float) -> dict:
-    ensure_probe_target_allowed(host)
-    request = b"\xff\xff\xff\xffTSource Engine Query\x00"
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.settimeout(timeout)
-        sock.sendto(request, (host, port))
-        data, _ = sock.recvfrom(4096)
-        if len(data) >= 9 and data[4] == 0x41:
-            challenge = data[5:9]
-            sock.sendto(request + challenge, (host, port))
-            data, _ = sock.recvfrom(4096)
+def parse_a2s_info(data: bytes) -> dict:
+    """Read a full A2S_INFO answer.
+
+    The previous version stopped after the player counts and threw the rest
+    away - including the version string and the keyword field, which is exactly
+    where ARK, Rust and 7 Days To Die put their mod list, build number and PvP
+    setting. Everything after the counts is optional in practice, so each step
+    is guarded: a short or odd answer yields fewer fields instead of an error.
+    """
     if len(data) < 7 or data[:4] != b"\xff\xff\xff\xff" or data[4] != 0x49:
         raise GameServerProbeError("A2S_INFO hat keine gültige Antwort geliefert.")
+
     offset = 6
     name, offset = _read_c_string(data, offset)
     map_name, offset = _read_c_string(data, offset)
@@ -229,17 +276,141 @@ def _a2s_query_sync(host: str, port: int, timeout: float) -> dict:
     game_name, offset = _read_c_string(data, offset)
     if len(data) < offset + 5:
         raise GameServerProbeError("A2S_INFO-Antwort ist unvollständig.")
-    offset += 2
-    players = data[offset]
-    max_players = data[offset + 1]
-    return {
+
+    offset += 2  # App-ID
+    info = {
         "status": "online",
         "name": name,
         "game_name": game_name,
         "map_name": map_name,
-        "player_count": int(players),
-        "max_players": int(max_players),
+        "player_count": int(data[offset]),
+        "max_players": int(data[offset + 1]),
     }
+    offset += 2
+
+    if len(data) > offset:
+        info["bot_count"] = int(data[offset])
+        offset += 1
+    offset += 1  # Servertyp
+    offset += 1  # Betriebssystem
+    if len(data) > offset:
+        info["password_protected"] = data[offset] == 1
+        offset += 1
+    if len(data) > offset:
+        info["vac_enabled"] = data[offset] == 1
+        offset += 1
+
+    try:
+        version, offset = _read_c_string(data, offset)
+        if version:
+            info["version"] = version
+    except GameServerProbeError:
+        return info
+
+    if len(data) <= offset:
+        return info
+    extra_flags = data[offset]
+    offset += 1
+    if extra_flags & 0x80:
+        offset += 2  # Spielport
+    if extra_flags & 0x10:
+        offset += 8  # SteamID
+    if extra_flags & 0x40:
+        offset += 2
+        try:
+            _spectator_name, offset = _read_c_string(data, offset)
+        except GameServerProbeError:
+            return info
+    if extra_flags & 0x20:
+        try:
+            keywords, offset = _read_c_string(data, offset)
+        except GameServerProbeError:
+            return info
+        tags = [tag.strip() for tag in keywords.split(",") if tag.strip()]
+        if tags:
+            info["server_tags"] = tags
+    return info
+
+
+def parse_a2s_rules(data: bytes) -> dict:
+    """Read an A2S_RULES answer into plain key/value pairs.
+
+    This is where the genuinely game-specific values live: world day and
+    difficulty for 7 Days To Die, map size and seed for Rust.
+    """
+    if len(data) < 7 or data[:4] != b"\xff\xff\xff\xff" or data[4] != 0x45:
+        raise GameServerProbeError("A2S_RULES hat keine gültige Antwort geliefert.")
+    count = int.from_bytes(data[5:7], "little")
+    offset = 7
+    rules: dict[str, str] = {}
+    for _ in range(count):
+        try:
+            key, offset = _read_c_string(data, offset)
+            value, offset = _read_c_string(data, offset)
+        except GameServerProbeError:
+            break
+        if key:
+            rules[key] = value
+    return rules
+
+
+def parse_a2s_players(data: bytes) -> list[str]:
+    """Read the player names from an A2S_PLAYER answer.
+
+    Only the names are kept. Scores and play time would be personal data of
+    guests on a club server without any display purpose here.
+    """
+    if len(data) < 6 or data[:4] != b"\xff\xff\xff\xff" or data[4] != 0x44:
+        raise GameServerProbeError("A2S_PLAYER hat keine gültige Antwort geliefert.")
+    count = int(data[5])
+    offset = 6
+    names: list[str] = []
+    for _ in range(count):
+        if len(data) <= offset:
+            break
+        offset += 1  # Index
+        try:
+            name, offset = _read_c_string(data, offset)
+        except GameServerProbeError:
+            break
+        offset += 8  # Punkte und Spielzeit
+        if name:
+            names.append(name)
+    return names
+
+
+def _a2s_exchange(sock, host: str, port: int, header: bytes, payload: bytes = b"\xff\xff\xff\xff") -> bytes:
+    """Send one A2S request and answer the challenge if the server asks for one."""
+    sock.sendto(header + payload, (host, port))
+    data, _ = sock.recvfrom(4096)
+    if len(data) >= 9 and data[4] == 0x41:
+        challenge = data[5:9]
+        sock.sendto(header + challenge, (host, port))
+        data, _ = sock.recvfrom(4096)
+    return data
+
+
+def _a2s_query_sync(host: str, port: int, timeout: float) -> dict:
+    ensure_probe_target_allowed(host)
+    info_header = b"\xff\xff\xff\xffTSource Engine Query\x00"
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(timeout)
+        data = _a2s_exchange(sock, host, port, info_header, b"")
+        info = parse_a2s_info(data)
+
+        # Regeln und Spielerliste sind Zusatznutzen: antwortet ein Server darauf
+        # nicht, bleibt die Grundabfrage trotzdem gültig.
+        for header, parser, key in (
+            (b"\xff\xff\xff\xff\x56", parse_a2s_rules, "rules"),
+            (b"\xff\xff\xff\xff\x55", parse_a2s_players, "player_names"),
+        ):
+            try:
+                extra = parser(_a2s_exchange(sock, host, port, header))
+            except (GameServerProbeError, OSError, IndexError):
+                continue
+            if extra:
+                info[key] = extra
+    return info
 
 
 def _tcp_reachable_sync(host: str, port: int, timeout: float) -> dict:
@@ -271,13 +442,23 @@ async def probe_minecraft(server: dict, timeout: float = 5.0) -> dict:
 
 
 async def probe_steam_a2s(server: dict, timeout: float = 3.0) -> dict:
-    candidates = _host_port_candidates(server, server.get("query_port"))
+    # Ohne gepflegten Query-Port wird der uebliche Port des Spiels ergaenzt,
+    # sonst landet die Abfrage auf dem Spielport und bleibt ohne Antwort.
+    fallback_port = suggested_query_port(server)
+    candidates = _host_port_candidates(server, server.get("query_port") or fallback_port)
+    if fallback_port:
+        for host, _port in list(candidates):
+            if (host, fallback_port) not in candidates:
+                candidates.append((host, fallback_port))
     if not candidates:
         raise GameServerProbeError("Steam/A2S braucht Host und Query-Port.")
     errors = []
     for host, port in candidates:
         try:
-            return await asyncio.to_thread(_a2s_query_sync, host, port, timeout)
+            result = await asyncio.to_thread(_a2s_query_sync, host, port, timeout)
+            if port != server.get("query_port"):
+                result.setdefault("sync_note", f"Statusabfrage beantwortet auf Port {port}.")
+            return result
         except Exception as exc:
             errors.append(f"{host}:{port}: {exc}")
     raise GameServerProbeError("Steam/A2S fehlgeschlagen. " + " | ".join(errors))

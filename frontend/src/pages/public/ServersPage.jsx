@@ -7,6 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { GameServerIcon } from "@/components/tls/GameServerIcon";
 import { safeResourceUrl, serverResourceLabels } from "@/lib/serverResources";
+import { ruleFacts, serverTags } from "@/lib/serverFacts";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
@@ -237,8 +238,10 @@ function ServerCard({ server }) {
     { label: "Spieler", value: playerText(server) },
     server.map_name ? { label: "Karte", value: server.map_name } : null,
     server.version ? { label: "Version", value: server.version } : null,
+    ...ruleFacts(server.rules),
     server.last_sync_at ? { label: "Stand", value: formatDateTime(server.last_sync_at) } : null,
   ].filter(Boolean);
+  const tags = serverTags(server);
 
   return (
     <article className={`group relative overflow-hidden border rounded-sm bg-[#101010] min-h-[19rem] flex flex-col transition ${status === "maintenance" ? "border-[#FFD700]/45" : "border-white/10 hover:border-white/20"}`}>
@@ -289,6 +292,19 @@ function ServerCard({ server }) {
         <div className="mt-5 grid grid-cols-2 gap-x-5 gap-y-3 text-xs">
           {quickFacts.map((fact) => <Info key={fact.label} label={fact.label} value={fact.value} />)}
         </div>
+
+        {tags.length > 0 && (
+          <div className="mt-4" data-testid="server-tags">
+            <div className="text-[10px] uppercase tracking-widest text-white/35 font-bold mb-2">Server-Merkmale</div>
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((tag) => (
+                <span key={tag} className="px-2 py-0.5 border border-white/10 bg-white/5 rounded-sm text-[11px] text-white/70 break-all">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {max > 0 && (
           <div className="mt-5">

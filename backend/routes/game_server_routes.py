@@ -380,7 +380,9 @@ async def _sync_one(db, server: dict) -> dict:
         locked_status = "maintenance" if _maintenance_active(server) else "planned" if server.get("status") == "planned" else None
         if locked_status:
             updates["status"] = locked_status
-        for key in ("status", "player_count", "max_players", "player_names", "map_name", "version", "game_name", "detected_sync_provider"):
+        for key in ("status", "player_count", "max_players", "player_names", "map_name", "version",
+                    "game_name", "detected_sync_provider",
+                    "server_tags", "password_protected", "bot_count", "vac_enabled", "rules"):
             if key in result and result[key] is not None:
                 if key == "status" and locked_status:
                     continue
