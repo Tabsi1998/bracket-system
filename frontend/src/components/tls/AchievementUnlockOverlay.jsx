@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trophy, X, Volume2, VolumeX } from "lucide-react";
 import { AchievementIcon } from "@/components/tls/AchievementIcon";
@@ -69,12 +70,17 @@ export function AchievementUnlockOverlay({ tiers = [], onClose, heading, sub }) 
     return () => clearTimeout(timer);
   }, [open, paused, onClose]);
 
+  const cardRef = useModalBehavior(!!open, () => onClose?.());
+
   return (
     <AnimatePresence>
       {open && (
         <motion.div
           data-testid="achievement-unlock-overlay"
           className="fixed inset-0 z-[120] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={heading || "Erfolg freigeschaltet"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -127,6 +133,8 @@ export function AchievementUnlockOverlay({ tiers = [], onClose, heading, sub }) 
               y: { type: "spring", stiffness: 220, damping: 20 },
               x: { delay: 0.5, duration: 0.55, ease: "easeOut" },
             }}
+            ref={cardRef}
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
             onMouseEnter={() => setPaused(true)}
             onMouseLeave={() => setPaused(false)}

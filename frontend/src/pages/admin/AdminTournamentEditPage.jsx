@@ -204,6 +204,7 @@ export default function AdminTournamentEditPage() {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [t, setT] = useState(null);
+  const [loadError, setLoadError] = useState("");
   const [regs, setRegs] = useState([]);
   const [bracket, setBracket] = useState(null);
   const [tab, setTab] = useState(searchParams.get("tab") || "participants");
@@ -270,14 +271,20 @@ export default function AdminTournamentEditPage() {
       catch { setGroups([]); }
     }
     if (isAdmin) {
-      const [{ data: s }, { data: u }, { data: teamRows }] = await Promise.all([
-        api.get(`/tournaments/${id}/staff`),
-        api.get("/users"),
-        api.get("/teams"),
-      ]);
-      setStaff(s || []);
-      setUsers(u || []);
-      setTeams(teamRows || []);
+      try {
+        const [{ data: s }, { data: u }, { data: teamRows }] = await Promise.all([
+          api.get(`/tournaments/${id}/staff`),
+          api.get("/users"),
+          api.get("/teams"),
+        ]);
+        setStaff(s || []);
+        setUsers(u || []);
+        setTeams(teamRows || []);
+      } catch {
+        setStaff([]);
+        setUsers([]);
+        setTeams([]);
+      }
     } else if (isModerator) {
       try {
         const [{ data: u }, { data: teamRows }] = await Promise.all([
@@ -293,8 +300,14 @@ export default function AdminTournamentEditPage() {
     }
   }, [id, isAdmin, isModerator]);
 
-  useEffect(() => { load(); }, [load]);
-  useApiInvalidation(load, ["tournaments", "matches", "stations"]);
+  // Ohne diesen Fang bleibt die Seite bei unerreichbarem Backend stumm auf
+  // "Lade…" stehen und die Rejection landet unbehandelt in der Konsole.
+  const loadSafely = useCallback(() => load()
+    .then(() => setLoadError(""))
+    .catch((error) => setLoadError(formatRequestError(error, "Turnier konnte nicht geladen werden."))), [load]);
+
+  useEffect(() => { loadSafely(); }, [loadSafely]);
+  useApiInvalidation(loadSafely, ["tournaments", "matches", "stations"]);
 
   const autoAssignStations = async ({ silent = false, reload = true } = {}) => {
     if (!stations.length) return null;
@@ -602,7 +615,13 @@ export default function AdminTournamentEditPage() {
     }
   };
 
-  if (!t) return <AdminLayout><div className="p-10 text-white/40">Lade…</div></AdminLayout>;
+  if (!t) return (
+    <AdminLayout>
+      {loadError
+        ? <div className="p-10 text-[#FF3B30]" data-testid="admin-tr-load-error">{loadError}</div>
+        : <div className="p-10 text-white/40">Lade…</div>}
+    </AdminLayout>
+  );
   const hasFlexibleStructure = stages.length > 0 || matchesV2.length > 0;
   const canRecordResults = ["live", "paused"].includes(t.status);
   const availableTabs = [
