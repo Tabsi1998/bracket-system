@@ -5,6 +5,7 @@
     "jsx": "react-native",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": ["jest", "node", "react"]
   }
 }
