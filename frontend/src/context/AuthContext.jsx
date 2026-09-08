@@ -93,7 +93,14 @@ export function AuthProvider({ children }) {
     } catch (e) {
       const msg = formatApiError(e.response?.data?.detail) || e.message;
       setError(msg);
-      return { ok: false, error: msg };
+      return {
+        ok: false,
+        error: msg,
+        verificationRequired: e.response?.status === 403 && (
+          e.response?.headers?.["x-auth-error"] === "email_verification_required"
+          || /^E-Mail-Adresse noch nicht bestätigt\./.test(msg)
+        ),
+      };
     }
   };
 

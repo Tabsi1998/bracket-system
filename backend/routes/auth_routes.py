@@ -13,7 +13,7 @@ from auth import (
     set_auth_cookies, clear_auth_cookies, get_current_user, get_optional_user, _decode,
     hash_token, refresh_expires_at, as_utc_datetime,
 )
-from email_service import send_template
+from email_service import send_template, _site_base_url
 from models import (
     UserRegister, UserLogin, ForgotPasswordBody, ResetPasswordBody, ChangePasswordBody,
     now_utc, new_id,
@@ -137,10 +137,9 @@ async def _record_registration_consents(
 async def _send_email_verification(db, user: dict) -> None:
     token = secrets.token_urlsafe(32)
     now = now_utc()
-    await db.email_verification_tokens.update_many(
-        {"user_id": user["id"], "used": False},
-        {"$set": {"used": True, "invalidated_at": now}},
-    )
+    # Keep earlier, unexpired links usable until one is redeemed. A public
+    # resend request (or a delayed/failed mail) must not invalidate the link
+    # already in the account owner's inbox. verify_email consumes all links.
     await db.email_verification_tokens.insert_one({
         "id": new_id(),
         "token_hash": hash_token(token),
@@ -149,8 +148,8 @@ async def _send_email_verification(db, user: dict) -> None:
         "created_at": now,
         "expires_at": now + timedelta(hours=24),
     })
-    frontend = os.environ.get("FRONTEND_URL", "").rstrip("/")
-    verification_url = f"{frontend}/verify-email?token={token}" if frontend else f"/verify-email?token={token}"
+    frontend = await _site_base_url()
+    verification_url = f"{frontend}/verify-email?token={token}"
     await send_template(
         "email_verification",
         user["email"],
@@ -631,7 +630,11 @@ async def login(body: UserLogin, request: Request, response: Response):
     if user.get("is_banned"):
         raise HTTPException(status_code=403, detail="Account gesperrt")
     if user.get("email_verified") is False:
-        raise HTTPException(status_code=403, detail="E-Mail-Adresse noch nicht bestätigt. Bitte prüfe dein Postfach.")
+        raise HTTPException(
+            status_code=403,
+            detail="E-Mail-Adresse noch nicht bestätigt. Bitte fordere einen Bestätigungslink an. Das ist auch für bestehende Konten erforderlich.",
+            headers={"X-Auth-Error": "email_verification_required"},
+        )
 
     await _clear_failed(db, identifier)
     if _requires_admin_mfa(user):
@@ -908,7 +911,11 @@ async def mobile_login(body: UserLogin, request: Request):
     if user.get("is_banned"):
         raise HTTPException(status_code=403, detail="Account gesperrt")
     if user.get("email_verified") is False:
-        raise HTTPException(status_code=403, detail="E-Mail-Adresse noch nicht bestätigt. Bitte prüfe dein Postfach.")
+        raise HTTPException(
+            status_code=403,
+            detail="E-Mail-Adresse noch nicht bestätigt. Bitte fordere einen Bestätigungslink an. Das ist auch für bestehende Konten erforderlich.",
+            headers={"X-Auth-Error": "email_verification_required"},
+        )
 
     await _clear_failed(db, identifier)
     if _requires_admin_mfa(user):
@@ -1089,9 +1096,9 @@ async def resend_verification(body: ForgotPasswordBody, request: Request):
     await enforce_rate_limit(request, "auth:verify-resend:ip", limit=6, window_seconds=3600)
     await enforce_rate_limit(request, "auth:verify-resend:email", limit=3, window_seconds=3600, subject=email)
     user = await db.users.find_one({"email": email})
-    if user and user.get("email_verified") is False and user.get("is_active") is not False:
+    if user and user.get("email_verified") is False and user.get("is_active") is not False and not user.get("is_banned"):
         await _send_email_verification(db, user)
-    return {"ok": True, "message": "Falls eine Bestätigung aussteht, wurde ein neuer Link gesendet."}
+    return {"ok": True, "message": "Falls eine Bestätigung aussteht, wurde der Versand angefordert. Bitte prüfe in einigen Minuten dein Postfach und den Spam-Ordner."}
 
 
 @router.post("/verify-email")
