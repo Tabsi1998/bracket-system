@@ -26,6 +26,13 @@ class _MutableMatchCollection:
         self.document.update(deepcopy(update.get("$set") or {}))
 
 
+class _EmptyCollection:
+    """Der andere Speicher, in dem dieses Match nicht liegt."""
+
+    async def find_one(self, _query, _projection=None):
+        return None
+
+
 def test_dispute_exact_replay_skips_write_audit_and_badge(monkeypatch):
     match = {
         "id": "match-1",
@@ -34,7 +41,7 @@ def test_dispute_exact_replay_skips_write_audit_and_badge(monkeypatch):
         "disputes": [{"user_id": "user-1", "reason": "Falsches Ergebnis"}],
     }
     matches = _MutableMatchCollection(match)
-    db = SimpleNamespace(matches=matches)
+    db = SimpleNamespace(matches=matches, matches_v2=_EmptyCollection())
     audit = AsyncMock()
 
     monkeypatch.setattr(match_routes, "get_db", lambda: db)
@@ -65,7 +72,7 @@ def test_forfeit_exact_replay_skips_advancement_and_notifications(monkeypatch):
         "admin_decision_note": "Nicht erschienen",
     }
     matches = _MutableMatchCollection(match)
-    db = SimpleNamespace(matches=matches)
+    db = SimpleNamespace(matches=matches, matches_v2=_EmptyCollection())
     advance = Mock(side_effect=AssertionError("replay must not advance again"))
     notify = AsyncMock()
 
@@ -102,7 +109,7 @@ def test_non_result_update_on_completed_match_does_not_repeat_completion_hooks(m
         "admin_note": None,
     }
     matches = _MutableMatchCollection(match)
-    db = SimpleNamespace(matches=matches)
+    db = SimpleNamespace(matches=matches, matches_v2=_EmptyCollection())
     advance = Mock(side_effect=AssertionError("non-result update must not advance again"))
     audit = AsyncMock()
 
@@ -148,6 +155,7 @@ def test_score_report_exact_replay_skips_second_report_and_audit(monkeypatch):
     matches = _MutableMatchCollection(match)
     db = SimpleNamespace(
         matches=matches,
+        matches_v2=_EmptyCollection(),
         tournaments=SimpleNamespace(find_one=AsyncMock(return_value={})),
         tournament_stages=SimpleNamespace(find_one=AsyncMock()),
         tournament_registrations=SimpleNamespace(find_one=AsyncMock(return_value={"id": "reg-a"})),

@@ -38,6 +38,15 @@ from services.rate_limit import enforce_rate_limit
 from services.station_labels import attach_station_info
 from services.user_notifications import create_user_notification
 from services.v2_result_submission import submit_v2_result
+from services.v2_match_flows import (
+    dispute_entry,
+    is_duplicate_dispute,
+    is_duplicate_report,
+    report_consensus,
+    report_entry,
+    results_for_forfeit,
+    validate_forfeit_note,
+)
 from services.competition_usage import engine_for_match, record_write
 
 router = APIRouter(prefix="/api/matches", tags=["matches"])
@@ -725,7 +734,7 @@ async def create_schedule_proposal(match_id: str, body: MatchScheduleProposalCre
         "updated_at": now_iso,
     }
     await db.match_schedule_proposals.insert_one(doc)
-    await db[collection].update_one({"id": match_id}, {"$set": {
+    await getattr(db, collection).update_one({"id": match_id}, {"$set": {
         "schedule_status": "proposed",
         "schedule_deadline_at": _schedule_deadline(match, tournament),
         "updated_at": now_iso,
@@ -791,7 +800,7 @@ async def decide_schedule_proposal(match_id: str, proposal_id: str, body: MatchS
             "decision_note": normalized_note,
             "updated_at": now_iso,
         }})
-        await db[collection].update_one({"id": match_id}, {"$set": {
+        await getattr(db, collection).update_one({"id": match_id}, {"$set": {
             "scheduled_at": scheduled_at,
             "schedule_status": "accepted",
             "status": "scheduled" if match.get("status") in {"pending", "ready", "preview"} else match.get("status"),
@@ -805,7 +814,7 @@ async def decide_schedule_proposal(match_id: str, proposal_id: str, body: MatchS
             "decision_note": normalized_note,
             "updated_at": now_iso,
         }})
-        await db[collection].update_one({"id": match_id}, {"$set": {"schedule_status": "declined", "updated_at": now_iso}})
+        await getattr(db, collection).update_one({"id": match_id}, {"$set": {"schedule_status": "declined", "updated_at": now_iso}})
         return {"ok": True, "status": "declined", "idempotent_replay": False}
     if not body.scheduled_at:
         raise HTTPException(status_code=400, detail="Gegenvorschlag braucht Datum und Uhrzeit")
@@ -832,7 +841,7 @@ async def decide_schedule_proposal(match_id: str, proposal_id: str, body: MatchS
         "updated_at": now_iso,
     }
     await db.match_schedule_proposals.insert_one(counter)
-    await db[collection].update_one({"id": match_id}, {"$set": {
+    await getattr(db, collection).update_one({"id": match_id}, {"$set": {
         "schedule_status": "proposed",
         "schedule_deadline_at": _schedule_deadline(match),
         "updated_at": now_iso,
@@ -1113,18 +1122,78 @@ async def update_match(match_id: str, body: MatchUpdate, me: dict = Depends(get_
     return m
 
 
+async def _report_v2(db, match: dict, body: MatchScoreReport, me: dict) -> dict:
+    """Take one participant's view of a graph match result.
+
+    Nothing is decided by a single report. Only when two different participants
+    submit the same ranking does the result get written - the same rule the
+    classic flow follows, so a player cannot rank themselves into the next
+    round on their own.
+    """
+    if not body.results:
+        raise HTTPException(
+            status_code=422,
+            detail="Für dieses Match wird eine Platzierungsliste gemeldet, keine zwei Punktstände.",
+        )
+    my_registration = await _user_registration_for_match(match, me)
+    if not my_registration:
+        raise HTTPException(status_code=403, detail="Nicht Teilnehmer dieses Matches")
+
+    results = [entry.model_dump(exclude_none=True) for entry in body.results]
+    if is_duplicate_report(match, me["id"], results):
+        match.pop("_id", None)
+        match["idempotent_replay"] = True
+        return match
+
+    entry = report_entry(me["id"], my_registration["id"], results)
+    await getattr(db, "matches_v2").update_one(
+        {"id": match["id"]},
+        {"$push": {"reports": entry}, "$set": {"updated_at": now_utc().isoformat()}},
+    )
+    await _audit_match_action(db, "match.result.report", match, me.get("id"), {
+        "result_count": len(results),
+    })
+
+    stored = await getattr(db, "matches_v2").find_one({"id": match["id"]}, {"_id": 0}) or match
+    agreed = report_consensus(stored.get("reports") or [])
+    if not agreed:
+        stored["idempotent_replay"] = False
+        stored["awaiting_confirmation"] = True
+        return stored
+
+    try:
+        outcome = await submit_v2_result(
+            db,
+            stored,
+            agreed,
+            actor_id=me["id"],
+            proof_url=body.screenshot_url,
+            note=body.note,
+            force=False,
+            audit_action="match.result.auto_resolution",
+        )
+    except MatchV2ResultError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    confirmed = outcome.get("match") or stored
+    confirmed["idempotent_replay"] = bool(outcome.get("idempotent_replay"))
+    confirmed["awaiting_confirmation"] = False
+    return confirmed
+
+
 @router.post("/{match_id}/report")
 async def report_score(match_id: str, body: MatchScoreReport, me: dict = Depends(get_current_user),
                        _mutation: None = Depends(_serialized_match_write)):
     db = get_db()
-    m = await db.matches.find_one({"id": match_id})
-    if not m:
-        raise HTTPException(status_code=404)
+    m, collection = await _find_match_any(match_id)
     await _ensure_match_tournament_unlocked(db, m)
     await ensure_tournament_accepts_results(db, m["tournament_id"])
     tournament = await db.tournaments.find_one({"id": m.get("tournament_id")}, {"_id": 0})
     stage = await db.tournament_stages.find_one({"id": m.get("stage_id")}, {"_id": 0}) if m.get("stage_id") else None
-    policy = _match_policy(m, "matches", tournament, stage)
+    policy = _match_policy(m, collection, tournament, stage)
+    if collection == "matches_v2":
+        if not _players_can_report(policy):
+            raise HTTPException(status_code=403, detail="Ergebnisse werden für dieses Match durch die Turnierleitung eingetragen")
+        return await _report_v2(db, m, body, me)
     if not _players_can_report(policy):
         raise HTTPException(status_code=403, detail="Ergebnisse werden für dieses Match durch die Turnierleitung eingetragen")
     # Verify user is participant
@@ -1203,29 +1272,25 @@ async def report_score(match_id: str, body: MatchScoreReport, me: dict = Depends
 async def dispute(match_id: str, body: MatchDispute, me: dict = Depends(get_current_user),
                   _mutation: None = Depends(_serialized_match_write)):
     db = get_db()
-    m = await db.matches.find_one({"id": match_id})
-    if not m:
-        raise HTTPException(status_code=404, detail="Match nicht gefunden")
+    # Engine-unabhaengig: ein Einspruch muss in beiden Speichern moeglich sein,
+    # sonst kann ein Turnier im Graph-System nicht vollstaendig gespielt werden.
+    m, collection = await _find_match_any(match_id)
     await _ensure_match_tournament_unlocked(db, m)
     if not _is_staff(me) and not await _user_registration_for_match(m, me):
         raise HTTPException(status_code=403, detail="Nicht Teilnehmer dieses Matches")
     reason = body.reason.strip()
-    if any(
-        item.get("user_id") == me["id"] and (item.get("reason") or "").strip() == reason
-        for item in m.get("disputes") or []
-    ):
+    if is_duplicate_dispute(m, me["id"], reason):
         m.pop("_id", None)
         m["idempotent_replay"] = True
         return m
-    await db.matches.update_one({"id": match_id}, {
-        "$push": {"disputes": {"user_id": me["id"], "reason": reason,
-                                 "at": now_utc().isoformat()}},
+    await getattr(db, collection).update_one({"id": match_id}, {
+        "$push": {"disputes": dispute_entry(me["id"], reason)},
         "$set": {"status": "disputed", "updated_at": now_utc().isoformat()},
     })
     await _audit_match_action(db, "match.dispute.open", m, me.get("id"), {
         "reason_length": len((body.reason or "").strip()),
     })
-    m = await db.matches.find_one({"id": match_id}, {"_id": 0})
+    m = await getattr(db, collection).find_one({"id": match_id}, {"_id": 0})
     # Phase B v4.1: trigger negative achievement for the user who disputed
     try:
         from badges import on_dispute_opened
@@ -1236,6 +1301,53 @@ async def dispute(match_id: str, body: MatchDispute, me: dict = Depends(get_curr
     return m
 
 
+async def _forfeit_v2(db, match: dict, body: dict, me: dict, force: bool) -> dict:
+    """Record a walkover on a graph match.
+
+    Which participant gave up can be stated directly, or derived when only the
+    survivor is named and the match has exactly two sides - that keeps the call
+    identical to the classic one for the common duel case.
+    """
+    try:
+        note = validate_forfeit_note(body.get("note") or body.get("reason"))
+        forfeiting = (body.get("forfeit_registration_id") or "").strip()
+        if not forfeiting:
+            survivor = (body.get("winner_id") or "").strip()
+            others = [item for item in _registration_ids_for_match(match) if item != survivor]
+            if not survivor or len(others) != 1:
+                raise MatchV2ResultError(
+                    "Bitte forfeit_registration_id angeben - bei mehr als zwei Teilnehmern "
+                    "lässt sich der Aufgebende nicht aus dem Sieger ableiten."
+                )
+            forfeiting = others[0]
+        results = results_for_forfeit(match, forfeiting)
+    except MatchV2ResultError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    outcome = await submit_v2_result(
+        db,
+        match,
+        results,
+        actor_id=me["id"],
+        proof_url=None,
+        note=note,
+        force=force,
+        audit_action="match.forfeit",
+    )
+    updated = outcome.get("match") or match
+    await getattr(db, "matches_v2").update_one({"id": match["id"]}, {"$set": {
+        "status": "forfeit",
+        "forfeit_registration_id": forfeiting,
+        "admin_decision_note": note,
+        "admin_decision_by": me["id"],
+        "admin_decision_at": now_utc().isoformat(),
+        "updated_at": now_utc().isoformat(),
+    }})
+    result = await getattr(db, "matches_v2").find_one({"id": match["id"]}, {"_id": 0}) or updated
+    result["idempotent_replay"] = bool(outcome.get("idempotent_replay"))
+    return result
+
+
 @router.post("/{match_id}/forfeit")
 async def forfeit(match_id: str, body: dict, me: dict = Depends(get_current_user),
                   force: bool = False,
@@ -1244,14 +1356,18 @@ async def forfeit(match_id: str, body: dict, me: dict = Depends(get_current_user
 
     P0 — Penalty Transparency: a justification note (≥5 chars) is mandatory and
     will be visible to the affected player in /api/penalties/me.
+
+    Graph matches take the same route: there the walkover is expressed as an
+    ordinary ranking with the forfeiting participant last, so advancement,
+    standings and exports need no special case for it.
     """
     db = get_db()
-    m = await db.matches.find_one({"id": match_id})
-    if not m:
-        raise HTTPException(status_code=404)
+    m, collection = await _find_match_any(match_id)
     await _ensure_match_tournament_unlocked(db, m)
     await ensure_tournament_accepts_results(db, m["tournament_id"])
     await _require_result_permission(me, m)
+    if collection == "matches_v2":
+        return await _forfeit_v2(db, m, body, me, force)
     note = (body.get("note") or body.get("reason") or "").strip()
     if len(note) < 5:
         raise HTTPException(

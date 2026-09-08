@@ -80,9 +80,6 @@ def test_every_capability_has_a_german_label_and_engines():
 EXPECTED_GAPS = {
     "structure.swiss",
     "structure.groups",
-    "result.report",
-    "result.dispute",
-    "result.forfeit",
 }
 
 

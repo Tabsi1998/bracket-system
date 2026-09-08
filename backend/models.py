@@ -611,8 +611,12 @@ MatchStatus = Literal[
 
 
 class MatchScoreReport(BaseModel):
-    score_a: int = Field(ge=0)
-    score_b: int = Field(ge=0)
+    # Klassische Duelle melden zwei Punktstände. Graph-Matches können mehr als
+    # zwei Teilnehmer haben und melden deshalb eine Platzierungsliste; welches
+    # Feld gilt, entscheidet die Engine des Matches.
+    score_a: int = Field(default=0, ge=0)
+    score_b: int = Field(default=0, ge=0)
+    results: Optional[List["MatchV2ResultEntry"]] = None
     screenshot_url: Optional[str] = None
     note: Optional[str] = None
 
@@ -633,6 +637,8 @@ class MatchV2ResultSubmit(BaseModel):
     proof_url: Optional[str] = None
     note: Optional[str] = None
 
+
+MatchScoreReport.model_rebuild()
 
 ScheduleProposalAction = Literal["accept", "decline", "counter"]
 

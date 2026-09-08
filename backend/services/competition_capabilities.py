@@ -138,14 +138,16 @@ CAPABILITIES: tuple[Capability, ...] = (
     _c("result.submit", "Ergebnis melden",
        ["POST /api/matches/{match_id}/result"], [GRAPH]),
     _c("result.report", "Ergebnis im Einvernehmen bestätigen",
-       ["POST /api/matches/{match_id}/report"], [CLASSIC],
-       gap="Im Graph-System nicht vorhanden - Block 3."),
+       ["POST /api/matches/{match_id}/report"], [CLASSIC, GRAPH],
+       note="Block 3: auch im Graph-System. Zwei übereinstimmende Meldungen entscheiden, "
+            "eine einzelne nie - sonst könnte sich jemand allein weiterschreiben."),
     _c("result.dispute", "Ergebnis anfechten",
-       ["POST /api/matches/{match_id}/dispute"], [CLASSIC],
-       gap="Im Graph-System nicht vorhanden - Block 3."),
+       ["POST /api/matches/{match_id}/dispute"], [CLASSIC, GRAPH],
+       note="Block 3: derselbe Endpunkt bedient beide Speicher."),
     _c("result.forfeit", "Aufgabe eintragen",
-       ["POST /api/matches/{match_id}/forfeit"], [CLASSIC],
-       gap="Im Graph-System nicht vorhanden - Block 3."),
+       ["POST /api/matches/{match_id}/forfeit"], [CLASSIC, GRAPH],
+       note="Block 3: im Graph-System als gewöhnliche Platzierung mit dem Aufgebenden auf dem "
+            "letzten Platz - dadurch brauchen Weiterleitung, Tabelle und Export keinen Sonderfall."),
     _c("result.recalculate", "Weiterleitung neu berechnen",
        ["POST /api/tournaments/{tid}/matches-v2/recalculate-advancement"], [GRAPH]),
 )
