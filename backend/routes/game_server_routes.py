@@ -17,7 +17,7 @@ from services.secret_store import decrypt_secret, encrypt_secret
 
 ServerVisibility = Literal["public", "community", "members", "internal"]
 ServerStatus = Literal["online", "offline", "maintenance", "planned"]
-ServerSyncProvider = Literal["manual", "auto_public", "minecraft", "steam_a2s", "rcon"]
+ServerSyncProvider = Literal["manual", "auto_public", "minecraft", "steam_a2s", "rcon", "amp"]
 ServerSecretKind = Literal["none", "password", "invite_code", "whitelist", "discord"]
 
 router = APIRouter(prefix="/api/game-servers", tags=["game-servers"])
@@ -76,16 +76,16 @@ async def _game_lookup(db, game_ids: list[str]) -> dict[str, dict]:
 
 
 def _public_doc(server: dict, game: dict | None = None, include_admin_fields: bool = False) -> dict:
-    # Die amp_*-Namen stammen aus einer nie fertiggestellten AMP-Anbindung und
-    # werden von keinem Modell mehr geschrieben. Der Ausschluss bleibt trotzdem
-    # stehen: sollte ein Altdokument sie noch tragen, sind es Zugangsdaten und
-    # duerfen nicht oeffentlich werden. Block 2 fuehrt AMP sauber im Modell ein.
+    # Die amp_*-Namen stammen aus einer frueheren, nie fertiggestellten Anbindung
+    # und werden von keinem Modell geschrieben - die heutigen AMP-Zugangsdaten
+    # liegen verschluesselt in den Einstellungen. Der Ausschluss bleibt trotzdem
+    # stehen: traegt ein Altdokument sie noch, sind es Zugangsdaten.
     hidden = {
         "_id", "access_secret",
         "amp_password", "amp_session_id", "amp_url", "amp_username", "amp_instance_name", "amp_module",
     }
     if not include_admin_fields:
-        hidden.update({"query_host", "query_port", "rcon_port", "last_sync_error"})
+        hidden.update({"query_host", "query_port", "rcon_port", "last_sync_error", "amp_instance"})
     doc = {k: v for k, v in server.items() if k not in hidden}
     if server.get("access_secret"):
         doc["has_access_secret"] = True
@@ -181,6 +181,7 @@ class GameServerPayload(BaseModel):
     max_players: Optional[int] = Field(default=None, ge=0)
     player_names: list[str] = Field(default_factory=list)
     sync_provider: ServerSyncProvider = "manual"
+    amp_instance: Optional[str] = Field(default=None, max_length=120)
     query_host: Optional[str] = Field(default=None, max_length=180)
     query_port: Optional[int] = Field(default=None, ge=1, le=65535)
     rcon_port: Optional[int] = Field(default=None, ge=1, le=65535)
@@ -220,6 +221,7 @@ class GameServerPatch(BaseModel):
     max_players: Optional[int] = Field(default=None, ge=0)
     player_names: Optional[list[str]] = None
     sync_provider: Optional[ServerSyncProvider] = None
+    amp_instance: Optional[str] = Field(default=None, max_length=120)
     query_host: Optional[str] = Field(default=None, max_length=180)
     query_port: Optional[int] = Field(default=None, ge=1, le=65535)
     rcon_port: Optional[int] = Field(default=None, ge=1, le=65535)
@@ -380,7 +382,10 @@ async def _sync_one(db, server: dict) -> dict:
         locked_status = "maintenance" if _maintenance_active(server) else "planned" if server.get("status") == "planned" else None
         if locked_status:
             updates["status"] = locked_status
-        for key in ("status", "player_count", "max_players", "player_names", "map_name", "version", "game_name", "detected_sync_provider"):
+        for key in ("status", "player_count", "max_players", "player_names", "map_name", "version",
+                    "game_name", "detected_sync_provider",
+                    "server_tags", "password_protected", "bot_count", "vac_enabled", "rules",
+                    "cpu_percent", "memory_percent"):
             if key in result and result[key] is not None:
                 if key == "status" and locked_status:
                     continue
