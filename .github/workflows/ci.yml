@@ -175,7 +175,7 @@ jobs:
         run: |
           npx expo install --check
           # Keep CI reproducible until the Expo SDK 57 migration in #117 is complete.
-          npx --yes expo-doctor@1.20.1
+          npx --yes expo-doctor@1.20.4
 
   container-smoke:
     name: Production container smoke
