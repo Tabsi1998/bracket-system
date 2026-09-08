@@ -497,10 +497,42 @@ async def probe_auto_public(server: dict) -> dict:
     raise GameServerProbeError("Keine öffentliche Abfrage erfolgreich. " + " | ".join(errors))
 
 
+async def probe_amp(server: dict) -> dict:
+    """Ask the AMP panel about this server's instance.
+
+    AMP is the better source wherever a game has no usable public query - it
+    knows every instance because it runs them. If the panel is unreachable or
+    the instance is not found, the public query still has its turn: a panel
+    outage must not blank out a server that answers on its own.
+    """
+    from services.amp_client import AmpClient, AmpError, instance_matches, status_from_amp
+    from services.amp_settings import load_amp_settings
+
+    wanted = str(server.get("amp_instance") or "").strip()
+    if not wanted:
+        raise GameServerProbeError("Für diesen Server ist keine AMP-Instanz hinterlegt.")
+    settings = await load_amp_settings()
+    if not settings:
+        raise GameServerProbeError("AMP ist nicht konfiguriert.")
+
+    try:
+        async with AmpClient(settings["base_url"], settings["username"], settings["password"]) as client:
+            instances = await client.instances()
+            match = next((item for item in instances if instance_matches(item, wanted)), None)
+            if not match:
+                raise GameServerProbeError(f"AMP kennt keine Instanz '{wanted}'.")
+            status = await client.instance_status(match.get("InstanceID") or wanted)
+    except AmpError as exc:
+        raise GameServerProbeError(str(exc)) from exc
+    return status_from_amp(match, status)
+
+
 async def probe_game_server(server: dict) -> dict:
     provider = server.get("sync_provider") or "manual"
     if provider == "manual":
         raise GameServerProbeError("Dieser Server steht auf manueller Pflege.")
+    if provider == "amp":
+        return await probe_amp(server)
     if provider == "auto_public":
         return await probe_auto_public(server)
     if provider == "minecraft":

@@ -221,6 +221,14 @@ class DiscordSettings(BaseModel):
     enabled: bool = True
 
 
+class AmpSettings(BaseModel):
+    base_url: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    clear_password: Optional[bool] = None
+    enabled: bool = True
+
+
 class AuthSettings(BaseModel):
     password_login_enabled: Optional[bool] = None
     registration_enabled: Optional[bool] = None
@@ -1137,6 +1145,78 @@ async def update_discord(body: DiscordSettings, me: dict = Depends(require_club_
     )
     await _audit_settings_change(db, "settings.discord.update", "discord", me["id"], changed_fields)
     return {"ok": True, "changed": True}
+
+
+# ---- AMP-Panel ----
+@settings_router.get("/amp")
+async def get_amp(me: dict = Depends(require_club_admin())):
+    db = get_db()
+    settings = await db.settings.find_one({"id": "amp"}, {"_id": 0}) or {}
+    # Das Passwort verlässt den Server nie; die Oberfläche braucht nur zu
+    # wissen, ob eines hinterlegt ist.
+    settings["configured"] = secret_is_configured(settings.get("password"))
+    settings.pop("password", None)
+    return settings
+
+
+@settings_router.put("/amp")
+async def update_amp(body: AmpSettings, me: dict = Depends(require_club_admin())):
+    db = get_db()
+    updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    clear_password = bool(updates.pop("clear_password", False))
+    unset = {"password": ""} if clear_password else {}
+
+    for key in ("base_url", "username"):
+        if key in updates and isinstance(updates[key], str):
+            updates[key] = updates[key].strip()
+    if updates.get("base_url") and not updates["base_url"].lower().startswith("https://"):
+        raise HTTPException(400, "Die AMP-Adresse muss mit https:// beginnen; über http würden Zugangsdaten offen übertragen.")
+    if "password" in updates:
+        password = str(updates["password"]).strip()
+        if password:
+            updates["password"] = encrypt_secret(password)
+        else:
+            updates.pop("password")
+
+    current = await db.settings.find_one({"id": "amp"}, {"_id": 0}) or {}
+    changed_fields = _changed_setting_fields(current, updates, unset)
+    if not changed_fields:
+        return {"ok": True, "changed": False}
+    updates["updated_at"] = now_utc().isoformat()
+    op = {"$set": updates, "$setOnInsert": {"id": "amp"}}
+    if unset:
+        op["$unset"] = unset
+    await db.settings.update_one({"id": "amp"}, op, upsert=True)
+    await _audit_settings_change(db, "settings.amp.update", "amp", me["id"], changed_fields)
+    return {"ok": True, "changed": True}
+
+
+@settings_router.post("/amp/test")
+async def amp_test(me: dict = Depends(require_club_admin())):
+    """Melden, ob die Anmeldung klappt und welche Instanzen das Panel kennt."""
+    from services.amp_settings import load_amp_settings
+    from services.amp_client import AmpClient, AmpError
+
+    settings = await load_amp_settings()
+    if not settings:
+        return {"ok": False, "error": "AMP ist nicht konfiguriert."}
+    try:
+        async with AmpClient(settings["base_url"], settings["username"], settings["password"]) as client:
+            instances = await client.instances()
+    except AmpError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {
+        "ok": True,
+        "instance_count": len(instances),
+        "instances": [
+            {
+                "id": item.get("InstanceID"),
+                "name": item.get("FriendlyName") or item.get("InstanceName"),
+                "running": bool(item.get("Running")),
+            }
+            for item in instances
+        ],
+    }
 
 
 @settings_router.post("/discord/test")

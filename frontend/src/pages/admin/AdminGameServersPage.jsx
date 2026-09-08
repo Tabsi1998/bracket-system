@@ -40,6 +40,7 @@ const emptyForm = {
   max_players: "",
   player_names_text: "",
   sync_provider: "auto_public",
+  amp_instance: "",
   query_host: "",
   query_port: "",
   rcon_port: "",
@@ -49,7 +50,7 @@ const emptyForm = {
 
 const statusLabels = { online: "Online", offline: "Offline", maintenance: "Wartung", planned: "Geplant" };
 const visibilityLabels = { public: "Öffentlich", community: "Nur eingeloggte Community", members: "Nur Vereinsmitglieder", internal: "Intern / versteckt" };
-const syncLabels = { auto_public: "Automatisch erkennen", minecraft: "Minecraft Query", steam_a2s: "Steam/A2S Query", rcon: "TCP / RCON erreichbar", manual: "Manuelle Pflege" };
+const syncLabels = { auto_public: "Automatisch erkennen", amp: "AMP-Panel", minecraft: "Minecraft Query", steam_a2s: "Steam/A2S Query", rcon: "TCP / RCON erreichbar", manual: "Manuelle Pflege" };
 const secretLabels = { none: "Kein Kennwort", password: "Passwort", invite_code: "Invite-Code", whitelist: "Whitelist / Freischaltung", discord: "Im Discord" };
 const modeLabels = { auto: "Automatisch", maintenance: "Wartung", planned: "Geplant" };
 
@@ -85,6 +86,7 @@ function toForm(server) {
     query_port: server.query_port ?? "",
     rcon_port: server.rcon_port ?? "",
     sync_provider: syncLabels[server.sync_provider] ? server.sync_provider : "auto_public",
+    amp_instance: server.amp_instance ?? "",
     access_secret: "",
     maintenance_until: datetimeInputValue(server.maintenance_until),
     player_names_text: (server.player_names || []).join(", "),
@@ -126,6 +128,7 @@ function toPayload(form) {
     max_players: form.max_players === "" ? null : Number(form.max_players || 0),
     player_names: String(form.player_names_text || "").split(",").map((x) => x.trim()).filter(Boolean),
     sync_provider: form.sync_provider || "auto_public",
+    amp_instance: form.amp_instance || null,
     query_host: form.query_host || null,
     query_port: form.query_port === "" ? null : Number(form.query_port || 0),
     rcon_port: form.rcon_port === "" ? null : Number(form.rcon_port || 0),
@@ -403,6 +406,7 @@ export default function AdminGameServersPage() {
             {form.sync_provider !== "manual" && (
               <>
                 <Field label="Interne Sync-Adresse" value={form.query_host} onChange={(v) => set("query_host", v)} placeholder="leer = öffentliche Adresse, z.B. host.docker.internal" />
+                <Field label="AMP-Instanz" value={form.amp_instance} onChange={(v) => set("amp_instance", v)} placeholder="Name oder ID der Instanz im AMP-Panel" />
                 <Field label="Sync-Port" type="number" value={form.query_port} onChange={(v) => set("query_port", v)} placeholder="z.B. 25565" />
               </>
             )}
