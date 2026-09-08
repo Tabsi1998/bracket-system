@@ -6,6 +6,8 @@
 - Mobile: Abgeschlossene Turniere stellen Sieger, Podium, finale Rangliste, Abschlusszeit und Turnierstatistiken in den Vordergrund; alte Matches erscheinen als kompakte Historie.
 - Backend/Web/Mobile: E-Mail, Push und In-App lassen sich global sowie je Thema konfigurieren; Deduplizierung und Cooldowns reduzieren wiederholte Hinweise.
 - Release: Android-Build 56 verwendet die aktualisierten Expo-kompatiblen Abhaengigkeiten und das streng begrenzte, befristete Mobile-Audit-Gate.
+- Mobile: Umstieg auf Expo SDK 57 mit React Native 0.86.3. Damit entfaellt die bekannte Hermes-Speicherregression aus SDK 56, die erst ab React Native 0.86.2 behoben ist.
+- Mobile/CI: `expo-doctor` laeuft in der CI jetzt in einer Version, die diese Hermes-Pruefung ueberhaupt kennt; die bisher gepinnte Version hat sie nicht ausgefuehrt.
 
 ## 2.0.0-beta.1 - 2026-06-02
 
