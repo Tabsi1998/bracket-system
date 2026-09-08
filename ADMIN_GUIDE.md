@@ -333,6 +333,36 @@ Sichtbarkeit:
 
 Oeffentliche Profile zeigen nur Felder, die wirklich oeffentlich freigegeben sind.
 
+## Gameserver: Spielelogos und Modded-Einrichtung
+
+Unter **Admin → Game-Server → Bearbeiten**:
+
+1. Bei **Spiel-Verknüpfung** das passende Spiel auswählen. Dessen Logo erscheint
+   automatisch in der Vorschau und auf der Serverkarte. Fehlt es, zuerst unter
+   **Admin → Spiele** ein Logo hochladen. Bestehende Server werden nicht anhand
+   ähnlich klingender Namen automatisch zugeordnet.
+2. **Spiel-/Server-Icon anzeigen** schaltet das Bild ein/aus. Ein optionales eigenes
+   Server-Icon überschreibt das Spielelogo. Bei einem defekten Bild wird auf das
+   Spielelogo bzw. das allgemeine Server-Symbol zurückgefallen.
+3. Für modifizierte Server **Modded / Mods & Einrichtung anzeigen** aktivieren.
+   Optional kurze Installationshinweise hinterlegen.
+4. Über **Link hinzufügen** bis zu acht Einträge anlegen: Modloader, Modpaket,
+   Konfiguration oder Anleitung. Jeweils HTTPS-Adresse, optional Bezeichnung und
+   Version eintragen und **Link anzeigen** aktivieren.
+5. Speichern. Auf `/servers` erscheint der kompakte Bereich **Mods & Einrichtung**
+   zum Aufklappen. Bei Vanilla-Servern bleibt er ausgeschaltet.
+
+Einzelne Links und der gesamte Modding-Bereich lassen sich ohne Datenverlust
+ausschalten. Deaktivierte Links werden nur in der geschützten Adminantwort, nicht
+in der öffentlichen Serverlisten-API geliefert. Sichtbare Links folgen den
+bestehenden Serverrechten (öffentlich, Community, Mitglieder, intern).
+
+Nur vertrauenswürdige Downloadquellen eintragen. Die Webseite lädt oder installiert
+keine Mods selbst und prüft nicht, ob die Dateien zueinander passen. Keine Secrets,
+RCON-Passwörter oder privaten Server-Konfigurationsdateien verlinken. Die
+Mitgliedersichtbarkeit schützt die Anzeige des Links, nicht die externe Datei:
+Das Download-Ziel braucht für private Dateien einen eigenen Zugriffsschutz.
+
 ## Was sparsam genutzt werden sollte
 
 - zu viele Animationen

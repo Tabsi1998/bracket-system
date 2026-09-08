@@ -3,9 +3,10 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Literal, Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from auth import get_optional_user, require_club_admin
 from database import get_db
@@ -87,6 +88,11 @@ def _public_doc(server: dict, game: dict | None = None, include_admin_fields: bo
         doc["access_secret_masked"] = "••••••"
     if game:
         doc["game"] = game
+    if not include_admin_fields:
+        enabled = server.get("modding_enabled") is True
+        doc["mod_resources"] = [item for item in (server.get("mod_resources") or []) if enabled and item.get("enabled") is True]
+        if not enabled:
+            doc.pop("modding_notes", None)
     return doc
 
 
@@ -105,6 +111,41 @@ def _maintenance_active(server: dict) -> bool:
         return True
 
 
+class ServerModResource(BaseModel):
+    kind: Literal["modloader", "modpack", "config", "guide"] = "modloader"
+    enabled: bool = False
+    label: str = Field(default="", max_length=80)
+    version: str = Field(default="", max_length=80)
+    url: str = Field(default="", max_length=2000)
+
+    @field_validator("url")
+    @classmethod
+    def safe_download_url(cls, value):
+        value = value.strip()
+        if not value:
+            return value
+        try:
+            parsed = urlsplit(value)
+            valid = parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password
+            valid = valid and parsed.port != 0 and not any(char.isspace() or ord(char) < 32 for char in value) and "\\" not in value
+        except ValueError:
+            valid = False
+        if not valid:
+            raise ValueError("Bitte eine vollständige HTTPS-Adresse ohne Zugangsdaten verwenden.")
+        return value
+
+    @model_validator(mode="after")
+    def require_enabled_url(self):
+        if self.enabled and not self.url:
+            raise ValueError("Aktivierte Mod-Links benötigen eine HTTPS-Adresse.")
+        return self
+
+
+async def _validate_game(db, game_id):
+    if game_id and not await db.games.find_one({"id": game_id}, {"id": 1}):
+        raise HTTPException(400, "Das ausgewählte Spiel existiert nicht mehr. Bitte erneut auswählen.")
+
+
 class GameServerPayload(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     slug: Optional[str] = Field(default=None, max_length=90)
@@ -119,6 +160,10 @@ class GameServerPayload(BaseModel):
     access_secret: Optional[str] = Field(default=None, max_length=300)
     access_label: Optional[str] = Field(default=None, max_length=80)
     server_icon_url: Optional[str] = Field(default=None, max_length=300)
+    show_game_icon: bool = True
+    modding_enabled: bool = False
+    modding_notes: str = Field(default="", max_length=1500)
+    mod_resources: list[ServerModResource] = Field(default_factory=list, max_length=8)
     map_url: Optional[str] = Field(default=None, max_length=300)
     external_status_url: Optional[str] = Field(default=None, max_length=300)
     password_hint: Optional[str] = Field(default=None, max_length=180)
@@ -154,6 +199,10 @@ class GameServerPatch(BaseModel):
     access_secret: Optional[str] = Field(default=None, max_length=300)
     access_label: Optional[str] = Field(default=None, max_length=80)
     server_icon_url: Optional[str] = Field(default=None, max_length=300)
+    show_game_icon: Optional[bool] = None
+    modding_enabled: Optional[bool] = None
+    modding_notes: Optional[str] = Field(default=None, max_length=1500)
+    mod_resources: Optional[list[ServerModResource]] = Field(default=None, max_length=8)
     map_url: Optional[str] = Field(default=None, max_length=300)
     external_status_url: Optional[str] = Field(default=None, max_length=300)
     password_hint: Optional[str] = Field(default=None, max_length=180)
@@ -265,6 +314,7 @@ async def diagnose_game_server_route(server_id: str, me: dict = Depends(require_
 async def create_game_server(body: GameServerPayload, me: dict = Depends(require_club_admin())):
     db = get_db()
     data = body.model_dump()
+    await _validate_game(db, data.get("game_id"))
     if data.get("access_secret"):
         data["access_secret"] = encrypt_secret(data["access_secret"])
     data["slug"] = await unique_slug(db.game_servers, data.get("slug") or data["name"], fallback="server", max_length=80)
@@ -296,6 +346,8 @@ async def update_game_server(server_id: str, body: GameServerPatch, me: dict = D
         "max_players", "query_host", "query_port", "rcon_port", "last_sync_error",
     }
     raw = body.model_dump(exclude_unset=True)
+    if "game_id" in raw:
+        await _validate_game(db, raw["game_id"])
     updates = {k: v for k, v in raw.items() if v is not None or k in nullable_fields}
     if updates.get("access_secret"):
         updates["access_secret"] = encrypt_secret(updates["access_secret"])

@@ -5,6 +5,9 @@ import { AdminLayout } from "@/components/tls/AdminLayout";
 import { api, formatApiError } from "@/lib/api";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
 import { useConfirm } from "@/components/tls/ConfirmDialog";
+import { Link } from "react-router-dom";
+import { GameServerIcon } from "@/components/tls/GameServerIcon";
+import { serverResourceLabels } from "@/lib/serverResources";
 
 const emptyForm = {
   name: "",
@@ -20,6 +23,10 @@ const emptyForm = {
   access_secret: "",
   access_label: "",
   server_icon_url: "",
+  show_game_icon: true,
+  modding_enabled: false,
+  modding_notes: "",
+  mod_resources: [],
   map_url: "",
   external_status_url: "",
   password_hint: "",
@@ -72,6 +79,7 @@ function toForm(server) {
     ...emptyForm,
     ...server,
     game_id: server.game_id || "",
+    mod_resources: server.mod_resources || [],
     max_players: server.max_players ?? "",
     query_host: server.query_host || "",
     query_port: server.query_port ?? "",
@@ -98,6 +106,13 @@ function toPayload(form) {
     access_secret: form.access_secret || undefined,
     access_label: form.access_label || null,
     server_icon_url: form.server_icon_url || null,
+    show_game_icon: form.show_game_icon !== false,
+    modding_enabled: !!form.modding_enabled,
+    modding_notes: form.modding_notes || "",
+    mod_resources: form.mod_resources.map((item) => ({
+      kind: item.kind, enabled: !!item.enabled, label: (item.label || "").trim(),
+      version: (item.version || "").trim(), url: (item.url || "").trim(),
+    })),
     map_url: form.map_url || null,
     external_status_url: form.external_status_url || null,
     password_hint: form.password_hint || null,
@@ -170,6 +185,9 @@ export default function AdminGameServersPage() {
   };
 
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const setResource = (index, key, value) => setForm((prev) => ({ ...prev,
+    mod_resources: prev.mod_resources.map((item, position) => position === index ? { ...item, [key]: value } : item),
+  }));
 
   const save = async (event) => {
     event.preventDefault();
@@ -322,7 +340,8 @@ export default function AdminGameServersPage() {
               <span className="text-[11px] uppercase tracking-widest text-white/45 font-bold">Spiel-Verknüpfung</span>
               <select value={form.game_id} onChange={(e) => set("game_id", e.target.value)} className="mt-1 w-full bg-[#0A0A0A] border border-white/10 rounded-sm px-3 py-2 text-sm">
                 <option value="">Keine Verknüpfung</option>
-                {games.map((game) => <option key={game.id} value={game.id}>{game.short_name || game.name}</option>)}
+                {form.game_id && !games.some((game) => game.id === form.game_id) && <option value={form.game_id}>Spiel nicht verfügbar – bitte neu auswählen</option>}
+                {games.map((game) => <option key={game.id} value={game.id}>{game.display_name || game.name}</option>)}
               </select>
             </label>
             <Field label="Spielname fallback" value={form.game_name} onChange={(v) => set("game_name", v)} placeholder="z.B. Rust" />
@@ -361,7 +380,18 @@ export default function AdminGameServersPage() {
             {form.access_secret_kind !== "none" && (
               <Field label="Zugangs-Hinweis" value={form.access_label} onChange={(v) => set("access_label", v)} placeholder="z.B. Code im Discord, Passwort kopieren" />
             )}
-            <Field label="Server-Icon / Logo" value={form.server_icon_url} onChange={(v) => set("server_icon_url", v)} placeholder="/api/static/uploads/... oder https://..." />
+            <div className="md:col-span-2 xl:col-span-4 flex flex-wrap items-center gap-4 border border-white/10 rounded-sm p-4">
+              <GameServerIcon server={{ ...form, game: games.find((game) => game.id === form.game_id) }} />
+              <div className="flex-1 min-w-0 space-y-2">
+                <label className="flex items-center gap-2 text-sm text-white/80">
+                  <input type="checkbox" checked={form.show_game_icon !== false} onChange={(event) => set("show_game_icon", event.target.checked)} className="accent-[#29B6E8]" />
+                  Spiel-/Server-Icon anzeigen
+                </label>
+                <p className="text-xs text-white/55">Das Logo des ausgewählten Spiels wird automatisch übernommen. Ein eigenes Server-Icon hat Vorrang. Ohne Bild erscheint das Server-Symbol.</p>
+                <Link to="/admin/games" className="text-xs text-[#29B6E8] underline">Spiele und Logos verwalten</Link>
+              </div>
+              <Field label="Eigenes Server-Icon (optional)" value={form.server_icon_url} onChange={(v) => set("server_icon_url", v)} placeholder="leer = Spielelogo" />
+            </div>
             <Field label="Karten-Link" value={form.map_url} onChange={(v) => set("map_url", v)} placeholder="Dynmap, BattleMetrics, Karte..." />
             <Field label="Externe Statusseite" value={form.external_status_url} onChange={(v) => set("external_status_url", v)} placeholder="z.B. BattleMetrics/Serverliste" />
             <label className="block">
@@ -424,6 +454,36 @@ export default function AdminGameServersPage() {
               Server aktiv anzeigen
             </label>
           </div>
+
+          <section className="mt-5 border border-[#29B6E8]/25 rounded-sm p-4 space-y-4" aria-label="Modding-Einstellungen">
+            <label className="flex items-center gap-2 text-sm font-bold">
+              <input type="checkbox" checked={!!form.modding_enabled} onChange={(event) => set("modding_enabled", event.target.checked)} className="accent-[#29B6E8]" />
+              Modded / Mods & Einrichtung anzeigen
+            </label>
+            <p className="text-xs text-white/55">Optional für jedes Spiel. Ausgeschaltete Angaben bleiben gespeichert, werden aber nicht an die öffentliche Serverliste ausgegeben. Aktive Links folgen der Sichtbarkeit des Servers; das Download-Ziel benötigt bei privaten Dateien einen eigenen Zugriffsschutz.</p>
+            <fieldset disabled={!form.modding_enabled || saving} className="space-y-3 disabled:opacity-50">
+              <label className="block text-sm">Installationshinweise
+                <textarea value={form.modding_notes || ""} maxLength={1500} rows={3} onChange={(event) => set("modding_notes", event.target.value)} placeholder="Welche Version installieren? In welcher Reihenfolge? Keine Passwörter oder geheimen Konfigurationen eintragen."
+                  className="mt-1 block w-full bg-[#0A0A0A] border border-white/15 rounded-sm p-3 text-sm" />
+              </label>
+              {form.mod_resources.map((item, index) => (
+                <div key={index} className="border border-white/15 rounded-sm p-3 space-y-3" data-testid="mod-resource-row">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={!!item.enabled} onChange={(event) => setResource(index, "enabled", event.target.checked)} className="accent-[#29B6E8]" />Link {index + 1} anzeigen</label>
+                    <button type="button" onClick={() => set("mod_resources", form.mod_resources.filter((_item, position) => index !== position))} className="min-h-11 px-3 text-xs text-[#FF6B62]" aria-label={`Link ${index + 1} entfernen`}>Entfernen</button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label className="block text-sm">Typ<select value={item.kind} onChange={(event) => setResource(index, "kind", event.target.value)} className="mt-1 block w-full bg-[#0A0A0A] border border-white/15 rounded-sm p-2">{Object.entries(serverResourceLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
+                    <Field label="Bezeichnung (optional)" value={item.label} maxLength={80} onChange={(value) => setResource(index, "label", value)} placeholder="z.B. Fabric Loader" />
+                    <Field label="Version (optional)" value={item.version} maxLength={80} onChange={(value) => setResource(index, "version", value)} placeholder="z.B. passende Loader-/Pack-Version" />
+                    <Field label="HTTPS-Adresse" type="url" value={item.url} maxLength={2000} required={!!item.enabled} onChange={(value) => setResource(index, "url", value)} placeholder="https://..." />
+                  </div>
+                </div>
+              ))}
+              <button type="button" disabled={form.mod_resources.length >= 8} onClick={() => set("mod_resources", [...form.mod_resources, { kind: "modloader", enabled: false, label: "", version: "", url: "" }])} className="min-h-11 px-4 py-2 border border-[#29B6E8]/45 rounded-sm text-sm text-[#29B6E8] disabled:opacity-40">Link hinzufügen</button>
+              <p className="text-xs text-white/45">Bis zu acht Links: Modloader, Modpaket, Konfiguration oder Anleitung. Nur HTTPS; keine Zugangsdaten im Link. Dateien werden nicht automatisch heruntergeladen oder installiert.</p>
+            </fieldset>
+          </section>
 
           <div className="mt-5 flex flex-col sm:flex-row gap-2">
             <button disabled={saving} className="w-full sm:w-auto px-5 py-2.5 bg-[#29B6E8] text-black rounded-sm font-bold uppercase tracking-wider disabled:opacity-50">
@@ -521,11 +581,11 @@ function Stat({ label, value, tone }) {
   );
 }
 
-function Field({ label, value, onChange, type = "text", placeholder = "", required = false }) {
+function Field({ label, value, onChange, type = "text", placeholder = "", required = false, maxLength }) {
   return (
     <label className="block">
       <span className="text-[11px] uppercase tracking-widest text-white/45 font-bold">{label}</span>
-      <input required={required} type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="mt-1 w-full bg-[#0A0A0A] border border-white/10 rounded-sm px-3 py-2 text-sm" />
+      <input required={required} maxLength={maxLength} type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="mt-1 w-full bg-[#0A0A0A] border border-white/10 rounded-sm px-3 py-2 text-sm" />
     </label>
   );
 }

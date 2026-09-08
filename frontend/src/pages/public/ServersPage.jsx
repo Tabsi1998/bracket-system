@@ -4,7 +4,9 @@ import { toast } from "sonner";
 import { Clipboard, ExternalLink, Eye, Gamepad2, KeyRound, Lock, Map, Server, Shield, Signal, Users } from "lucide-react";
 import { PublicLayout } from "@/components/tls/PublicLayout";
 import { useAuth } from "@/context/AuthContext";
-import { api, resolveMediaUrl } from "@/lib/api";
+import { api } from "@/lib/api";
+import { GameServerIcon } from "@/components/tls/GameServerIcon";
+import { safeResourceUrl, serverResourceLabels } from "@/lib/serverResources";
 import { useApiInvalidation } from "@/hooks/useApiInvalidation";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
@@ -86,7 +88,7 @@ export default function ServersPage() {
   }, []);
 
   useEffect(() => { load(); }, [load, user?.id, isClubMember]);
-  useApiInvalidation(load, ["game-servers"]);
+  useApiInvalidation(load, ["game-servers", "games"]);
 
   const grouped = useMemo(() => ({
     online: items.filter((item) => item.status === "online"),
@@ -176,7 +178,7 @@ function ServerCard({ server }) {
   const max = Number(server.max_players || 0);
   const current = Number(server.player_count || 0);
   const pct = max > 0 ? Math.min(100, Math.round((current / max) * 100)) : 0;
-  const iconUrl = server.server_icon_url || server.game?.logo_url;
+  const modResources = server.modding_enabled ? (server.mod_resources || []).filter((item) => item.enabled && safeResourceUrl(item.url)) : [];
   const maintenanceBandText = maintenanceLabel(server, nowTick);
   const copyAddress = async () => {
     if (!server.address || !navigator.clipboard) return;
@@ -246,9 +248,7 @@ function ServerCard({ server }) {
       <div className="p-5 flex flex-col grow">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3 min-w-0">
-            <div className="w-14 h-14 rounded-sm border border-white/10 bg-black/30 flex items-center justify-center overflow-hidden shrink-0">
-              {iconUrl ? <img src={resolveMediaUrl(iconUrl)} alt="" className="w-full h-full object-contain p-2" /> : <Server className="w-6 h-6 text-[#29B6E8]" />}
-            </div>
+            <GameServerIcon server={server} />
             <div className="min-w-0 max-w-full pt-0.5">
               <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-[#29B6E8] font-bold min-w-0">
                 <Gamepad2 className="w-3 h-3 shrink-0" />
@@ -263,6 +263,28 @@ function ServerCard({ server }) {
         </div>
 
         {server.description && <p className="mt-4 text-sm leading-relaxed text-white/60 line-clamp-3">{server.description}</p>}
+        {server.modding_enabled && (
+          <div className="mt-4 border border-[#29B6E8]/25 bg-[#29B6E8]/5 rounded-sm p-3" data-testid="server-mod-resources">
+            <span className="text-[10px] uppercase font-black tracking-widest text-[#29B6E8]">Modded</span>
+            {(modResources.length > 0 || server.modding_notes) && (
+              <details className="mt-2">
+                <summary className="cursor-pointer py-2 text-sm font-bold text-white/80">Mods & Einrichtung{modResources.length ? ` (${modResources.length})` : ""}</summary>
+                {server.modding_notes && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-white/65">{server.modding_notes}</p>}
+                <ul className="mt-3 space-y-2">
+                  {modResources.map((item, index) => (
+                    <li key={index}>
+                      <a href={safeResourceUrl(item.url)} target="_blank" rel="noopener noreferrer" className="flex min-h-11 items-center justify-between gap-3 border border-white/15 rounded-sm px-3 py-2 text-sm hover:border-[#29B6E8]/60">
+                        <span className="min-w-0 break-words"><span className="block text-[10px] uppercase text-[#29B6E8]">{serverResourceLabels[item.kind] || "Download"}</span>{item.label || serverResourceLabels[item.kind] || "Download"}{item.version && <span className="block text-xs text-white/55">Version: {item.version}</span>}</span>
+                        <ExternalLink aria-label="Öffnet in neuem Tab" className="w-4 h-4 shrink-0 text-[#29B6E8]" />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-3 text-xs text-white/45">Links öffnen im neuen Tab. Installiere nur Dateien aus vertrauenswürdigen Quellen.</p>
+              </details>
+            )}
+          </div>
+        )}
 
         <div className="mt-5 grid grid-cols-2 gap-x-5 gap-y-3 text-xs">
           {quickFacts.map((fact) => <Info key={fact.label} label={fact.label} value={fact.value} />)}
