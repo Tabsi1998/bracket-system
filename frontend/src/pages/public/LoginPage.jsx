@@ -27,10 +27,12 @@ export default function LoginPage() {
   const { submitting: loading, submitOnce } = useSubmissionGuard();
   const [err, setErr] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
+  const [verificationRequired, setVerificationRequired] = useState(false);
 
   const setField = (field, setter) => (value) => {
     setter(value);
     setErr(null);
+    setVerificationRequired(false);
     setFieldErrors((current) => ({ ...current, [field]: null }));
   };
 
@@ -87,6 +89,7 @@ export default function LoginPage() {
       nav(next);
     } else {
       setErr(res.error);
+      setVerificationRequired(!!res.verificationRequired);
     }
   };
 
@@ -105,7 +108,7 @@ export default function LoginPage() {
               value={mfaCode}
               onChange={(value) => { setMfaCode(value); setErr(null); }}
               autoComplete="one-time-code"
-              inputMode="numeric"
+              inputMode="text"
               required
               testId="login-mfa-code"
             />
@@ -113,7 +116,7 @@ export default function LoginPage() {
             <button disabled={loading} type="submit" className="w-full py-3 bg-[#29B6E8] text-black font-bold uppercase tracking-wider rounded-sm disabled:opacity-50" data-testid="login-mfa-submit">
               {loading ? "Prüfe …" : "Anmeldung bestätigen"}
             </button>
-            <button type="button" onClick={() => { setMfaTicket(""); sessionStorage.removeItem("tls.mfa.ticket"); }} className="w-full text-xs text-white/45 hover:text-white">Zurück</button>
+            <button type="button" disabled={loading} onClick={() => { setMfaTicket(""); setMfaCode(""); setErr(null); sessionStorage.removeItem("tls.mfa.ticket"); }} className="w-full text-xs text-white/45 hover:text-white">Zurück zum Login</button>
           </form>
         ) : settings.password_login_enabled !== false ? <form onSubmit={submit} className="mt-8 space-y-4" noValidate aria-describedby={err ? "login-error" : undefined}>
           <AuthTextField
@@ -140,6 +143,12 @@ export default function LoginPage() {
             testId="login-password"
           />
           {err && <AuthFormAlert id="login-error">{err}</AuthFormAlert>}
+          {verificationRequired && (
+            <div className="space-y-2 text-sm" data-testid="login-verification-recovery">
+              <p className="text-white/70">Dein Konto bleibt bestehen. Bestätige zuerst deine E-Mail-Adresse; danach meldest du dich mit deinem bisherigen Passwort und gegebenenfalls MFA an.</p>
+              <Link to="/verify-email" state={{ email: email.trim() }} className="inline-block py-2 text-[#29B6E8] underline">Bestätigungslink anfordern</Link>
+            </div>
+          )}
           <button
             data-testid="login-submit"
             disabled={loading}
@@ -159,6 +168,7 @@ export default function LoginPage() {
             <div>Kein Account? <Link to="/register" className="text-[#29B6E8] hover:text-white font-bold">Registrieren</Link></div>
           )}
           <div><Link to="/forgot-password" className="text-white/45 hover:text-[#29B6E8]">Passwort vergessen?</Link></div>
+          <div><Link to="/verify-email" state={{ email: email.trim() }} className="text-white/60 hover:text-[#29B6E8]">Keine Bestätigungs-E-Mail erhalten?</Link></div>
         </div>
       </div>
     </div>
