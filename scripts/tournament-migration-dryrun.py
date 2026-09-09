@@ -26,8 +26,22 @@ import os
 import sys
 from pathlib import Path
 
-BACKEND = Path(__file__).resolve().parents[1] / "backend"
-sys.path.insert(0, str(BACKEND))
+def _backend_root() -> Path:
+    """Find the backend package, in the repo as well as inside the container.
+
+    In a checkout it sits next to this script's parent. In the deployed image the
+    backend *is* the working directory, because the image is built from the
+    backend folder alone. Detecting both means one command works in both places.
+    """
+    here = Path(__file__).resolve()
+    candidates = [here.parents[1] / "backend", here.parents[1], Path("/app")]
+    for candidate in candidates:
+        if (candidate / "database.py").is_file():
+            return candidate
+    return candidates[0]
+
+
+sys.path.insert(0, str(_backend_root()))
 
 os.environ.setdefault("APP_ENV", "development")
 os.environ.setdefault("JWT_SECRET", "dryrun-secret-with-at-least-32-characters")
@@ -105,77 +119,96 @@ async def collect(db, *, limit: int | None, only: str | None) -> list[dict]:
     return rows
 
 
+# Der lesbare Bericht geht nach stdout - ausser bei --json, dann macht er dort
+# Platz für die maschinenlesbare Ausgabe und wandert nach stderr.
+REPORT_STREAM = sys.stdout
+
+
+def say(text: str = "") -> None:
+    print(text, file=REPORT_STREAM)
+
+
 def print_report(rows: list[dict]) -> None:
     summary = summarize(rows)
-    print("\n=== Bestand ===")
-    print(f"Turniere gesamt:        {summary['tournaments']}")
+    say("\n=== Bestand ===")
+    say(f"Turniere gesamt:        {summary['tournaments']}")
     for engine, count in summary["by_engine"].items():
-        print(f"  im Speicher {engine:<8} {count}")
-    print(f"Migration nötig:        {summary['needs_migration']}")
-    print(f"Davon bereit:           {summary['ready']}")
-    print(f"Mit Mangel:             {summary['blocked']}")
+        say(f"  im Speicher {engine:<8} {count}")
+    say(f"Migration nötig:        {summary['needs_migration']}")
+    say(f"Davon bereit:           {summary['ready']}")
+    say(f"Mit Mangel:             {summary['blocked']}")
 
     blocked = [row for row in rows if row.get("blockers")]
     if blocked:
-        print("\n=== Mängel: das muss vorher jemand anfassen ===")
+        say("\n=== Mängel: das muss vorher jemand anfassen ===")
         for code, count in summary["blockers"].items():
-            print(f"  {code:<34} {count}x")
+            say(f"  {code:<34} {count}x")
         for row in blocked:
-            print(f"\n  {row.get('title') or row['id']}  [{row.get('format')} · {row.get('status')}]")
-            print(f"    Speicher: {row.get('engine')} · {row['match_count']} Spiele, "
-                  f"{row['decided_count']} entschieden")
+            say(f"\n  {row.get('title') or row['id']}  [{row.get('format')} · {row.get('status')}]")
+            say(f"    Speicher: {row.get('engine')} · {row['match_count']} Spiele, "
+                f"{row['decided_count']} entschieden")
             for blocker in row["blockers"]:
-                print(f"    - {blocker['detail']}")
-                print(f"      → {blocker['action']}")
+              say(f"    - {blocker['detail']}")
+              say(f"      → {blocker['action']}")
     else:
-        print("\nKeine Mängel gefunden.")
+        say("\nKeine Mängel gefunden.")
 
     if summary.get("notices"):
         # Bewusst getrennt: das betrifft fast jedes klassische Turnier und
         # braucht eine Entscheidung, keine fünfzig Einzelkorrekturen.
-        print("\n=== Hinweise: eine Entscheidung, nicht fünfzig Korrekturen ===")
+        say("\n=== Hinweise: eine Entscheidung, nicht fünfzig Korrekturen ===")
         seen: dict[str, dict] = {}
         for row in rows:
             for notice in row.get("notices") or []:
-                seen.setdefault(notice["code"], notice)
+              seen.setdefault(notice["code"], notice)
         for code, count in summary["notices"].items():
             notice = seen[code]
-            print(f"\n  {count} Turnier(e): {notice['detail']}")
-            print(f"    → {notice['action']}")
+            say(f"\n  {count} Turnier(e): {notice['detail']}")
+            say(f"    → {notice['action']}")
 
 
 def print_comparison(result: dict) -> None:
-    print("\n=== Vergleich mit der Vorher-Aufnahme ===")
-    print(f"Verglichen:   {result['compared']}")
-    print(f"Unverändert:  {result['unchanged']}")
+    say("\n=== Vergleich mit der Vorher-Aufnahme ===")
+    say(f"Verglichen:   {result['compared']}")
+    say(f"Unverändert:  {result['unchanged']}")
     if result["new"]:
-        print(f"Neu dazu:     {len(result['new'])} (nicht Teil des Vergleichs)")
+        say(f"Neu dazu:     {len(result['new'])} (nicht Teil des Vergleichs)")
 
     if result["equivalent"]:
-        print("\nErgebnis: deckungsgleich. Kein Turnier hat Ergebnisse, Tabelle "
-              "oder Platzierungen verändert.")
+        say("\nErgebnis: deckungsgleich. Kein Turnier hat Ergebnisse, Tabelle "
+            "oder Platzierungen verändert.")
         return
 
-    print(f"\nErgebnis: {len(result['changed'])} Turnier(e) weichen ab.")
+    say(f"\nErgebnis: {len(result['changed'])} Turnier(e) weichen ab.")
     for row in result["changed"]:
-        print(f"\n  {row.get('title') or row['id']}: {row['problem']}")
+        say(f"\n  {row.get('title') or row['id']}: {row['problem']}")
         for difference in row["differences"][:12]:
-            print(f"    - {difference}")
+            say(f"    - {difference}")
         if len(row["differences"]) > 12:
-            print(f"    ... und {len(row['differences']) - 12} weitere")
+            say(f"    ... und {len(row['differences']) - 12} weitere")
 
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", help="Bericht als JSON hierhin schreiben")
+    parser.add_argument("--json", action="store_true",
+                        help="JSON nach stdout, Bericht nach stderr - zum Umleiten in eine Datei")
     parser.add_argument("--compare", help="Gegen eine frühere Aufnahme vergleichen")
     parser.add_argument("--limit", type=int, help="Nur die ersten N Turniere")
     parser.add_argument("--tournament", help="Nur dieses Turnier (ID oder Slug)")
     args = parser.parse_args()
 
+    if args.json:
+        # Im Container gibt es kein beschreibbares Verzeichnis. Über stdout kommt
+        # der Bericht auch ohne eingehängtes Volume heraus.
+        globals()["REPORT_STREAM"] = sys.stderr
+
     for name in ("MONGO_URL", "DB_NAME"):
         if not os.environ.get(name):
-            print(f"{name} ist nicht gesetzt. Bitte dieselben Werte wie das Backend verwenden.",
+            print(f"{name} ist nicht gesetzt.\n"
+                  "Das Backend läuft in Docker; MongoDB ist absichtlich nur im Docker-Netz "
+                  "erreichbar. Nutze bitte scripts/tournament-dryrun.sh - das startet den "
+                  "Lauf im Backend-Container mit den richtigen Werten.",
                   file=sys.stderr)
             return 2
 
@@ -202,7 +235,9 @@ async def main() -> int:
     if args.out:
         Path(args.out).write_text(
             json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"\nBericht geschrieben: {args.out}")
+        say(f"\nBericht geschrieben: {args.out}")
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
     return exit_code
 
 
