@@ -32,8 +32,17 @@ from services.tournament_permissions import (
     is_global_tournament_admin,
     require_tournament_staff_permission,
 )
-from services.custom_bracket import BracketSchemaError, build_matches_v2_from_schema
+from services.custom_bracket import (
+    BracketSchemaError,
+    build_matches_v2_from_schema,
+    groups_from_generated_matches,
+)
 from services.competition_formats import find_format_capability
+from services.graph_swiss import (
+    next_round_number,
+    open_matches as open_swiss_matches,
+    swiss_round_documents,
+)
 from services.competition_graph_validation import validate_competition_graph
 from services.competition_read import load_competition_read_model, observe_structure_read
 from services.competition_snapshot import build_structure_snapshot
@@ -529,6 +538,9 @@ def _stage_defaults_for_tournament_format(tournament: dict, body: TournamentBrac
     match_type = (body.match_type if body else None) or default_match_type
     settings.setdefault("match_size", 4 if match_type == "ffa" else 2)
     settings.setdefault("min_players", 2)
+    if stage_type == "round_robin_groups":
+        # Eine Gruppe ist ein Round Robin, mehrere sind eine Gruppenphase.
+        settings.setdefault("group_count", 4 if fmt == "groups" else 1)
     settings.setdefault("qualifiers_per_match", 2 if match_type == "ffa" else 1)
     settings.setdefault("duration_minutes", int(tournament.get("match_duration_minutes") or 30))
     settings.setdefault("score_type", "points")
@@ -3612,6 +3624,103 @@ async def standings(tid: str, access: str | None = None, user=Depends(get_option
 
 
 # ---------- Swiss / Groups specific ----------
+async def _competition_engine(db, tid: str) -> str:
+    """Which store this tournament already writes to.
+
+    Deliberately reads the existing documents instead of the format: a
+    tournament stays in the engine it was built in until it is migrated, so
+    neither generator can move a running tournament to the other store behind
+    the organiser's back.
+    """
+    if await db.tournament_stages.count_documents({"tournament_id": tid}):
+        return "graph"
+    if await db.matches_v2.count_documents({"tournament_id": tid}):
+        return "graph"
+    return "classic"
+
+
+async def _dedicated_stage(db, tournament: dict, stage_type: str, settings: dict,
+                           name: str, actor_id: str | None) -> dict:
+    """Find or create the one stage a Swiss or group tournament runs in."""
+    tid = tournament["id"]
+    stage = await db.tournament_stages.find_one(
+        {"tournament_id": tid, "stage_type": stage_type}, {"_id": 0})
+    if stage:
+        merged = {**(stage.get("settings") or {}), **settings}
+        if merged != (stage.get("settings") or {}):
+            await db.tournament_stages.update_one(
+                {"id": stage["id"]},
+                {"$set": {"settings": merged, "updated_at": now_utc().isoformat()}},
+            )
+            stage["settings"] = merged
+        return stage
+    number = await db.tournament_stages.count_documents({"tournament_id": tid}) + 1
+    stage = {
+        "id": new_id(),
+        "tournament_id": tid,
+        "name": name,
+        "number": number,
+        "stage_type": stage_type,
+        "match_type": "duel",
+        "settings": {
+            "min_players": 2,
+            "match_size": 2,
+            "qualifiers_per_match": 1,
+            "score_type": "points",
+            "calculation": "points",
+            "duration_minutes": int(tournament.get("match_duration_minutes") or 30),
+            **settings,
+        },
+        "status": "pending",
+        "created_at": now_utc().isoformat(),
+        "updated_at": now_utc().isoformat(),
+        "created_by": actor_id,
+    }
+    await db.tournament_stages.insert_one(dict(stage))
+    return stage
+
+
+async def _swiss_next_round_graph(db, tournament: dict, actor_id: str | None) -> dict:
+    tid = tournament["id"]
+    stage = await _dedicated_stage(db, tournament, "swiss", {}, "Schweizer System", actor_id)
+    played = await db.matches_v2.find({"stage_id": stage["id"]}, {"_id": 0}).to_list(3000)
+    round_number = next_round_number(played)
+    still_open = open_swiss_matches(played, round_number - 1)
+    if still_open:
+        raise HTTPException(status_code=400, detail=f"{len(still_open)} Matches sind noch offen")
+
+    regs = await db.tournament_registrations.find(
+        {"tournament_id": tid, "status": {"$in": ["approved", "checked_in"]}},
+        {"_id": 0},
+    ).to_list(500)
+    documents = swiss_round_documents(
+        tournament, stage, regs, played, round_number=round_number,
+    )
+    if not documents:
+        raise HTTPException(status_code=400, detail="Mindestens 2 Teilnehmer benötigt")
+
+    await db.matches_v2.insert_many(documents)
+    await db.tournament_stages.update_one(
+        {"id": stage["id"]},
+        {"$set": {"status": "ready", "updated_at": now_utc().isoformat()}},
+    )
+    await persist_competition_versions(db, tournament, "graph")
+    if tournament.get("status") == "draft":
+        await db.tournaments.update_one({"id": tid}, {"$set": {"status": "live"}})
+    await _audit_tournament_action(
+        db, "tournament.swiss.next_round", actor_id, tid,
+        {"engine": "graph", "stage_id": stage["id"], "round": round_number,
+         "match_count": len(documents)},
+    )
+    return {
+        "ok": True,
+        "engine": "graph",
+        "stage_id": stage["id"],
+        "round": round_number,
+        "match_count": len(documents),
+    }
+
+
 @router.post("/{tid}/swiss/next-round")
 async def swiss_next_round(tid: str, me: dict = Depends(require_admin()),
                            _mutation_tid: str = Depends(_serialized_tournament_write)):
@@ -3620,6 +3729,8 @@ async def swiss_next_round(tid: str, me: dict = Depends(require_admin()),
     t = await db.tournaments.find_one({"id": tid})
     if not t or t.get("format") != "swiss":
         raise HTTPException(status_code=400, detail="Nur für Swiss-Turniere")
+    if await _competition_engine(db, tid) == "graph":
+        return await _swiss_next_round_graph(db, t, me.get("id"))
     prev = await db.matches.find({"tournament_id": tid}, {"_id": 0}).to_list(2000)
     # Check open matches
     open_count = sum(1 for m in prev if m.get("status") not in ("completed", "forfeit", "cancelled"))
@@ -3636,7 +3747,61 @@ async def swiss_next_round(tid: str, me: dict = Depends(require_admin()),
         await persist_competition_versions(db, t, "classic")
     if t.get("status") == "draft":
         await db.tournaments.update_one({"id": tid}, {"$set": {"status": "live"}})
-    return {"ok": True, "round": next_round_num, "match_count": len(matches)}
+    return {"ok": True, "engine": "classic", "round": next_round_num, "match_count": len(matches)}
+
+
+async def _groups_generate_graph(db, tournament: dict, group_count: int, actor_id: str | None) -> dict:
+    tid = tournament["id"]
+    stage = await _dedicated_stage(
+        db, tournament, "round_robin_groups", {"group_count": group_count}, "Gruppenphase", actor_id)
+    regs = await db.tournament_registrations.find(
+        {"tournament_id": tid, "status": {"$in": ["approved", "checked_in"]}},
+        {"_id": 0},
+    ).to_list(500)
+    if len(regs) < 2:
+        raise HTTPException(status_code=400, detail="Mindestens 2 Teilnehmer benötigt")
+    try:
+        matches = build_matches_v2_from_schema(tournament, stage, regs, preview=False)
+    except BracketSchemaError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not matches:
+        raise HTTPException(status_code=400, detail="Die Gruppenphase erzeugt keine Spiele.")
+
+    groups = groups_from_generated_matches(matches)
+    group_id_by_section = {group["section"]: group["id"] for group in groups}
+    for match in matches:
+        group_id = group_id_by_section.get(match.get("section") or "")
+        if group_id:
+            match["group_id"] = group_id
+
+    old_match_ids = await db.matches_v2.distinct("id", {"stage_id": stage["id"]})
+    if old_match_ids:
+        await db.match_reports_v2.delete_many({"match_id": {"$in": old_match_ids}})
+    await db.matches_v2.delete_many({"stage_id": stage["id"]})
+    await db.tournament_groups.delete_many({"tournament_id": tid})
+    await db.tournament_groups.insert_many([
+        {**group, "tournament_id": tid, "created_at": now_utc().isoformat()}
+        for group in groups
+    ])
+    await db.matches_v2.insert_many(matches)
+    await db.tournament_stages.update_one(
+        {"id": stage["id"]},
+        {"$set": {"status": "ready", "updated_at": now_utc().isoformat()}},
+    )
+    await persist_competition_versions(db, tournament, "graph")
+    await db.tournaments.update_one({"id": tid}, {"$set": {"status": "live"}})
+    await _audit_tournament_action(
+        db, "tournament.groups.generate", actor_id, tid,
+        {"engine": "graph", "stage_id": stage["id"], "group_count": len(groups),
+         "match_count": len(matches)},
+    )
+    return {
+        "ok": True,
+        "engine": "graph",
+        "stage_id": stage["id"],
+        "group_count": len(groups),
+        "match_count": len(matches),
+    }
 
 
 @router.post("/{tid}/groups/generate")
@@ -3648,6 +3813,8 @@ async def groups_generate(tid: str, body: dict, me: dict = Depends(require_admin
     if not t or t.get("format") != "groups":
         raise HTTPException(status_code=400, detail="Nur für Group-Stage")
     group_count = int(body.get("group_count", 4))
+    if await _competition_engine(db, tid) == "graph":
+        return await _groups_generate_graph(db, t, group_count, me.get("id"))
     regs = await db.tournament_registrations.find(
         {"tournament_id": tid, "status": {"$in": ["approved", "checked_in"]}},
         {"_id": 0},
@@ -3665,7 +3832,7 @@ async def groups_generate(tid: str, body: dict, me: dict = Depends(require_admin
         await db.matches.insert_many(res["matches"])
         await persist_competition_versions(db, t, "classic")
     await db.tournaments.update_one({"id": tid}, {"$set": {"status": "live"}})
-    return {"ok": True, "group_count": len(res["groups"]), "match_count": len(res["matches"])}
+    return {"ok": True, "engine": "classic", "group_count": len(res["groups"]), "match_count": len(res["matches"])}
 
 
 @router.get("/{tid}/groups")

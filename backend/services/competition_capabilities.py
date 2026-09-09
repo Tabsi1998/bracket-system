@@ -104,11 +104,15 @@ CAPABILITIES: tuple[Capability, ...] = (
         "DELETE /api/tournaments/{tid}/stages/{stage_id}",
         "POST /api/tournaments/{tid}/stages/{stage_id}/generate"], [GRAPH]),
     _c("structure.swiss", "Schweizer Runde erzeugen",
-       ["POST /api/tournaments/{tid}/swiss/next-round"], [CLASSIC],
-       gap="Kein Generator im Graph-System - Block 3."),
+       ["POST /api/tournaments/{tid}/swiss/next-round"], [CLASSIC, GRAPH],
+       note="Block 3: bewusst ohne Schema. Wer in Runde 3 gegen wen spielt, hängt an Runde 2 - "
+            "die Struktur wächst also Runde für Runde. Ein Freilos wird als entschiedenes Match "
+            "mit einem Teilnehmer geschrieben, damit der Punkt dafür in der Tabelle ankommt."),
     _c("structure.groups", "Gruppen erzeugen",
-       ["POST /api/tournaments/{tid}/groups/generate", "GET /api/tournaments/{tid}/groups"], [CLASSIC],
-       gap="Kein Generator im Graph-System - Block 3."),
+       ["POST /api/tournaments/{tid}/groups/generate", "GET /api/tournaments/{tid}/groups"], [CLASSIC, GRAPH],
+       note="Block 3: Gruppen stehen im Voraus fest und passen deshalb ins Schema. Die "
+            "Gruppenzuteilung läuft im Schlangensystem, damit die stärksten Setzplätze nicht "
+            "in derselben Gruppe landen."),
 
     # ---------- Struktur lesen ----------
     _c("structure.read", "Turnierbaum und Abschnitte lesen",

@@ -22,6 +22,20 @@ def _display_name(registration: dict) -> str:
     )
 
 
+def _sole_winner(match: dict) -> str | None:
+    """The single winner, or nothing when the match ended level.
+
+    The graph engine expresses a draw as two participants sharing rank 1, so
+    picking the first winner it finds would silently turn every draw into a win.
+    """
+    winners = [
+        result.get("registration_id")
+        for result in match.get("results") or []
+        if result.get("outcome") == "winner"
+    ]
+    return winners[0] if len(winners) == 1 else None
+
+
 def _duel_entries(match: dict) -> tuple[dict | None, dict | None, dict | None, dict | None]:
     slots = sorted(match.get("slots") or [], key=lambda slot: _safe_int(slot.get("position"), 999))
     slot_a = slots[0] if slots else None
@@ -149,7 +163,7 @@ def round_robin_standings(matches: list[dict], registrations: list[dict]) -> lis
         if registration.get("id")
     }
     for match in matches:
-        if match.get("status") != "completed":
+        if match.get("status") not in TERMINAL_MATCH_STATUSES:
             continue
         slot_a, slot_b, result_a, result_b = _duel_entries(match)
         registration_a = (slot_a or {}).get("registration_id")
@@ -166,14 +180,7 @@ def round_robin_standings(matches: list[dict], registrations: list[dict]) -> lis
             stats[registration_b]["played"] += 1
             stats[registration_b]["score_for"] += score_b
             stats[registration_b]["score_against"] += score_a
-        winner_id = next(
-            (
-                result.get("registration_id")
-                for result in match.get("results") or []
-                if result.get("outcome") == "winner"
-            ),
-            None,
-        )
+        winner_id = _sole_winner(match)
         if winner_id == registration_a and registration_a in stats:
             stats[registration_a]["won"] += 1
             stats[registration_a]["points"] += 3
@@ -214,25 +221,24 @@ def swiss_standings(matches: list[dict], registrations: list[dict]) -> list[dict
         if registration.get("id")
     }
     for match in matches:
-        if match.get("status") != "completed":
+        if match.get("status") not in TERMINAL_MATCH_STATUSES:
             continue
         slot_a, slot_b, _result_a, _result_b = _duel_entries(match)
         registration_a = (slot_a or {}).get("registration_id")
         registration_b = (slot_b or {}).get("registration_id")
+        if registration_a in stats and registration_b is None:
+            # Freilos: zaehlt als voller Punkt, aber gegen niemanden.
+            stats[registration_a]["played"] += 1
+            stats[registration_a]["won"] += 1
+            stats[registration_a]["points"] += 1
+            continue
         if registration_a not in stats or registration_b not in stats:
             continue
         stats[registration_a]["played"] += 1
         stats[registration_b]["played"] += 1
         stats[registration_a]["opponents"].append(registration_b)
         stats[registration_b]["opponents"].append(registration_a)
-        winner_id = next(
-            (
-                result.get("registration_id")
-                for result in match.get("results") or []
-                if result.get("outcome") == "winner"
-            ),
-            None,
-        )
+        winner_id = _sole_winner(match)
         if winner_id == registration_a:
             stats[registration_a]["won"] += 1
             stats[registration_a]["points"] += 1
@@ -289,11 +295,20 @@ def standings_for_structure(
     """Select the existing standings policy over one canonical read model."""
 
     matches = snapshot.get("matches") or []
+    format_key = tournament.get("format")
     stage_matches = [match for match in matches if match.get("source", {}).get("engine") == "stage"]
     if stage_matches:
+        # Der Speicher entscheidet nicht über die Tabelle: ein Schweizer Turnier
+        # braucht Buchholz und ein Gruppenturnier seine Gruppentabellen, egal in
+        # welcher Engine die Matches liegen.
+        if format_key == "swiss":
+            return swiss_standings(stage_matches, registrations)
+        if format_key == "groups":
+            return group_standings(stage_matches, registrations, list(groups))
+        if format_key in {"round_robin", "league"}:
+            return round_robin_standings(stage_matches, registrations)
         return stage_standings(stage_matches, registrations)
     legacy_matches = [match for match in matches if match.get("source", {}).get("engine") == "legacy"]
-    format_key = tournament.get("format")
     if format_key in {"round_robin", "league"}:
         return round_robin_standings(legacy_matches, registrations)
     if format_key == "swiss":
