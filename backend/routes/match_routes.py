@@ -25,15 +25,13 @@ from models import (
     now_utc,
     new_id,
 )
-from bracket_engine import advance_match_winner
 from match_rules import loser_for_winner, match_allows_draw, validate_winner_id
 from services.competition_read import canonical_match_for_source, find_match_source
-from services.match_notifications import notify_match_result_confirmed
 from services.match_overview import operational_match_overviews, own_match_overviews
 from services.match_planning import ensure_station_slot_available, ensure_tournament_accepts_results
+from services.match_results import MatchOutcome, apply_match_result
 from services.match_v2_results import MatchV2ResultError
 from services.mutation_lock import MutationLockBusy, mutation_lock, tournament_write_resource
-from services.station_runtime import release_station_for_match
 from services.rate_limit import enforce_rate_limit
 from services.station_labels import attach_station_info
 from services.user_notifications import create_user_notification
@@ -1039,87 +1037,43 @@ async def update_match(match_id: str, body: MatchUpdate, me: dict = Depends(get_
         m.pop("_id", None)
         m["idempotent_replay"] = True
         return m
-    updates["updated_at"] = now_utc().isoformat()
-    await db.matches.update_one({"id": match_id}, {"$set": updates})
-    m = await db.matches.find_one({"id": match_id})
-    current_result_signature = (
-        m.get("status"),
-        m.get("winner_id"),
-        m.get("score_a"),
-        m.get("score_b"),
+
+    next_result_signature = (
+        final_status,
+        updates.get("winner_id", m.get("winner_id")),
+        updates.get("score_a", m.get("score_a")),
+        updates.get("score_b", m.get("score_b")),
     )
-    if current_result_signature != previous_result_signature:
-        await _audit_match_action(db, "match.result.update", m, me.get("id"), {
+    if next_result_signature == previous_result_signature:
+        # Reine Betriebsdaten - Termin, Station, Notiz. Das ist keine
+        # Ergebnismeldung und läuft deshalb auch nicht über den Ergebniskern.
+        updates["updated_at"] = now_utc().isoformat()
+        await db.matches.update_one({"id": match_id}, {"$set": updates})
+        updated = await db.matches.find_one({"id": match_id}, {"_id": 0})
+        return {**updated, "idempotent_replay": False}
+
+    operational = {
+        key: value for key, value in updates.items()
+        if key not in {"status", "winner_id", "loser_id", "score_a", "score_b"}
+    }
+    outcome = await apply_match_result(
+        db, m, "matches",
+        MatchOutcome(
+            status=final_status,
+            winner_id=next_result_signature[1],
+            score_a=next_result_signature[2],
+            score_b=next_result_signature[3],
+            extra_set=operational,
+        ),
+        actor_id=me.get("id"),
+        audit_action="match.result.update",
+        audit_data={
             "changed_fields": sorted(updates.keys()),
-            "previous": {
-                "status": previous_result_signature[0],
-                "winner_id": previous_result_signature[1],
-                "score_a": previous_result_signature[2],
-                "score_b": previous_result_signature[3],
-            },
-            "current": {
-                "status": current_result_signature[0],
-                "winner_id": current_result_signature[1],
-                "score_a": current_result_signature[2],
-                "score_b": current_result_signature[3],
-            },
-        })
-    # If completed, advance bracket
-    if (
-        m.get("status") == "completed"
-        and m.get("winner_id")
-        and current_result_signature != previous_result_signature
-    ):
-        all_matches = await db.matches.find({"tournament_id": m["tournament_id"]}).to_list(2000)
-        updated_matches = advance_match_winner(m, all_matches)
-        for um in updated_matches:
-            await db.matches.update_one({"id": um["id"]}, {"$set": um})
-        # Badge triggers
-        try:
-            from badges import on_match_completed
-            regs = {r["id"]: r.get("user_id") for r in await db.tournament_registrations.find(
-                {"tournament_id": m["tournament_id"]}, {"_id": 0}).to_list(500)}
-            winner_uid = regs.get(m.get("winner_id"))
-            loser_uid = regs.get(m.get("loser_id"))
-            if winner_uid:
-                await on_match_completed(winner_uid, loser_uid, m["tournament_id"], m["id"])
-        except Exception:
-            pass
-        # Discord trigger: match completed
-        try:
-            from discord_service import send_public_discord
-            regs = {r["id"]: r for r in await db.tournament_registrations.find(
-                {"tournament_id": m["tournament_id"]}, {"_id": 0}).to_list(500)}
-            t = await db.tournaments.find_one({"id": m["tournament_id"]}, {"_id": 0}) or {}
-            a = regs.get(m.get("participant_a_id"), {})
-            b = regs.get(m.get("participant_b_id"), {})
-            w = regs.get(m.get("winner_id"), {})
-            await send_public_discord(
-                t,
-                f"🎮 Match beendet · {t.get('title') or 'Turnier'}",
-                f"**{a.get('display_name') or '?'}** vs **{b.get('display_name') or '?'}**\n"
-                f"Gewinner: **{w.get('display_name') or '?'}** ({m.get('score_a',0)}:{m.get('score_b',0)})",
-                color=0x29B6E8,
-                url=f"/tournaments/{t.get('slug') or t.get('id')}/bracket",
-                fields=[
-                    {"name": "Runde", "value": m.get("round_name") or f"Runde {m.get('round','?')}", "inline": True},
-                ],
-                event_key="match.completed",
-            )
-        except Exception:
-            pass
-        if current_result_signature != previous_result_signature:
-            try:
-                await notify_match_result_confirmed(db, m, "matches")
-            except Exception:
-                pass
-            try:
-                await release_station_for_match(db, m, "matches")
-            except Exception:
-                pass
-    m.pop("_id", None)
-    m["idempotent_replay"] = False
-    return m
+            "previous": dict(zip(("status", "winner_id", "score_a", "score_b"), previous_result_signature)),
+            "current": dict(zip(("status", "winner_id", "score_a", "score_b"), next_result_signature)),
+        },
+    )
+    return {**outcome["match"], "idempotent_replay": outcome["idempotent_replay"]}
 
 
 async def _report_v2(db, match: dict, body: MatchScoreReport, me: dict) -> dict:
@@ -1237,32 +1191,35 @@ async def report_score(match_id: str, body: MatchScoreReport, me: dict = Depends
         "score_b": body.score_b,
     })
     # Check consensus - if 2 reports match, auto-complete
-    m = await db.matches.find_one({"id": match_id})
+    m = await db.matches.find_one({"id": match_id}, {"_id": 0})
     reports = m.get("reports", [])
     resolution = _score_report_resolution(m, reports)
     if resolution:
-        await db.matches.update_one({"id": match_id}, {"$set": resolution})
-        await _audit_match_action(db, "match.result.auto_resolution", m, me.get("id"), {
-            "status": resolution.get("status"),
-            "score_a": resolution.get("score_a"),
-            "score_b": resolution.get("score_b"),
-            "winner_id": resolution.get("winner_id"),
-            "report_count": len(reports),
-        })
-        if resolution.get("status") == "completed":
-            # Advance bracket
-            m = await db.matches.find_one({"id": match_id})
-            all_matches = await db.matches.find({"tournament_id": m["tournament_id"]}).to_list(2000)
-            for um in advance_match_winner(m, all_matches):
-                await db.matches.update_one({"id": um["id"]}, {"$set": um})
-            try:
-                await notify_match_result_confirmed(db, m, "matches")
-            except Exception:
-                pass
-            try:
-                await release_station_for_match(db, m, "matches")
-            except Exception:
-                pass
+        # Derselbe Ergebniskern wie bei der Eintragung durch die Turnierleitung.
+        # Vorher entschied der Weg, ob es Abzeichen und eine Ankuendigung gab -
+        # bei gleichem Ergebnis.
+        await apply_match_result(
+            db, m, "matches",
+            MatchOutcome(
+                status=resolution["status"],
+                winner_id=resolution.get("winner_id"),
+                score_a=resolution.get("score_a"),
+                score_b=resolution.get("score_b"),
+                extra_set={
+                    key: value for key, value in resolution.items()
+                    if key in {"admin_note"}
+                },
+            ),
+            actor_id=me.get("id"),
+            audit_action="match.result.auto_resolution",
+            audit_data={
+                "report_count": len(reports),
+                "status": resolution.get("status"),
+                "winner_id": resolution.get("winner_id"),
+                "score_a": resolution.get("score_a"),
+                "score_b": resolution.get("score_b"),
+            },
+        )
     m = await db.matches.find_one({"id": match_id}, {"_id": 0})
     m["idempotent_replay"] = False
     return m
@@ -1387,33 +1344,24 @@ async def forfeit(match_id: str, body: dict, me: dict = Depends(get_current_user
         return m
     if m.get("status") == "forfeit" and not force:
         raise HTTPException(status_code=409, detail="Forfeit ist bereits gesetzt. Abweichende Korrektur braucht force=true.")
-    await db.matches.update_one({"id": match_id}, {"$set": {
-        "winner_id": winner_id, "loser_id": loser_id,
-        "status": "forfeit",
-        "admin_decision_note": note,
-        "admin_decision_by": me["id"],
-        "admin_decision_at": now_utc().isoformat(),
-        "updated_at": now_utc().isoformat(),
-    }})
-    await _audit_match_action(db, "match.forfeit", m, me.get("id"), {
-        "winner_id": winner_id,
-        "loser_id": loser_id,
-        "note_length": len(note),
-    })
-    m = await db.matches.find_one({"id": match_id})
-    all_matches = await db.matches.find({"tournament_id": m["tournament_id"]}).to_list(2000)
-    for um in advance_match_winner(m, all_matches):
-        await db.matches.update_one({"id": um["id"]}, {"$set": um})
-    try:
-        await notify_match_result_confirmed(db, m, "matches")
-    except Exception:
-        pass
-    try:
-        await release_station_for_match(db, m, "matches")
-    except Exception:
-        pass
-    m.pop("_id", None)
-    m["idempotent_replay"] = False
+    outcome = await apply_match_result(
+        db, m, "matches",
+        MatchOutcome(
+            status="forfeit",
+            winner_id=winner_id,
+            note=note,
+            extra_set={
+                "admin_decision_note": note,
+                "admin_decision_by": me["id"],
+                "admin_decision_at": now_utc().isoformat(),
+            },
+        ),
+        actor_id=me.get("id"),
+        audit_action="match.forfeit",
+        audit_data={"winner_id": winner_id, "loser_id": loser_id, "note_length": len(note)},
+    )
+    m = dict(outcome["match"])
+    m["idempotent_replay"] = outcome["idempotent_replay"]
     # Phase B v4.1: forfeit ⇒ no_show for the loser
     try:
         from badges import trigger_negative_incident

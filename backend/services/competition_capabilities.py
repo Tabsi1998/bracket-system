@@ -90,7 +90,9 @@ CAPABILITIES: tuple[Capability, ...] = (
        ["POST /api/tournaments/{tid}/generate-bracket"], [CLASSIC]),
     _c("structure.from_format", "Struktur aus Format aufbauen",
        ["POST /api/tournaments/{tid}/bracket/from-format"], [CLASSIC, GRAPH],
-       note="Wählt je Format die Engine - und wechselt dabei bei Single/Double den Speicher."),
+       note="Block 4: baut im Speicher neu auf, in dem das Turnier bereits liegt. Ein Wechsel "
+            "würde alle Match-IDs ersetzen und wird deshalb abgelehnt, bis er ausdrücklich "
+            "bestätigt wird (allow_engine_switch)."),
     _c("structure.reset", "Struktur zurücksetzen",
        ["POST /api/tournaments/{tid}/reset-bracket"], [CLASSIC, GRAPH]),
     _c("structure.plan_apply", "Struktur planen und anwenden",
