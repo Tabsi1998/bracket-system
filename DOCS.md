@@ -38,6 +38,7 @@ Das ersetzt keine manuelle Prüfung externer Links oder der fachlichen Abnahme.
 
 - [COMPETITION_ENGINE](COMPETITION_ENGINE.md): eigenständiger künftiger Umbau mit Abnahmekriterien.
 - [TOURNAMENT_CUSTOM_BRACKETS](TOURNAMENT_CUSTOM_BRACKETS.md): vorhandene Strukturen und Bedienung.
+- [TOURNAMENT_MIGRATION_DRYRUN](TOURNAMENT_MIGRATION_DRYRUN.md): Bestandsaufnahme vor der Zusammenführung — liest nur, schreibt nichts.
 - [IMPROVEMENT_REPORT](IMPROVEMENT_REPORT.md): Umsetzungshistorie der Plattformhärtung.
 - [TOURNAMENT_ROADMAP](TOURNAMENT_ROADMAP.md) und [APP_BETA_PHASE_PLAN](APP_BETA_PHASE_PLAN.md):
   historische Planstände; neue Aufgaben entstehen ausschließlich im Restplan.
