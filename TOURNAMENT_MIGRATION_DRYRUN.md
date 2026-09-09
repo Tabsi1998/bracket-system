@@ -14,25 +14,38 @@ würde — wenn das gleich bleibt, hat sich für niemanden etwas geändert.
 
 ## Ausführen
 
-Auf dem Server, der die Daten hält, mit denselben `MONGO_URL` und `DB_NAME` wie
-das Backend:
+Im Verzeichnis der `docker-compose.yml` auf dem Server:
 
 ```bash
-python scripts/tournament-migration-dryrun.py --out vorher.json
+bash scripts/tournament-dryrun.sh                # Bericht in die Konsole
+bash scripts/tournament-dryrun.sh vorher.json    # zusätzlich als JSON ablegen
 ```
+
+**Warum ein Wrapper und nicht direkt `python3`:** MongoDB hat bewusst keinen
+veröffentlichten Port und ist nur im Docker-Netz erreichbar. Auf dem Host gibt es
+also weder eine Verbindung noch die Python-Abhängigkeiten des Backends. Der
+Wrapper startet den Lauf deshalb im Backend-Container, der beides schon hat.
 
 Das Skript kann nicht schreiben. Die Datenbankhülle lässt Schreibmethoden gar
 nicht erst durch — ein Schreibversuch bricht mit einem Fehler ab, statt
 ausgeführt zu werden. Das ist eine Eigenschaft des Codes, nicht ein Versprechen
 im Kommentar, und wird mitgetestet.
 
-Nützliche Schalter:
+### Direkter Aufruf
+
+Wer das Skript selbst startet (etwa lokal gegen eine Kopie), braucht `MONGO_URL`
+und `DB_NAME` in der Umgebung:
+
+```bash
+python3 scripts/tournament-migration-dryrun.py --out vorher.json
+```
 
 | Schalter | Wofür |
 | --- | --- |
 | `--tournament <id\|slug>` | Nur ein einzelnes Turnier ansehen |
 | `--limit N` | Nur die ersten N Turniere (für einen schnellen Blick) |
 | `--out datei.json` | Bericht als JSON ablegen |
+| `--json` | JSON nach stdout, Bericht nach stderr — für Umleitung in eine Datei |
 | `--compare vorher.json` | Gegen eine frühere Aufnahme vergleichen |
 
 ## Was im Bericht steht
@@ -73,12 +86,29 @@ Quelle stillschweigend umstellt, würde alle vier für längst beendete Turniere
 beantworten. Deshalb steht die Entscheidung darüber vor der Migration und nicht
 danach.
 
+## Speicher insgesamt
+
+Am Ende zählt der Bericht beide Speicher komplett durch — Entwürfe und
+verwaiste Spiele eingeschlossen. Die Turnierliste beantwortet „muss etwas
+umziehen"; diese Zählung beantwortet die andere Frage: **liegt im klassischen
+Speicher überhaupt noch etwas**, das seiner Stilllegung im Weg steht.
+
+| Zustand | Bedeutung |
+| --- | --- |
+| `empty` | Der klassische Speicher ist leer |
+| `drafts_only` | Nur Entwürfe, keine gespielten Partien — die halten niemanden auf |
+| `in_use` | Es liegen echte Partien darin |
+
+Verwaiste Spiele — solche, deren Turnier es nicht mehr gibt — verhindern die
+Stilllegung ebenfalls, auch wenn sonst nichts gespielt wurde. Ungeklärtes
+schaltet man nicht einfach ab.
+
 ## Nach der Migration
 
 Denselben Lauf noch einmal, gegen die Vorher-Aufnahme:
 
 ```bash
-python scripts/tournament-migration-dryrun.py --out nachher.json --compare vorher.json
+bash scripts/tournament-dryrun.sh nachher.json vorher.json
 ```
 
 Der Exit-Code ist `0`, wenn jedes Turnier denselben Fingerabdruck hat, und `1`,

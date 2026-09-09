@@ -346,6 +346,41 @@ def _short(value) -> str:
     return str(value)
 
 
+def census_verdict(census: dict) -> dict:
+    """Read a store census: is the classic store still holding anything?
+
+    The per-tournament survey only counts matches that belong to a tournament
+    that still exists and has really been played. This looks at the raw
+    collections instead, because the question for retiring the old store is a
+    different one: is there *anything* left in it - drafts and orphans included.
+    """
+    classic_total = int(census.get("matches") or 0)
+    orphans = int(census.get("orphaned_matches") or 0)
+    drafts = int(census.get("preview_matches") or 0)
+    real = max(0, classic_total - drafts)
+
+    if classic_total == 0:
+        state = "empty"
+        summary = "Der klassische Speicher ist leer."
+    elif real == 0:
+        state = "drafts_only"
+        summary = f"Im klassischen Speicher liegen nur {drafts} Entwürfe, keine gespielten Partien."
+    else:
+        state = "in_use"
+        summary = f"Im klassischen Speicher liegen {real} echte Partien."
+
+    return {
+        "state": state,
+        "summary": summary,
+        "classic_total": classic_total,
+        "classic_real": real,
+        "classic_drafts": drafts,
+        "orphaned_matches": orphans,
+        "graph_total": int(census.get("matches_v2") or 0),
+        "retirable": state in {"empty", "drafts_only"} and orphans == 0,
+    }
+
+
 def summarize(rows: list[dict]) -> dict:
     """The headline numbers of one dry run."""
     by_engine: dict[str, int] = {}
