@@ -512,3 +512,43 @@ def test_the_script_can_be_pointed_at_a_single_tournament():
     rows = asyncio.run(script.collect(db, limit=None, only="sommer-cup"))
 
     assert [row["id"] for row in rows] == ["t1"]
+
+
+def test_the_backend_package_is_found_in_a_checkout_and_in_the_image():
+    """Im Image liegt das Backend direkt unter /app, im Checkout in backend/.
+
+    Ein Werkzeug, das nur im Checkout startet, wird auf dem Server nicht benutzt.
+    """
+    script = load_script()
+    root = script._backend_root()
+
+    assert (root / "database.py").is_file()
+    assert root.name in {"backend", "app"}
+
+
+def test_a_missing_connection_points_at_the_wrapper(monkeypatch, capsys):
+    """Die Fehlermeldung muss sagen, was stattdessen zu tun ist."""
+    import asyncio
+    script = load_script()
+    monkeypatch.delenv("MONGO_URL", raising=False)
+    monkeypatch.setattr(sys, "argv", ["dryrun"])
+
+    code = asyncio.run(script.main())
+
+    assert code == 2
+    message = capsys.readouterr().err
+    assert "tournament-dryrun.sh" in message
+    assert "Docker" in message
+
+
+def test_json_mode_keeps_the_readable_report_out_of_stdout(monkeypatch, capsys):
+    """Sonst landet der Fließtext mit im JSON und die Datei ist unbrauchbar."""
+    script = load_script()
+    rows = [tournament_report(TOURNAMENT, legacy_snapshot(SAME_TOURNAMENT_CLASSIC), REGISTRATIONS)]
+
+    monkeypatch.setattr(script, "REPORT_STREAM", sys.stderr)
+    script.print_report(rows)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Bestand" in captured.err
