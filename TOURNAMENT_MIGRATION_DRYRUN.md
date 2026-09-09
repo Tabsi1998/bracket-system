@@ -86,6 +86,23 @@ Quelle stillschweigend umstellt, würde alle vier für längst beendete Turniere
 beantworten. Deshalb steht die Entscheidung darüber vor der Migration und nicht
 danach.
 
+## Speicher insgesamt
+
+Am Ende zählt der Bericht beide Speicher komplett durch — Entwürfe und
+verwaiste Spiele eingeschlossen. Die Turnierliste beantwortet „muss etwas
+umziehen"; diese Zählung beantwortet die andere Frage: **liegt im klassischen
+Speicher überhaupt noch etwas**, das seiner Stilllegung im Weg steht.
+
+| Zustand | Bedeutung |
+| --- | --- |
+| `empty` | Der klassische Speicher ist leer |
+| `drafts_only` | Nur Entwürfe, keine gespielten Partien — die halten niemanden auf |
+| `in_use` | Es liegen echte Partien darin |
+
+Verwaiste Spiele — solche, deren Turnier es nicht mehr gibt — verhindern die
+Stilllegung ebenfalls, auch wenn sonst nichts gespielt wurde. Ungeklärtes
+schaltet man nicht einfach ab.
+
 ## Nach der Migration
 
 Denselben Lauf noch einmal, gegen die Vorher-Aufnahme:

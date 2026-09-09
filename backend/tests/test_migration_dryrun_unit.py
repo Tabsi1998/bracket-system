@@ -20,6 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from services.competition_snapshot import build_structure_snapshot
 from services.migration_dryrun import (
+    census_verdict,
     compare_reports,
     fingerprint_differences,
     fingerprint_digest,
@@ -552,3 +553,88 @@ def test_json_mode_keeps_the_readable_report_out_of_stdout(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "Bestand" in captured.err
+
+
+# ------------------------------------------------ Speicher-Zählung
+
+def test_an_empty_classic_store_can_be_retired():
+    verdict = census_verdict({"matches": 0, "matches_v2": 120, "preview_matches": 0,
+                              "orphaned_matches": 0})
+
+    assert verdict["state"] == "empty"
+    assert verdict["retirable"] is True
+    assert "leer" in verdict["summary"]
+
+
+def test_drafts_alone_do_not_keep_the_old_store_alive():
+    """Ein Entwurf hat keine Ergebnisse - der hält niemanden auf."""
+    verdict = census_verdict({"matches": 12, "preview_matches": 12, "matches_v2": 40,
+                              "orphaned_matches": 0})
+
+    assert verdict["state"] == "drafts_only"
+    assert verdict["classic_real"] == 0
+    assert verdict["retirable"] is True
+
+
+def test_real_matches_keep_the_old_store_in_use():
+    verdict = census_verdict({"matches": 30, "preview_matches": 4, "matches_v2": 10,
+                              "orphaned_matches": 0})
+
+    assert verdict["state"] == "in_use"
+    assert verdict["classic_real"] == 26
+    assert verdict["retirable"] is False
+
+
+def test_orphans_block_retirement_even_when_nothing_is_played():
+    """Spiele ohne Turnier sind ungeklärt - die schaltet man nicht einfach ab."""
+    verdict = census_verdict({"matches": 5, "preview_matches": 5, "matches_v2": 10,
+                              "orphaned_matches": 5})
+
+    assert verdict["retirable"] is False
+
+
+def test_the_census_counts_both_stores_and_finds_orphans():
+    import asyncio
+    script = load_script()
+
+    class CensusCollection(ScriptCollection):
+        async def count_documents(self, query):
+            def hit(row):
+                for key, value in query.items():
+                    if isinstance(value, dict) and "$in" in value:
+                        if row.get(key) not in value["$in"]:
+                            return False
+                    elif row.get(key) != value:
+                        return False
+                return True
+            return sum(1 for row in self.rows if hit(row))
+
+        async def distinct(self, field):
+            return sorted({row.get(field) for row in self.rows if row.get(field)})
+
+    class CensusDb(ScriptDb):
+        def __init__(self, **collections):
+            super().__init__(**collections)
+            for name, rows in collections.items():
+                self._collections[name] = CensusCollection(rows)
+            for name in ("tournaments", "matches", "matches_v2", "tournament_stages"):
+                self._collections.setdefault(name, CensusCollection())
+                if not isinstance(self._collections[name], CensusCollection):
+                    self._collections[name] = CensusCollection(self._collections[name].rows)
+
+    db = script.ReadOnlyDb(CensusDb(
+        tournaments=[TOURNAMENT],
+        matches=[
+            {"id": "m1", "tournament_id": "t1", "is_preview": True},
+            {"id": "m2", "tournament_id": "geloescht", "is_preview": False},
+        ],
+        matches_v2=[{"id": "g1", "tournament_id": "t1"}],
+    ))
+
+    census = asyncio.run(script.store_census(db))
+
+    assert census["matches"] == 2
+    assert census["preview_matches"] == 1
+    assert census["matches_v2"] == 1
+    assert census["orphaned_matches"] == 1
+    assert census["orphaned_tournament_ids"] == ["geloescht"]

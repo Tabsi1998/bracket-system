@@ -50,6 +50,7 @@ os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000")
 
 from services.competition_read import load_competition_read_model  # noqa: E402
 from services.migration_dryrun import (  # noqa: E402
+    census_verdict,
     compare_reports,
     summarize,
     tournament_report,
@@ -126,6 +127,45 @@ REPORT_STREAM = sys.stdout
 
 def say(text: str = "") -> None:
     print(text, file=REPORT_STREAM)
+
+
+async def store_census(db) -> dict:
+    """Count what each store holds at all - drafts and orphans included.
+
+    The per-tournament survey answers "does anything have to move". This answers
+    the other question, the one that decides whether the old store can be shut
+    off: is there anything left in it that nobody is looking at any more.
+    """
+    tournament_ids = set(await db.tournaments.distinct("id"))
+    referenced = set(await db.matches.distinct("tournament_id"))
+    orphaned_ids = [item for item in referenced - tournament_ids if item]
+
+    orphaned = 0
+    if orphaned_ids:
+        orphaned = await db.matches.count_documents({"tournament_id": {"$in": orphaned_ids}})
+
+    return {
+        "matches": await db.matches.count_documents({}),
+        "preview_matches": await db.matches.count_documents({"is_preview": True}),
+        "matches_v2": await db.matches_v2.count_documents({}),
+        "stages": await db.tournament_stages.count_documents({}),
+        "orphaned_matches": orphaned,
+        "orphaned_tournament_ids": sorted(orphaned_ids)[:20],
+    }
+
+
+def print_census(verdict: dict) -> None:
+    say("\n=== Speicher insgesamt ===")
+    say(f"Klassisch (matches):    {verdict['classic_total']} "
+        f"({verdict['classic_real']} echt, {verdict['classic_drafts']} Entwürfe)")
+    say(f"Graph (matches_v2):     {verdict['graph_total']}")
+    if verdict["orphaned_matches"]:
+        say(f"Verwaist:               {verdict['orphaned_matches']} "
+            "(gehören zu keinem Turnier mehr)")
+    say(f"\n{verdict['summary']}")
+    if verdict["retirable"]:
+        say("→ Der klassische Speicher hält nichts mehr. Er kann stillgelegt werden, "
+            "sobald keine neuen Turniere mehr dort starten.")
 
 
 def print_report(rows: list[dict]) -> None:
@@ -221,8 +261,10 @@ async def main() -> int:
         print("Keine Turniere gefunden.", file=sys.stderr)
         return 1
 
-    report = {"version": 1, "summary": summarize(rows), "tournaments": rows}
+    census = census_verdict(await store_census(db))
+    report = {"version": 2, "summary": summarize(rows), "census": census, "tournaments": rows}
     print_report(rows)
+    print_census(census)
 
     exit_code = 0
     if args.compare:
