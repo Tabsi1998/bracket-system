@@ -37,6 +37,12 @@ from services.custom_bracket import (
     build_matches_v2_from_schema,
     groups_from_generated_matches,
 )
+from services.competition_engine import (
+    CLASSIC,
+    GRAPH,
+    EngineSwitchRequired,
+    decide_rebuild_engine,
+)
 from services.competition_formats import find_format_capability
 from services.graph_swiss import (
     next_round_number,
@@ -2858,10 +2864,27 @@ async def _build_tournament_structure_plan(
     registrations = ordered_plan_registrations(registrations)
 
     stage_defaults = _stage_defaults_for_tournament_format(tournament, body)
-    if stage_defaults:
+    try:
+        decision = decide_rebuild_engine(
+            tournament.get("format"),
+            preferred=GRAPH if stage_defaults else CLASSIC,
+            legacy_matches=read_model.legacy_matches,
+            stage_matches=read_model.stage_matches,
+            allow_switch=bool(getattr(body, "allow_engine_switch", False)),
+        )
+    except EngineSwitchRequired as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "engine_switch_required",
+            "message": exc.reason,
+            "from_engine": exc.from_engine,
+            "to_engine": exc.to_engine,
+        })
+
+    if decision.is_graph and stage_defaults:
         generator_registrations = registrations
         engine = "graph"
     else:
+        stage_defaults = None
         generator_registrations = (
             _preview_registrations_for_tournament(tournament)
             if body.preview
@@ -3133,6 +3156,7 @@ async def generate(tid: str, preview: bool = False, force: bool = False,
 @router.post("/{tid}/bracket/from-format")
 async def rebuild_bracket_from_tournament_format(tid: str, body: TournamentBracketStructurePayload | None = None,
                                                  preview: bool = True, force: bool = False,
+                                                 allow_engine_switch: bool = False,
                                                  me: dict = Depends(get_current_user),
                                                  _mutation_tid: str = Depends(_serialized_tournament_write)):
     """Use the tournament structure as the single source of truth and rebuild the bracket preview."""
@@ -3164,7 +3188,23 @@ async def rebuild_bracket_from_tournament_format(tid: str, body: TournamentBrack
     v2_match_ids = [match["id"] for match in v2_matches if match.get("id")]
 
     stage_defaults = _stage_defaults_for_tournament_format(tournament, body)
-    if stage_defaults:
+    try:
+        decision = decide_rebuild_engine(
+            tournament.get("format"),
+            preferred=GRAPH if stage_defaults else CLASSIC,
+            legacy_matches=legacy_matches,
+            stage_matches=v2_matches,
+            allow_switch=allow_engine_switch,
+        )
+    except EngineSwitchRequired as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "engine_switch_required",
+            "message": exc.reason,
+            "from_engine": exc.from_engine,
+            "to_engine": exc.to_engine,
+        })
+
+    if decision.is_graph and stage_defaults:
         stage = {
             **stage_defaults,
             "id": new_id(),
@@ -3219,11 +3259,13 @@ async def rebuild_bracket_from_tournament_format(tid: str, body: TournamentBrack
                 "preview": preview,
                 "force": force,
                 "match_count": len(matches),
+                "engine_switched": decision.switched,
             },
         )
         return {
             "ok": True,
             "engine": "stages",
+            "engine_switched": decision.switched,
             "stage_id": stage["id"],
             "match_count": len(matches),
             "preview": preview,
@@ -3247,9 +3289,10 @@ async def rebuild_bracket_from_tournament_format(tid: str, body: TournamentBrack
         "tournament.bracket.rebuild_from_format",
         me.get("id"),
         tid,
-        {"format": tournament.get("format"), "preview": preview, "force": force, "match_count": result.get("match_count")},
+        {"format": tournament.get("format"), "preview": preview, "force": force,
+         "match_count": result.get("match_count"), "engine_switched": decision.switched},
     )
-    return {**result, "engine": "legacy"}
+    return {**result, "engine": "legacy", "engine_switched": decision.switched}
 
 
 @router.post("/{tid}/reset-bracket")
@@ -3630,13 +3673,14 @@ async def _competition_engine(db, tid: str) -> str:
     Deliberately reads the existing documents instead of the format: a
     tournament stays in the engine it was built in until it is migrated, so
     neither generator can move a running tournament to the other store behind
-    the organiser's back.
+    the organiser's back. A stage without matches already counts - it is the
+    structure the next round will be written into.
     """
     if await db.tournament_stages.count_documents({"tournament_id": tid}):
-        return "graph"
+        return GRAPH
     if await db.matches_v2.count_documents({"tournament_id": tid}):
-        return "graph"
-    return "classic"
+        return GRAPH
+    return CLASSIC
 
 
 async def _dedicated_stage(db, tournament: dict, stage_type: str, settings: dict,

@@ -10,7 +10,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from models import MatchDispute, MatchScheduleProposalCreate, MatchScoreReport, MatchUpdate, MatchV2Update
 import routes.match_routes as match_routes
-import routes.match_routes as match_routes
+import services.classic_result_submission as classic_submission
+import services.classic_results as classic_results
 
 
 class _MutableMatchCollection:
@@ -80,8 +81,10 @@ def test_forfeit_exact_replay_skips_advancement_and_notifications(monkeypatch):
     monkeypatch.setattr(match_routes, "_ensure_match_tournament_unlocked", AsyncMock())
     monkeypatch.setattr(match_routes, "ensure_tournament_accepts_results", AsyncMock())
     monkeypatch.setattr(match_routes, "_require_result_permission", AsyncMock())
-    monkeypatch.setattr(match_routes, "advance_match_winner", advance)
-    monkeypatch.setattr(match_routes, "notify_match_result_confirmed", notify)
+    # Weiterleitung und Benachrichtigung liegen seit dem gemeinsamen
+    # Ergebniskern nicht mehr im Routenmodul - die Zusage bleibt dieselbe.
+    monkeypatch.setattr(classic_results, "advance_match_winner", advance)
+    monkeypatch.setattr(classic_submission, "notify_match_result_confirmed", notify)
 
     result = asyncio.run(match_routes.forfeit(
         "match-1",
@@ -118,7 +121,7 @@ def test_non_result_update_on_completed_match_does_not_repeat_completion_hooks(m
     monkeypatch.setattr(match_routes, "has_match_result_permission", AsyncMock(return_value=True))
     monkeypatch.setattr(match_routes, "ensure_tournament_accepts_results", AsyncMock())
     monkeypatch.setattr(match_routes, "ensure_station_slot_available", AsyncMock())
-    monkeypatch.setattr(match_routes, "advance_match_winner", advance)
+    monkeypatch.setattr(classic_results, "advance_match_winner", advance)
     monkeypatch.setattr(match_routes, "_audit_match_action", audit)
 
     result = asyncio.run(match_routes.update_match(

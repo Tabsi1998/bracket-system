@@ -5,11 +5,12 @@ import random
 from typing import Any
 from collections import defaultdict
 
+from services.match_result_errors import MatchResultError
 
-class MatchV2ResultError(ValueError):
-    def __init__(self, message: str, status_code: int = 400):
-        super().__init__(message)
-        self.status_code = status_code
+# Derselbe Fehler, unter dem Namen, unter dem ihn der Graph-Zweig eingeführt hat.
+# Beide Engines werfen jetzt dieselbe Klasse, damit ein Aufrufer nicht wissen
+# muss, welcher Speicher gerade abgelehnt hat.
+MatchV2ResultError = MatchResultError
 
 
 LOCKED_DOWNSTREAM_STATUSES = {"in_progress", "waiting_result", "disputed", "completed", "forfeit"}

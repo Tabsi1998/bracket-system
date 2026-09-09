@@ -26,6 +26,11 @@ from services.competition_capabilities import (
     declared_endpoints,
     open_gaps,
 )
+from services.competition_engine import (
+    CLASSIC as ENGINE_CLASSIC,
+    GRAPH as ENGINE_GRAPH,
+    decide_rebuild_engine,
+)
 from services.competition_formats import FORMAT_CAPABILITIES
 
 
@@ -149,16 +154,23 @@ def test_no_format_claims_to_be_write_ready_yet():
     )
 
 
-def test_formats_that_switch_engine_on_rebuild_are_visible():
-    """Single/Double start classic and silently move to the graph store on rebuild.
-
-    Block 4 stops that. Until then the behaviour must at least be declared.
+def test_the_format_table_alone_no_longer_decides_the_store():
+    """Single/Double still declare two different engines - legacy for the first
+    draft, the stage graph for a rebuild. That combination used to be enough to
+    move a played tournament. Since Block 4 it is not: the decision runs through
+    ``decide_rebuild_engine``, which lets the tournament's own matches override
+    the table. This test guards that the override is still reachable for exactly
+    the formats that need it.
     """
-    switching = [
+    declared_switch = sorted(
         key for key, cap in FORMAT_CAPABILITIES.items()
         if cap.initial_preview_engine == "legacy" and cap.rebuild_engine == "stage"
-    ]
-    assert sorted(switching) == ["double_elim", "single_elim"], (
-        "Die Liste der Formate mit stillem Speicherwechsel hat sich geändert - "
-        "das ist genau der Punkt, den Block 4 abstellt."
     )
+    assert declared_switch == ["double_elim", "single_elim"]
+
+    for key in declared_switch:
+        decision = decide_rebuild_engine(
+            key, preferred=ENGINE_GRAPH, legacy_matches=[{"id": "m1", "is_preview": False}])
+        assert decision.engine == ENGINE_CLASSIC, (
+            f"{key} wuerde beim Neuaufbau wieder den Speicher wechseln."
+        )
